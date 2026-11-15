@@ -5,7 +5,7 @@ import { startStatic, startPeer, launch, openPage, createParty, joinByCode, wait
 import { play } from './drivers.mjs';
 
 const game = process.argv[2] || 'coingrab';
-const BASE = 'http://127.0.0.1:8080/index.html?peer=127.0.0.1:9000';
+const BASE = 'http://127.0.0.1:8080/index.html?peer=127.0.0.1:9000&testfps=' + (process.env.TESTFPS || 2) + (process.env.NETLOG ? '&netlog=1' : '');
 const srv = await startStatic(8080); await startPeer(9000);
 const { browser, context } = await launch();
 const pages = [];
@@ -26,8 +26,8 @@ try {
   const oldHost = before.hostId;
   await A.close(); pages.shift();
   console.log('  host tab closed');
-  await waitFor(B, (h) => window.__hub.state.hostId !== h && window.__hub.state.players.filter((p) => !p.isBot && p.connected).length === 2, oldHost, 30000, 'new host');
-  await waitFor(C, (h) => window.__hub.state.hostId !== h && !document.getElementById('reconnect').classList.contains('hidden') === false, oldHost, 30000, 'C reconnected');
+  await waitFor(B, (h) => window.__hub.state.hostId !== h && window.__hub.state.players.filter((p) => !p.isBot && p.connected).length === 2, oldHost, 60000, 'new host');
+  await waitFor(C, (h) => window.__hub.state.hostId !== h && !document.getElementById('reconnect').classList.contains('hidden') === false, oldHost, 60000, 'C reconnected');
   const s = await state(B);
   const newHost = s.hostId;
   check(newHost !== oldHost, `new host is ${s.players.find((p) => p.id === newHost).name}`);
@@ -52,6 +52,6 @@ try {
   console.log('\nMIGRATION PASSED');
 } catch (e) {
   console.error('\nMIGRATION FAILED:', e.message);
-  for (const p of pages) { try { await p.screenshot({ path: `artifacts/mig-fail-${p.label}.png` }); } catch { /* */ } console.log(p.errors.join('\n')); }
+  for (const p of pages) { try { await p.screenshot({ path: `artifacts/mig-fail-${p.label}.png` }); console.log(p.label, await p.evaluate(() => JSON.stringify({ role: window.__hub.net?.role, migrating: window.__hub.net?.migrating, host: window.__hub.state?.hostId, me: window.__hub.pid, conns: window.__hub.net?.connectedPids(), peerOpen: !!window.__hub.net?.t?.peer?.open, peerDisc: window.__hub.net?.t?.peer?.disconnected }))); } catch (e) { console.log(e.message); } console.log(p.errors.join('\n')); }
   process.exitCode = 1;
 } finally { await browser.close(); srv.close(); setTimeout(() => process.exit(), 100); }

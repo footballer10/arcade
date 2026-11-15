@@ -51,6 +51,16 @@ class PeerConn {
     dc.on('data', (m) => { if (m && m.__raw) this.onraw?.(unb64(m.__raw)); else this.onmessage?.(m); });
     dc.on('close', () => this._closed());
     dc.on('error', () => this._closed());
+    // A peer that vanishes (tab closed, laptop asleep) is noticed by WebRTC's own consent checks within a few
+    // seconds even if no goodbye arrives and no channel 'close' fires.
+    dc.on('open', () => {
+      const pc = dc.peerConnection; if (!pc) return;
+      pc.addEventListener('connectionstatechange', () => {
+        const st = pc.connectionState;
+        if (st === 'failed' || st === 'closed') this._closed();
+        else if (st === 'disconnected') setTimeout(() => { if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') this._closed(); }, 4000);
+      });
+    });
   }
   _closed() { if (this.closed) return; this.closed = true; try { this.fast?.close(); } catch { /* */ } this.onclose?.(); }
   close() { if (this.closed) return; try { this.ctrl?.close(); } catch { /* */ } try { this.fast?.close(); } catch { /* */ } this._closed(); }

@@ -107,7 +107,7 @@ export function scopedInput(surface) {
   return {
     get mouse() { return input.mouse; },
     get enabled() { return input.enabled; },
-    down: (a) => input.down(a), key: (c) => input.key(c), presses: (a) => input.presses(a), axis: () => input.axis(),
+    down: (a) => input.down(a), key: (c) => input.key(c), keysDown: () => [...input.keys], presses: (a) => input.presses(a), axis: () => input.axis(),
     takeMouseDelta: (s) => input.takeMouseDelta(s), takeWheel: () => input.takeWheel(),
     on(type, fn) { const off = input.on(type, (...a) => { if (input.enabled || type === 'release' || type === 'key') fn(...a); }); offs.push(off); return off; },
     lockPointer() { if (input.enabled && surface && document.pointerLockElement !== surface) surface.requestPointerLock?.()?.catch?.(() => {}); },

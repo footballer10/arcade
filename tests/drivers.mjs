@@ -2,6 +2,11 @@
 import { sleep, wiggle } from './harness.mjs';
 
 export const DRIVERS = {
+  // Downhill: the game's own bot AI rides for us (test-only autopilot hook).
+  async downhill(page, until) {
+    await page.evaluate(() => { if (window.__dh) window.__dh.autopilot = true; }).catch(() => {});
+    while (!(await until())) await sleep(1500);
+  },
   // Golf: line up a real shot at the cup with the game's own planner, then putt.
   async golf(page, until) {
     while (!(await until())) {

@@ -218,7 +218,7 @@ export class PartyNet extends Emitter {
     let hostAlive = false;
     const end = performance.now() + 60000;
     while (performance.now() < end && this.role === 'client' && !this.closed) {
-      const viaRoom = await this._tryJoin(this.t.roomAddr(this.code), 5000, { rejoin: true });
+      const viaRoom = await this._tryJoin(this.t.roomAddr(this.code), 6000, { rejoin: true });
       nlog('rejoin via room', viaRoom === true ? 'ok' : viaRoom.type || viaRoom.message);
       if (viaRoom === true) return;
       if (viaRoom.reason) { this.migrating = false; this.role = null; this.emit('kicked', viaRoom.reason); return; }
@@ -230,7 +230,7 @@ export class PartyNet extends Emitter {
       if (!first) { await sleep(1500); continue; }
       nlog('successor', first.pid, 'fails', fails.get(first.pid) || 0);
       if (first.pid === this.pid) { this._becomeHost('migration', oldHost); return; }
-      const r = await this._tryJoin(first.addr, 6000, { rejoin: true, migrate: oldHost });
+      const r = await this._tryJoin(first.addr, 10000, { rejoin: true, migrate: oldHost });
       if (r === true) return;
       if (this.role !== 'client') return;
       if (r.redirect) { hostAlive = r.redirect === oldHost; if (!hostAlive) await sleep(800); continue; }

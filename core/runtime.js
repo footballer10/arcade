@@ -30,6 +30,9 @@ function runTicks() {
 }
 
 export const liveStats = { renderers: 0, mounted: 0 };
+// ?testfps=N caps game rendering. Only for the automated tests, which run several software-rendered (no GPU)
+// pages on one machine; it has no use for real players.
+const TEST_FPS = +new URLSearchParams(location.search).get('testfps') || 0;
 
 export class GameRuntime extends Emitter {
   constructor({ hub, net, manifest, game, players, myId }) {
@@ -78,6 +81,10 @@ export class GameRuntime extends Emitter {
     const loop = (now) => {
       if (this.stopped) return;
       this._raf = requestAnimationFrame(loop);
+      // While the party is re-forming (host migration / reconnect) render only ~3 fps so a slow machine's main
+      // thread is free for the WebRTC handshakes. Simulation ticks (ctx.tick) keep running at full rate.
+      if (hub.netBusy?.() && now - this._last < 330) return;
+      if (TEST_FPS && now - this._last < 1000 / TEST_FPS) return;   // automated tests only (?testfps=N)
       const dt = Math.min(0.1, (now - this._last) / 1000); this._last = now;
       for (const f of [...this.frames]) { try { f(dt, now); } catch (e) { console.error(`[${manifest.id}] frame failed`, e); } }
     };

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { buildHat } from '../../core/avatar.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -20,12 +21,11 @@ const HW_DEFAULT = 16;
 export const COLORS = [0xff4d4d, 0x3e9bff, 0x30c46c, 0xffb020, 0xb44dff, 0xff6fd0, 0x20d0d0, 0xf0f0f0];
 
 const HORIZON = 0xd6e6f5;
+const W0 = (r) => r.domElement.parentElement?.clientWidth || window.innerWidth, H0 = (r) => r.domElement.parentElement?.clientHeight || window.innerHeight;
 
 // ---------------- Renderer, sky, lights, backdrop ----------------
-export function createRenderer(canvas) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-  renderer.setSize(window.innerWidth, window.innerHeight);
+// Takes the WebGLRenderer the hub created for this game (ctx.three.createRenderer) and builds sky, lights, backdrop, bloom.
+export function createRenderer(renderer) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
   renderer.shadowMap.enabled = true;
@@ -33,7 +33,7 @@ export function createRenderer(canvas) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(HORIZON);
   scene.fog = new THREE.Fog(HORIZON, 120, 520);
-  const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 2600);
+  const camera = new THREE.PerspectiveCamera(72, W0(renderer) / H0(renderer), 0.1, 2600);
 
   // gradient sky dome with a soft sun glow
   const sunDir = new THREE.Vector3(-0.45, 0.55, 0.7).normalize();
@@ -104,7 +104,7 @@ export function createRenderer(canvas) {
   // bloom post-processing (high quality only)
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.2, 0.4, 0.92);
+  const bloom = new UnrealBloomPass(new THREE.Vector2(W0(renderer), H0(renderer)), 0.2, 0.4, 0.92);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
   // a soft light that follows your rider (so you can read your pose at night)
@@ -112,11 +112,7 @@ export function createRenderer(canvas) {
   scene.add(riderLight);
   const snowfall = new Snowfall(scene);
 
-  window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    composer.setSize(window.innerWidth, window.innerHeight);
-    camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
-  });
+  const W = () => renderer.domElement.parentElement?.clientWidth || window.innerWidth, H = () => renderer.domElement.parentElement?.clientHeight || window.innerHeight;
   let quality = 'high', theme = THEMES.alpine;
   const env = {
     get quality() { return quality; },
@@ -125,8 +121,8 @@ export function createRenderer(canvas) {
       const hi = qv === 'high';
       renderer.shadowMap.enabled = hi; sun.castShadow = hi;
       renderer.setPixelRatio(hi ? Math.min(window.devicePixelRatio, 1.5) : 1);
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setSize(W(), H());
+      composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(W(), H());
       scene.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => { m.needsUpdate = true; }); });
     },
     // keep the sun's shadow box and the backdrop centred on what the camera is looking at
@@ -155,6 +151,8 @@ export function createRenderer(canvas) {
       snowfall.setCount(t.snow);
     },
     render() { if (quality === 'high') composer.render(); else renderer.render(scene, camera); },
+    resize() { renderer.setSize(W(), H()); composer.setSize(W(), H()); camera.aspect = W() / H(); camera.updateProjectionMatrix(); },
+    dispose() { bloom.dispose(); composer.renderTarget1.dispose(); composer.renderTarget2.dispose(); for (const p of composer.passes) p.dispose?.(); snowfall.dispose?.(); },
   };
   return { renderer, scene, camera, env };
 }
@@ -597,7 +595,7 @@ function limb(r, len, mat) { // pivot at the top, hangs down along -y
   const g = new THREE.Group(); g.add(mk(new THREE.CapsuleGeometry(r, len, 4, 10), mat, 0, -len / 2 - r * 0.4, 0)); return g;
 }
 
-export function makeRider(cls, color, name, ghost = false) {
+export function makeRider(cls, color, name, ghost = false, hat = null) {
   const root = new THREE.Group();
   const tilt = new THREE.Group(); root.add(tilt);
   const spinG = new THREE.Group(); tilt.add(spinG);
@@ -675,6 +673,7 @@ export function makeRider(cls, color, name, ghost = false) {
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, sizeAttenuation: false }));
     sp.scale.set(0.13, 0.0325, 1); sp.position.y = 2.8; root.add(sp);
   }
+  if (hat && hat !== 'none' && !ghost) { const h = buildHat(hat, color); h.scale.setScalar(0.5); h.position.set(0, 0.19, -0.01); head.add(h); }   // party hat: you look like you everywhere
   return { root, tilt, spinG, inner, body, hips, head, armL, armR, legL, legR, poles, shield, shadow, cls, pitch: 0, crouch: 0, ghost };
 }
 

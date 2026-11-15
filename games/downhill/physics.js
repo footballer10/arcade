@@ -25,7 +25,7 @@ const SPIN_LIM = 1.25;   // max sideways angle you can still ride away from (~72
 const FLIP_LIM = 0.95;   // max over/under-rotation on a flip (~55°)
 const GRAB_MIN = 0.3;    // seconds a grab must be held to count
 const MIN_TRICK_AIR = 0.75; // a flat-ground ollie can't reach this, a kicker can
-export const GRAB_KEYS = ['Q', 'E', 'R', 'F', 'C', 'V'];
+export const GRAB_KEYS = ['R', 'F', 'T', 'G', 'C', 'V'];
 export const ITEMS = [null, { name: 'Rocket', icon: '🚀' }, { name: 'Snowball', icon: '❄️' }, { name: 'Shield', icon: '🛡️' }];
 const hash01 = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 

@@ -189,7 +189,7 @@ function newNet(kind) {
   n.on('msg', onMsg);
   n.on('status', (st) => {
     $('reconnect').classList.toggle('hidden', st !== 'reconnecting');
-    $('reconnectText').textContent = 'Connection lost — reconnecting…';
+    $('reconnectText').textContent = runtime ? 'Host left — switching host…' : 'Connection lost — reconnecting…';
     if (st === 'offline') { leaveParty('Lost connection to the party.'); }
   });
   n.on('kicked', (reason) => leaveParty(reason));
@@ -312,6 +312,7 @@ function onHostChange(hostPid, amI, info = {}) {
     if (S.deadline) S.deadline -= off;
     S.hostId = pid;
     const now = performance.now();
+    reformUntil = now + 25000;
     for (const p of S.players) if (!p.isBot && p.id !== pid) { p.connected = false; p.leftAt = now; }
     const old = find(info.oldHost);
     if (S.game && S.phase === 'loading') S.game.loaded = S.game.loaded.filter((id) => id === pid);
@@ -619,7 +620,9 @@ function unmountGame() {
   lastCount = null;
   stageSync(); musicSync();
 }
+let reformUntil = 0;
 const hubApi = {
+  netBusy: () => !!net && (net.migrating || (isHost() && performance.now() < reformUntil && S?.players.some((p) => !p.isBot && !p.connected && p.leftAt))),
   gameEnded: (round, placements, extra) => gameEnded(round, placements, extra),
   isConnected: (id) => { const p = find(id); return !!p && (p.isBot || p.connected); },
 };

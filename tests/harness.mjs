@@ -45,8 +45,11 @@ async function peerBundle() {
 export async function launch({ headless = true } = {}) {
   const browser = await chromium.launch({ headless, args: ['--disable-features=WebRtcHideLocalIpsWithMdns', '--autoplay-policy=no-user-gesture-required', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--js-flags=--expose-gc'] });
   const peerjs = await peerBundle();
-  async function context() {
-    const ctx = await browser.newContext({ viewport: { width: 1366, height: 800 } });
+  // Tests run several 3D pages on one machine with software WebGL, so by default they use a smaller window and
+  // the Low graphics setting (pass {full:true} for screenshots). Real players each have their own GPU.
+  async function context({ full = false } = {}) {
+    const ctx = await browser.newContext({ viewport: full ? { width: 1366, height: 800 } : { width: 640, height: 400 } });
+    if (!full) await ctx.addInitScript(() => { try { const k = 'partyhub.settings.v1'; const s = JSON.parse(localStorage.getItem(k) || '{}'); if (!s.quality) localStorage.setItem(k, JSON.stringify({ ...s, quality: 'low' })); } catch { /* */ } });
     await ctx.route('https://cdn.jsdelivr.net/**', (route) => {
       const u = new URL(route.request().url());
       const m = u.pathname.match(/^\/npm\/three@0\.160\.0\/(.*)$/);

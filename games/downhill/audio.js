@@ -1,8 +1,8 @@
-// Tiny synthesized sound kit (WebAudio, no files). Call unlock() from a user gesture.
+// Downhill sounds: synthesized (no files), routed into the hub's shared audio engine (sfx volume bus).
+// The wind + carve loops run while a race is mounted; shutdown() stops them when the game unloads.
+import { audio } from '../../core/audio.js';
 let ctx = null, master = null, noiseBuf = null;
-let wind = null, carve = null;
-let muted = false;
-try { muted = localStorage.getItem('dh_mute') === '1'; } catch { }
+let wind = null, carve = null, loops = [];
 
 function makeNoise() {
   const b = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
@@ -16,31 +16,25 @@ function loop(type, freq, q) {
   const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
   const g = ctx.createGain(); g.gain.value = 0;
   src.connect(f); f.connect(g); g.connect(master); src.start();
+  loops.push(src, f, g);
   return { f, g };
 }
-
 export function unlock() {
-  if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return;
-  ctx = new AC();
-  master = ctx.createGain(); master.gain.value = muted ? 0 : 0.6; master.connect(ctx.destination);
+  if (wind || !audio.ctx) return;
+  ctx = audio.ctx; master = ctx.createGain(); master.gain.value = 0.75; master.connect(audio.sfx);
   noiseBuf = makeNoise();
   wind = loop('lowpass', 400, 0.7);
   carve = loop('bandpass', 2500, 1.2);
 }
-
-export function isMuted() { return muted; }
-export function toggleMute() {
-  muted = !muted;
-  try { localStorage.setItem('dh_mute', muted ? '1' : '0'); } catch { }
-  if (master) master.gain.setTargetAtTime(muted ? 0 : 0.6, ctx.currentTime, 0.05);
-  return muted;
+export function shutdown() {
+  for (const n of loops) { try { n.stop?.(); } catch { /* */ } try { n.disconnect(); } catch { /* */ } }
+  try { master?.disconnect(); } catch { /* */ }
+  loops = []; wind = carve = null; master = null; ctx = null;
 }
 
 // Continuous layers: speed (m/s), carving amount 0..1, on ground?
 export function setRide(speed, carveAmt, grounded, active) {
-  if (!ctx) return;
+  if (!wind) { unlock(); if (!wind) return; }
   const t = ctx.currentTime;
   const k = active ? Math.min(1, speed / 45) : 0;
   wind.g.gain.setTargetAtTime(0.05 + k * 0.5 * (active ? 1 : 0.1), t, 0.1);
