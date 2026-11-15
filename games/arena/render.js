@@ -2,7 +2,9 @@
 import * as THREE from 'three';
 import { ARENA_R, OBSTACLES, HOLES, BUSHES, MAP, inBush, inHole, sweeperAngle, BLAST_R, SLAM_R, BOMB_R, BOMB_RANGE, MAX_AMMO } from './sim.js';
 
-export const COLORS = [0xff5a5f, 0x3ea6ff, 0x4cd964, 0xffcc00, 0xb57bff, 0xff8c42, 0x2ee6d6, 0xff6ec7];
+import { PALETTE } from '../../core/palette.js';
+import { buildHat } from '../../core/avatar.js';
+export const COLORS = PALETTE;   // party colors: players keep their color in every game
 export const cssColor = (i) => '#' + COLORS[i % COLORS.length].toString(16).padStart(6, '0');
 const PU_COLORS = { speed: 0xffe14d, shield: 0x4de1ff, dmg: 0xff4d6a, heal: 0x5dff7a, giant: 0xff9de0 };
 const SKY = 0x4cc3ff;
@@ -51,11 +53,10 @@ function tileTexture(th) {
 }
 
 export class Renderer {
-  constructor(canvas, labelsEl) {
+  // renderer: the WebGLRenderer the hub created for this game (ctx.three.createRenderer)
+  constructor(renderer, labelsEl) {
     this.labelsEl = labelsEl;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
-    this.renderer.shadowMap.enabled = true;
+    this.renderer = renderer;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(SKY);
@@ -142,7 +143,6 @@ export class Renderer {
     this.raycaster = new THREE.Raycaster();
     this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     this.resize();
-    window.addEventListener('resize', () => this.resize());
   }
 
   buildMap() {
@@ -253,7 +253,8 @@ export class Renderer {
   }
 
   resize() {
-    const w = window.innerWidth, h = window.innerHeight;
+    const host = this.renderer.domElement.parentElement;
+    const w = host?.clientWidth || window.innerWidth, h = host?.clientHeight || window.innerHeight;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
   }
@@ -293,7 +294,9 @@ export class Renderer {
       outs.push(mesh.children[0]);
       mesh.position.set(x, y, z); body.add(mesh); return mesh;
     };
+    let head = null;
     const eyes = (hx, hy, hr) => {
+      head = { hx, hy, hr };
       for (const s of [-1, 1]) {
         const w = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), basic(0xffffff));
         w.scale.set(0.55, 1.15, 0.85); w.position.set(hx + hr * 0.86, hy + 0.04, s * 0.17); body.add(w);
@@ -395,6 +398,10 @@ export class Renderer {
     tele.rotation.x = -Math.PI / 2; tele.visible = false; this.scene.add(tele);
     const teleFill = new THREE.Mesh(new THREE.CircleGeometry(1, 48), basic(0xffaa33, 0.22));
     teleFill.rotation.x = -Math.PI / 2; teleFill.visible = false; this.scene.add(teleFill);
+    if (head && p.hat && p.hat !== 'none') {   // the player's party hat, so they look like themselves here too
+      const hat = buildHat(p.hat, accent); hat.scale.setScalar(head.hr * 1.7); hat.rotation.y = Math.PI / 2;
+      hat.position.set(head.hx - 0.02, head.hy + head.hr * 0.82, 0); body.add(hat);
+    }
     g.scale.setScalar(1.15);
     this.scene.add(g);
 

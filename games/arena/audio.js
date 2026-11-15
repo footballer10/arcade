@@ -1,26 +1,8 @@
-// Tiny synthesized sound effects (WebAudio, no asset files).
+// Arena sounds: synthesized (no files), played through the hub's shared audio engine (sfx volume bus).
+import { audio } from '../../core/audio.js';
 let ctx = null, master = null, noiseBuf = null;
-let muted = false;
-try { muted = localStorage.getItem('arena.muted') === '1'; } catch { /* */ }
-
-export function isMuted() { return muted; }
-export function setMuted(m) {
-  muted = m;
-  try { localStorage.setItem('arena.muted', m ? '1' : '0'); } catch { /* */ }
-  if (master) master.gain.value = m ? 0 : 0.5;
-}
-export function unlockAudio() {
-  try {
-    if (!ctx) {
-      ctx = new (window.AudioContext || window.webkitAudioContext)();
-      master = ctx.createGain(); master.gain.value = muted ? 0 : 0.5; master.connect(ctx.destination);
-      noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-      const d = noiseBuf.getChannelData(0);
-      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    }
-    if (ctx.state === 'suspended') ctx.resume();
-  } catch { ctx = null; }
-}
+export function unlockAudio() { ctx = audio.ctx; noiseBuf = audio.noise; if (ctx && !master) { master = ctx.createGain(); master.gain.value = 0.6; master.connect(audio.sfx); } }
+export function shutdownAudio() { try { master?.disconnect(); } catch { /* */ } master = null; ctx = null; }
 
 function tone(type, f0, f1, dur, vol, delay = 0) {
   const t = ctx.currentTime + delay;
@@ -39,7 +21,8 @@ function noise(dur, vol, filter = 'lowpass', f0 = 2000, f1 = 200, delay = 0) {
 
 // vol: 0..1 distance attenuation computed by the caller
 export function sfx(name, vol = 1) {
-  if (!ctx || muted || vol <= 0.02) return;
+  if (!master) unlockAudio();
+  if (!ctx || !master || vol <= 0.02) return;
   const v = Math.min(1, vol);
   switch (name) {
     case 'shot': tone('square', 900, 420, 0.07, 0.06 * v); break;

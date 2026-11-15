@@ -5,7 +5,7 @@ import { startStatic, startPeer, launch, openPage, createParty, joinByCode, join
 import { play } from './drivers.mjs';
 
 // host choices on the pre-round screen (keep test rounds short)
-const SETUP = { golf: (A) => A.click('[data-opt="holes"][data-v="1"]') };
+const SETUP = { golf: (A) => A.click('[data-opt="holes"][data-v="1"]'), arena: (A) => A.click('[data-opt="wins"][data-v="2"]') };
 const games = process.argv.slice(2).length ? process.argv.slice(2) : ['coingrab'];
 const BASE = 'http://127.0.0.1:8080/index.html?peer=127.0.0.1:9000&testfps=' + (process.env.TESTFPS || 6) + (process.env.NETLOG ? '&netlog=1' : '');
 const srv = await startStatic(8080); await startPeer(9000);

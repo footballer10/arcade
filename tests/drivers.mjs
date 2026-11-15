@@ -2,6 +2,15 @@
 import { sleep, wiggle } from './harness.mjs';
 
 export const DRIVERS = {
+  // Arena: run around, aim at the middle, hold attack, dash now and then.
+  async arena(page, until) {
+    while (!(await until())) {
+      await page.mouse.move(300 + Math.random() * 60, 200 + Math.random() * 60);
+      await page.mouse.down().catch(() => {});
+      await wiggle(page, 1200);
+      await page.mouse.up().catch(() => {});
+    }
+  },
   // Downhill: the game's own bot AI rides for us (test-only autopilot hook).
   async downhill(page, until) {
     await page.evaluate(() => { if (window.__dh) window.__dh.autopilot = true; }).catch(() => {});

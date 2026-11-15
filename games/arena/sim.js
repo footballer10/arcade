@@ -805,7 +805,7 @@ export class Sim {
     if (falling.length) return;
     if (standing.length <= 1 && (all.length > 1 || standing.length === 0)) {
       const w = standing[0];
-      if (w) { w.wins++; w.placement = 1; this.roundWinner = w.id; if (w.wins >= WINS_TO_WIN) this.matchWinner = w.id; }
+      if (w) { w.wins++; w.placement = 1; this.roundWinner = w.id; if (w.wins >= (this.winsToWin || WINS_TO_WIN)) this.matchWinner = w.id; }
       this.phase = 'roundEnd';
       this.phaseT = 5.5;
       this.fx.push({ k: 'roundEnd', winner: w ? w.id : null });
