@@ -65,7 +65,7 @@ export async function launch({ headless = true } = {}) {
 export async function openPage(ctx, url, name) {
   const page = await ctx.newPage();
   page.errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') page.errors.push(`[${name}] console: ${m.text()}`); });
+  page.on('console', (m) => { if (m.type() === 'info' && m.text().startsWith('[net]')) console.log('    ' + name + ' ' + m.text()); if (m.type() === 'error') page.errors.push(`[${name}] console: ${m.text()}`); });
   page.on('pageerror', (e) => page.errors.push(`[${name}] pageerror: ${e.message}`));
   page.label = name;
   await page.goto(url);

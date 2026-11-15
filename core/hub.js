@@ -571,6 +571,7 @@ function phaseScreen() {
   }
 }
 function onPhase(prev) {
+  if (S.phase === 'loading' || S.phase === 'countdown') net.relax(45000);
   if (S.phase === 'results') { audio.play(S.results?.places?.[pid] === 1 ? 'win' : 'toast'); }
   if (S.phase === 'podium') audio.play('fanfare');
   if (S.phase === 'setup') { const g = GAME_MAP[S.game.id]; for (const pk of g.picks || []) { const v = store.get(`pick.${g.id}.${pk.key}`, pk.default); act({ type: 'pick', key: pk.key, value: v }); } }
@@ -604,6 +605,7 @@ async function syncGame() {
   mountingRound = null;
   if (runtime !== rt) return;
   rt.loaded = true;
+  net.relax(15000);   // first frames after loading still compile shaders
   act({ type: 'loaded', round: g.round });
   if (S.phase === 'playing') rt.go();
 }

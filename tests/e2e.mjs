@@ -7,7 +7,7 @@ import { play } from './drivers.mjs';
 // host choices on the pre-round screen (keep test rounds short)
 const SETUP = { golf: (A) => A.click('[data-opt="holes"][data-v="1"]') };
 const games = process.argv.slice(2).length ? process.argv.slice(2) : ['coingrab'];
-const BASE = 'http://127.0.0.1:8080/index.html?peer=127.0.0.1:9000';
+const BASE = 'http://127.0.0.1:8080/index.html?peer=127.0.0.1:9000' + (process.env.NETLOG ? '&netlog=1' : '');
 const srv = await startStatic(8080); await startPeer(9000);
 const { browser, context } = await launch();
 const pages = [];
@@ -68,6 +68,6 @@ try {
   console.log('\nE2E PASSED');
 } catch (e) {
   console.error('\nE2E FAILED:', e.message);
-  for (const p of pages) { try { await p.screenshot({ path: `artifacts/fail-${p.label}.png` }); } catch { /* */ } console.log(p.errors.join('\n')); }
+  for (const p of pages) { try { await p.screenshot({ path: `artifacts/fail-${p.label}.png` }); console.log(p.label, await p.evaluate(() => JSON.stringify({ screen: window.__hub.screen, phase: window.__hub.state?.phase, host: window.__hub.net?.isHost, role: window.__hub.net?.role, players: window.__hub.state?.players.map((x) => x.name + ':' + x.connected) }))); } catch { /* */ } console.log(p.errors.join('\n')); }
   process.exitCode = 1;
 } finally { await browser.close(); srv.close(); setTimeout(() => process.exit(), 100); }
