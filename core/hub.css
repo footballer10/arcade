@@ -104,3 +104,5 @@ body:not(.in-game) #chatlog { display: none; }
 #fps { position: fixed; bottom: 6px; right: 8px; z-index: 90; font: 12px monospace; background: rgba(0,0,0,.6); padding: 2px 6px; border-radius: 6px; }
 @media (max-width: 1100px) { .lobby-grid { grid-template-columns: 1fr 1fr; } .l-right { grid-column: span 2; } }
 .lb-row .n { text-align: left; }
+label.ph-field input:not([type]), label.ph-field input[type=text] { flex: 1; min-width: 0; }
+#joinBox:not(.hidden) ~ #createBtn { background: linear-gradient(180deg, #6ec1ff, var(--blue)); font-size: 1.1rem; }

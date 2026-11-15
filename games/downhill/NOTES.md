@@ -1,3 +1,5 @@
+> **Note:** these are the design/test notes from before the Party Arcade hub. Gameplay details still apply; the menu, lobby, URL, control-key and netcode sections are superseded by the hub (see `/CLAUDE.md`).
+
 # Downhill Rush — Test Guide
 
 ## 1. Where to play

@@ -1,3 +1,5 @@
+> **Note:** these are the design/test notes from before the Party Arcade hub. Gameplay details still apply; the menu, lobby, URL, control-key and netcode sections are superseded by the hub (see `/CLAUDE.md`).
+
 # Arena Royale – Test Guide
 
 Top-down 3D arena brawler. Last player standing wins the round; first to 3 round wins takes the match (best of 5).
