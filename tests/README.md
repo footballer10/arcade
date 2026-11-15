@@ -11,6 +11,7 @@ node memory.mjs golf downhill arena coingrab   # 10 load/unload cycles
 node migration.mjs arena                    # host closes their tab mid-game
 node party.mjs                              # vote, shuffle + podium, mid-game join, handover, kick
 node local.mjs                              # BroadcastChannel transport (two tabs, no PeerJS)
+node solo.mjs [nopeer]                      # Play Solo vs Bots (with / without a reachable PeerJS server)
 node shot.mjs <gameId>                      # screenshots into artifacts/
 ```
 Notes

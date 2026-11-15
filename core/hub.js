@@ -174,8 +174,18 @@ if (settings.get('color') < 0) settings.set('color', Math.floor(Math.random() * 
 renderProfile();
 
 function homeMsg(t, offerLocal = false) { $('homeMsg').textContent = t || ''; $('homeExtra').classList.toggle('hidden', !offerLocal); }
-function busy(b) { for (const id of ['createBtn', 'joinBtn', 'joinLinkBtn']) $(id).disabled = b; }
+function busy(b) { for (const id of ['createBtn', 'joinBtn', 'joinLinkBtn', 'soloBtn']) $(id).disabled = b; }
 $('createBtn').onclick = () => { audio.play('click'); createParty(); };
+// Solo: straight into a lobby with 3 bots. Uses the online party (so friends can still join with the code);
+// if the PeerJS server can't be reached it quietly falls back to same-computer mode so solo always works.
+$('soloBtn').onclick = async () => {
+  audio.play('click');
+  let ok = await createParty();
+  if (!ok) { $('localNet').checked = true; ok = await createParty(); }
+  if (!ok) return;
+  for (let i = 0; i < 3; i++) act({ type: 'bot+' });
+  toast('Solo party with 3 bots — pick a game and press Start!', 'good', 4000);
+};
 $('joinBtn').onclick = () => { audio.play('click'); joinParty($('codeIn').value); };
 $('joinLinkBtn').onclick = () => { audio.play('click'); joinParty(params.get('room')); };
 $('codeIn').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinParty($('codeIn').value); });
@@ -674,6 +684,7 @@ function renderLobby() {
     : S.mode === 'vote' ? `Vote! Click the game you want. (${Object.keys(S.votes).length} vote${Object.keys(S.votes).length === 1 ? '' : 's'})`
     : `Shuffle: ${S.shuffleLen} random games in a row, then a champion is crowned.`;
   if (notReady.length) hint += `<br>Waiting for: ${notReady.map((p) => esc(p.name)).join(', ')}`;
+  if (host && connectedHumans().length === 1) hint += `<br><small>Playing solo is fine: bots fill the empty seats. Friends can join any time with code <b>${esc(S.code)}</b>.</small>`;
   $('lobbyHint').innerHTML = hint;
   $('startBtn').textContent = S.mode === 'pick' ? `Start ${pickName}` : S.mode === 'vote' ? 'Start vote winner' : `Start Shuffle (${S.shuffleLen})`;
   $('startBtn').disabled = notReady.length > 0;
