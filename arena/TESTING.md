@@ -36,7 +36,11 @@ Send the live link. You **Create Room** and send the code; they **Join**. 2–8 
 - **Trickster:** fastest, quick slashes. Special = Teleport to cursor (purple ring shows where you'll land).
 - **Bomber (new):** lobs bombs at the cursor (a red ring marks the blast area). Special = Gravity Well that pulls enemies in. Drop it past someone near the edge to drag them off.
 
-**Arenas:** Pillars (cover), Sweeper (a rotating beam knocks you around), Pits & Bumpers (holes in the floor and pink bumpers that fling you). Pick one, or Random, in the menu or lobby.
+**Arenas:** Crate Meadow (crates, stone walls, lots of cover), Sweeper Sands (a spinning spiked log knocks you around), Frosty Pits (icy water holes and pink bumper pads that fling you). Pick one, or Random, in the menu or lobby.
+
+**Bushes:** tall grass hides you from enemies more than 3.5 m away (bots too). Attacking or getting hit reveals you for a moment.
+
+**Look:** bright cartoon style with toon shading, outlined chunky characters, tiled floors, an island in the sea, a green poison-gas zone, and health shown at 10x scale (e.g. 1000 HP). All characters and art are original.
 
 **Rules:** damage raises your knockback. Falling off the edge or into a pit, or hitting 0 HP, eliminates you. The red zone shrinks every 30 s; after 2:30, sudden death. Power-ups: yellow = speed, cyan = shield, red = damage.
 

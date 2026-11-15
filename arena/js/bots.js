@@ -1,5 +1,5 @@
 // AI bots. They produce the same input objects humans send.
-import { ARENA_R, OBSTACLES, HOLES, MAP, sweeperAngle, BOMB_RANGE, WELL_RANGE, TELEPORT_MAX, BOMB_R, PLAYER_R } from './sim.js';
+import { ARENA_R, OBSTACLES, HOLES, MAP, sweeperAngle, inBush, BOMB_RANGE, WELL_RANGE, TELEPORT_MAX, BOMB_R, PLAYER_R } from './sim.js';
 
 export const BOT_NAMES = ['Bolt', 'Nova', 'Rex', 'Pixel', 'Juno', 'Tank', 'Zip', 'Echo', 'Fang', 'Mochi', 'Ziggy', 'Blip'];
 export const BOT_LEVELS = {
@@ -37,6 +37,7 @@ export function botInput(sim, p, dt) {
   for (const q of sim.players.values()) {
     if (q === p || !q.alive || q.falling) continue;
     const d = Math.hypot(q.x - p.x, q.z - p.z);
+    if (d > 4 && q.hitT <= 0 && inBush(q.x, q.z)) continue; // can't see players hiding in bushes
     const edge = Math.max(0, Math.hypot(q.x, q.z) - (zr - 5));
     const score = d - (1 - q.hp / q.maxHp) * 3 - edge * L.flank;
     if (score < bestScore) { bestScore = score; best = q; bd = d; }

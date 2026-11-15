@@ -302,11 +302,11 @@ function updateHud(v, me, dt) {
     const w = (f * 100).toFixed(1) + '%';
     if (hpEl.style.width !== w) { hpEl.style.width = w; hpEl.style.background = f > 0.5 ? '#4cd964' : f > 0.25 ? '#ffcc00' : '#ff3b30'; }
     $('myShield').style.width = Math.min(100, me.shield / 40 * 100) + '%';
-    setHTML('myName', `<span style="color:${cssColor(me.color)}">${esc(me.name)}</span> · ${CHARS[me.char].name} · ${Math.ceil(me.hp)} HP`);
+    setHTML('myName', `<span style="color:${cssColor(me.color)}">${esc(me.name)}</span> · ${CHARS[me.char].name} · ${Math.ceil(me.hp * 10)} HP`);
     const buffs = [];
     if (me.speedT > 0) buffs.push(`⚡ Speed ${Math.ceil(me.speedT)}s`);
     if (me.dmgT > 0) buffs.push(`🔥 Damage ${Math.ceil(me.dmgT)}s`);
-    if (me.shield > 0) buffs.push(`🛡 Shield ${Math.ceil(me.shield)}`);
+    if (me.shield > 0) buffs.push(`🛡 Shield ${Math.ceil(me.shield * 10)}`);
     setText('myBuffs', buffs.join('  '));
     setText('atkName', CHARS[me.char].attack);
     setText('spName', CHARS[me.char].special);
@@ -370,7 +370,7 @@ function handleFx(e) {
     case 'swing': sfx('swing', vol); break;
     case 'lob': sfx('lob', vol); break;
     case 'hit': {
-      const amt = e.d >= 1 ? Math.round(e.d) : e.d;
+      const amt = Math.max(1, Math.round(e.d * 10)); // shown at 10x scale like the health bars
       if (mine) { sfx(e.s ? 'shieldhit' : 'hurt', 1); renderer.shake(e.s ? 0.15 : 0.35); renderer.hitstop(e.s ? 30 : 70); renderer.popText(e.x, e.z, '-' + amt, 'hurt'); }
       else if (e.by === myId) { sfx(e.s ? 'shieldhit' : 'hit', 1); renderer.shake(0.12); renderer.hitstop(45); renderer.popText(e.x, e.z, String(amt), 'dealt'); }
       else { sfx(e.s ? 'shieldhit' : 'hit', vol * 0.5); if (vol > 0.3) renderer.popText(e.x, e.z, String(amt), 'other'); }

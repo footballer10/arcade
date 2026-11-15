@@ -16,44 +16,51 @@ export const TUNE = { dmg: 0.3, kb: 0.9 };
 // ---------------- maps ----------------
 export const MAPS = {
   pillars: {
-    name: 'Pillars',
+    name: 'Crate Meadow',
     obstacles: [
       { x: 7, z: 5, r: 1.5 }, { x: -6, z: 7, r: 1.3 }, { x: -8, z: -5, r: 1.6 },
       { x: 5, z: -8, r: 1.2 }, { x: 13, z: -3, r: 1.1 }, { x: -13, z: 2, r: 1.2 },
       { x: 0, z: 13, r: 1.2 }, { x: 1, z: -14, r: 1.1 }, { x: 0, z: 0, r: 0.9 },
     ],
-    holes: [], sweeper: null,
+    holes: [], sweeper: null, theme: 'meadow',
+    bushes: [{ x: -2.5, z: 4, r: 1.8 }, { x: 10, z: -8.5, r: 2 }, { x: -11, z: -10, r: 1.8 }, { x: 5, z: 11, r: 1.6 }, { x: -14, z: 8, r: 1.6 }, { x: 15.5, z: 5, r: 1.5 }, { x: -2.5, z: -10.5, r: 1.6 }],
   },
   sweeper: {
-    name: 'Sweeper',
+    name: 'Sweeper Sands',
     obstacles: [
       { x: 0, z: 0, r: 1.6 }, { x: 9, z: 9, r: 1.3 }, { x: -9, z: 9, r: 1.3 }, { x: 9, z: -9, r: 1.3 }, { x: -9, z: -9, r: 1.3 },
       { x: 14, z: 0, r: 1 }, { x: -14, z: 0, r: 1 },
     ],
-    holes: [], sweeper: { len: 17.5, speed: 0.6, width: 0.6, kb: 12, dmg: 6 },
+    holes: [], sweeper: { len: 17.5, speed: 0.6, width: 0.6, kb: 12, dmg: 6 }, theme: 'desert',
+    bushes: [{ x: 5, z: -14, r: 1.6 }, { x: -5, z: 14, r: 1.6 }, { x: 13, z: 8, r: 1.5 }, { x: -13, z: -8, r: 1.5 }],
   },
   pits: {
-    name: 'Pits & Bumpers',
+    name: 'Frosty Pits',
     obstacles: [
       { x: 0, z: 0, r: 1.3, bumper: true }, { x: 9, z: -3, r: 1.1, bumper: true }, { x: -9, z: -3, r: 1.1, bumper: true },
       { x: 0, z: 10, r: 1.1, bumper: true }, { x: 12, z: 8, r: 1.3 }, { x: -12, z: 8, r: 1.3 }, { x: 0, z: -14, r: 1.3 },
     ],
     holes: [{ x: 6, z: 5.5, r: 2.1 }, { x: -6, z: 5.5, r: 2.1 }, { x: 0, z: -8, r: 2.3 }],
-    sweeper: null,
+    sweeper: null, theme: 'snow',
+    bushes: [{ x: 8, z: -11, r: 1.8 }, { x: -8, z: -11, r: 1.8 }, { x: 13.5, z: 0, r: 1.4 }, { x: -13.5, z: 0, r: 1.4 }, { x: 0, z: 15.5, r: 1.6 }],
   },
 };
 export const MAP_KEYS = Object.keys(MAPS);
 // The current map (mutated in place so every module sees the same arrays).
 export const OBSTACLES = [];
 export const HOLES = [];
-export const MAP = { key: 'pillars', sweeper: null };
+export const BUSHES = []; // walk-through tall grass: hides you from enemies who aren't close
+export const MAP = { key: 'pillars', sweeper: null, theme: 'meadow' };
 export function setMap(key) {
   const m = MAPS[key] || MAPS.pillars;
   MAP.key = MAPS[key] ? key : 'pillars';
   OBSTACLES.length = 0; OBSTACLES.push(...m.obstacles.map((o) => ({ ...o })));
   HOLES.length = 0; HOLES.push(...m.holes.map((h) => ({ ...h })));
+  BUSHES.length = 0; BUSHES.push(...(m.bushes || []).map((b) => ({ ...b })));
   MAP.sweeper = m.sweeper;
+  MAP.theme = m.theme || 'meadow';
 }
+export function inBush(x, z) { return BUSHES.some((b) => Math.hypot(x - b.x, z - b.z) < b.r); }
 setMap('pillars');
 export const sweeperAngle = (t) => (MAP.sweeper ? t * MAP.sweeper.speed : 0);
 
