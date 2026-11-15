@@ -1,0 +1,105 @@
+/* Party Hub shared theme: bright cartoon style, one font (Lilita One), one palette, rounded ink-outlined panels.
+   Every game uses these classes for menus and HUD. Game-specific looks stay inside the 3D play area. */
+:root {
+  --ink: #17112e; --ink-2: #2b2350;
+  --blue: #2f86ff; --blue-d: #1a55c7; --sky: #4cc3ff;
+  --yellow: #ffd23f; --yellow-d: #d99a00; --red: #ff4d5e; --green: #5fd855; --purple: #9b6bff; --orange: #ff8c42;
+  --panel: linear-gradient(180deg, #3e95ff 0%, #2466e0 100%);
+  --pill: rgba(23, 17, 46, .62);
+  --font: 'Lilita One', 'Arial Rounded MT Bold', 'Trebuchet MS', system-ui, sans-serif;
+  --stroke: 2px 0 0 var(--ink), -2px 0 0 var(--ink), 0 2px 0 var(--ink), 0 -2px 0 var(--ink), 1.5px 1.5px 0 var(--ink), -1.5px -1.5px 0 var(--ink), 1.5px -1.5px 0 var(--ink), -1.5px 1.5px 0 var(--ink);
+  --r: 18px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--sky); color: #fff; font-family: var(--font); letter-spacing: .02em; user-select: none; -webkit-font-smoothing: antialiased; }
+.hidden { display: none !important; }
+.out { text-shadow: var(--stroke); }
+.muted { opacity: .8; }
+kbd { font-family: var(--font); background: var(--ink); color: #fff; padding: 1px 7px; border-radius: 6px; font-size: .9em; text-shadow: none; white-space: nowrap; }
+
+/* ---------- screens & panels ---------- */
+.ph-screen { position: fixed; inset: 0; display: grid; place-items: center; z-index: 30; padding: 16px; overflow: auto;
+  background: radial-gradient(ellipse at center, rgba(30,80,200,.12), rgba(16,20,70,.55)); }
+.ph-panel { position: relative; padding: 22px 26px; text-align: center; background: var(--panel); border: 4px solid var(--ink); border-radius: 22px;
+  box-shadow: inset 0 4px 0 rgba(255,255,255,.35), inset 0 -6px 0 rgba(0,0,0,.18), 0 10px 0 rgba(10,10,40,.45), 0 24px 50px rgba(0,0,0,.35); }
+.ph-panel.dark { background: linear-gradient(180deg, #3a2f74, #241c4f); }
+.ph-panel.yellow { background: linear-gradient(180deg, #ffe680, #ffc21f); color: var(--ink); }
+.ph-title { margin: 6px 0 2px; font-size: 3.4rem; font-weight: 400; line-height: 1; color: var(--yellow); transform: rotate(-3deg);
+  text-shadow: 3px 0 0 var(--ink), -3px 0 0 var(--ink), 0 3px 0 var(--ink), 0 -3px 0 var(--ink), 3px 3px 0 var(--ink), -3px -3px 0 var(--ink), 3px -3px 0 var(--ink), -3px 3px 0 var(--ink), 0 8px 0 var(--ink); }
+h2, .ph-h2 { margin: 4px 0 8px; font-weight: 400; font-size: 1.8rem; text-shadow: var(--stroke), 0 4px 0 var(--ink); }
+h3, .ph-h3 { margin: 4px 0 6px; font-weight: 400; font-size: 1.25rem; text-shadow: var(--stroke); }
+.ph-sub { margin: 4px 0 12px; font-size: 1.05rem; text-shadow: var(--stroke); }
+.ph-row { display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap; }
+.ph-col { display: flex; flex-direction: column; gap: 10px; }
+.ph-msg { min-height: 1.4em; margin-top: 10px; color: var(--yellow); text-shadow: var(--stroke); }
+
+input, select { font-family: var(--font); font-size: 1.05rem; color: var(--ink); background: #fff; border: 3px solid var(--ink); border-radius: 12px; padding: 8px 12px; box-shadow: inset 0 -3px 0 #c9d3ea; outline: none; }
+input:focus, select:focus { box-shadow: inset 0 -3px 0 #c9d3ea, 0 0 0 3px var(--yellow); }
+input[type=range] { padding: 0; height: 10px; accent-color: var(--yellow); box-shadow: none; border-width: 2px; }
+label.ph-field { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; text-shadow: var(--stroke); }
+
+.ph-btn { font-family: var(--font); font-size: 1.1rem; color: #fff; cursor: pointer; letter-spacing: .03em; position: relative; top: 0;
+  background: linear-gradient(180deg, #6ec1ff, var(--blue)); border: 3px solid var(--ink); border-radius: 14px; padding: 9px 18px;
+  box-shadow: inset 0 3px 0 rgba(255,255,255,.4), 0 5px 0 var(--ink); text-shadow: var(--stroke); transition: transform .06s, filter .1s; }
+.ph-btn:hover { filter: brightness(1.08); }
+.ph-btn:active { top: 3px; box-shadow: inset 0 3px 0 rgba(255,255,255,.4), 0 2px 0 var(--ink); }
+.ph-btn:disabled { filter: grayscale(.85) brightness(.8); cursor: default; top: 0; }
+.ph-btn.big { background: linear-gradient(180deg, #ffe680, var(--yellow) 55%, #ffb800); font-size: 1.4rem; padding: 11px 26px; }
+.ph-btn.green { background: linear-gradient(180deg, #9cf08a, var(--green)); }
+.ph-btn.ghost { background: linear-gradient(180deg, #8a93b8, #5d6690); font-size: 1rem; }
+.ph-btn.danger { background: linear-gradient(180deg, #ff8a95, var(--red)); }
+.ph-btn.small { font-size: .85rem; padding: 4px 10px; border-width: 2px; border-radius: 10px; box-shadow: inset 0 2px 0 rgba(255,255,255,.4), 0 3px 0 var(--ink); }
+.ph-btn.on { background: linear-gradient(180deg, #ffe680, var(--yellow) 60%, #ffb800); }
+.ph-code { display: inline-block; background: var(--ink); color: var(--yellow); padding: 2px 14px; border-radius: 10px; letter-spacing: .25em; user-select: text; text-shadow: none; }
+.ph-list { list-style: none; padding: 0; margin: 6px 0; text-align: left; }
+.ph-list li { display: flex; gap: 8px; align-items: center; padding: 6px 10px; margin: 5px 0; background: rgba(10,20,80,.35); border: 3px solid var(--ink); border-radius: 12px; text-shadow: var(--stroke); }
+.ph-dot { display: inline-block; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--ink); flex: none; }
+.ph-tag { font-size: .78rem; background: var(--ink); padding: 1px 8px; border-radius: 8px; text-shadow: none; white-space: nowrap; }
+.ph-tag.gold { background: var(--yellow); color: var(--ink); }
+.ph-table { width: 100%; border-collapse: separate; border-spacing: 0 5px; text-shadow: var(--stroke); }
+.ph-table th { font-weight: 400; font-size: .9rem; opacity: .9; padding: 0 8px; text-align: left; }
+.ph-table td { padding: 6px 8px; background: rgba(10,20,80,.35); border-top: 3px solid var(--ink); border-bottom: 3px solid var(--ink); }
+.ph-table td:first-child { border-left: 3px solid var(--ink); border-radius: 12px 0 0 12px; }
+.ph-table td:last-child { border-right: 3px solid var(--ink); border-radius: 0 12px 12px 0; }
+.ph-table tr.me td { background: rgba(255,210,63,.35); }
+.ph-table tr.first td { background: linear-gradient(90deg, rgba(255,210,63,.65), rgba(255,210,63,.25)); }
+
+/* ---------- HUD layout zones (games put their HUD ONLY here) ---------- */
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+.hud-zone { position: absolute; display: flex; flex-direction: column; gap: 8px; }
+.hud-tl { top: 12px; left: 14px; align-items: flex-start; max-width: 34vw; }
+.hud-tc { top: 10px; left: 50%; transform: translateX(-50%); align-items: center; }
+.hud-tr { top: 12px; right: 14px; align-items: flex-end; max-width: 30vw; }
+.hud-bc { bottom: 16px; left: 50%; transform: translateX(-50%); align-items: center; }
+.hud-pill { background: var(--pill); border: 3px solid var(--ink); border-radius: 16px; padding: 7px 13px; text-shadow: var(--stroke); font-size: 1.05rem; line-height: 1.3; }
+.hud-pill.big { font-size: 1.5rem; }
+.hud-timer { min-width: 74px; text-align: center; font-size: 2rem; padding: 2px 16px; background: var(--pill); border: 3px solid var(--ink); border-radius: 18px; text-shadow: var(--stroke); font-variant-numeric: tabular-nums; }
+.hud-timer.warn { color: var(--yellow); animation: ph-pulse 1s infinite; }
+.hud-mini { min-width: 170px; background: var(--pill); border: 3px solid var(--ink); border-radius: 16px; padding: 6px 10px; font-size: .95rem; text-shadow: var(--stroke); }
+.hud-mini div { display: flex; gap: 7px; align-items: center; padding: 1px 0; }
+.hud-mini div.me { color: var(--yellow); }
+.hud-mini div.out { opacity: .5; }
+.hud-mini .v { margin-left: auto; padding-left: 10px; }
+.hud-mini .ph-dot { width: 12px; height: 12px; }
+.hud-slots { display: flex; gap: 10px; align-items: flex-end; }
+.hud-slot { position: relative; min-width: 76px; height: 68px; padding: 6px 8px 4px; overflow: hidden; text-align: center; background: var(--pill); border: 3px solid var(--ink); border-radius: 14px; text-shadow: var(--stroke); }
+.hud-slot .cdfill { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,.55); }
+.hud-slot kbd { position: relative; font-size: .75rem; }
+.hud-slot b { position: relative; display: block; font-weight: 400; margin-top: 6px; font-size: 1rem; }
+.hud-slot.ready { border-color: var(--yellow); box-shadow: 0 0 14px rgba(255,210,63,.6); }
+.hud-slot.wide { min-width: 220px; }
+.hud-bar { width: 260px; height: 18px; background: rgba(0,0,0,.4); border: 3px solid var(--ink); border-radius: 10px; overflow: hidden; }
+.hud-bar > div { height: 100%; width: 0; background: linear-gradient(90deg, #6ee05a, #ffd23f 60%, #ff4d5e); }
+@keyframes ph-pulse { 50% { transform: scale(1.08); } }
+
+/* centre overlays: countdown / banners / toasts */
+#ph-center { position: fixed; inset: 0; pointer-events: none; z-index: 25; display: grid; place-items: center; }
+.ph-count { font-size: 9rem; color: var(--yellow); text-shadow: 5px 0 0 var(--ink), -5px 0 0 var(--ink), 0 5px 0 var(--ink), 0 -5px 0 var(--ink), 4px 4px 0 var(--ink), -4px -4px 0 var(--ink), 4px -4px 0 var(--ink), -4px 4px 0 var(--ink), 0 12px 0 var(--ink); animation: ph-pop .9s ease-out both; }
+@keyframes ph-pop { 0% { transform: scale(1.8); opacity: 0; } 15% { transform: scale(1); opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; transform: scale(.9); } }
+.ph-banner { position: fixed; top: 26%; left: 50%; transform: translateX(-50%); font-size: 3rem; text-align: center; white-space: nowrap; text-shadow: var(--stroke), 0 6px 0 var(--ink); pointer-events: none; z-index: 24; transition: opacity .25s; }
+.ph-banner.small { font-size: 1.8rem; }
+#ph-toasts { position: fixed; top: 76px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; z-index: 26; pointer-events: none; }
+.ph-toast { background: var(--pill); border: 3px solid var(--ink); border-radius: 14px; padding: 5px 14px; text-shadow: var(--stroke); animation: ph-fade 3s forwards; white-space: nowrap; }
+.ph-toast.good { background: rgba(40,140,60,.85); } .ph-toast.bad { background: rgba(180,40,60,.85); } .ph-toast.gold { background: rgba(200,140,0,.9); }
+@keyframes ph-fade { 0% { opacity: 0; transform: translateY(-6px); } 8% { opacity: 1; transform: none; } 85% { opacity: 1; } 100% { opacity: 0; } }
+.hud-col { display: flex; flex-direction: column; gap: 4px; align-items: center; }

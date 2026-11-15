@@ -1,0 +1,7 @@
+{
+  "name": "partyhub-tests",
+  "private": true,
+  "type": "module",
+  "description": "Automated browser tests for the Party Hub. Not needed to play. Run: cd tests && npm install && node run-all.mjs",
+  "dependencies": { "three": "0.160.0", "peerjs": "1.5.4", "peer": "^1.0.2", "esbuild": "^0.24.0" }
+}

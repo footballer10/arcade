@@ -1,20 +1,206 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Arcade Prototypes</title>
-<style>
-body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0d1020;color:#eef;font-family:system-ui,sans-serif}
-h1{text-align:center;letter-spacing:.05em}
-.grid{display:flex;gap:20px;flex-wrap:wrap;justify-content:center}
-a{display:block;width:220px;padding:28px 20px;border-radius:14px;text-decoration:none;color:#fff;font-weight:700;font-size:1.3rem;text-align:center;transition:transform .15s}
-a:hover{transform:translateY(-4px) scale(1.03)}
-a span{display:block;font-weight:400;font-size:.9rem;opacity:.85;margin-top:8px}
-.arena{background:linear-gradient(135deg,#e5484d,#8e1f3b)}
-.downhill{background:linear-gradient(135deg,#3e9bff,#1b3f8f)}
-.golf{background:linear-gradient(135deg,#30a46c,#145a3a)}
-</style></head><body><main>
-<h1>ARCADE PROTOTYPES</h1>
-<div class="grid">
-<a class="arena" href="arena/">Arena Royale<span>Last one standing</span></a>
-<a class="downhill" href="downhill/">Downhill Rush<span>Ski or board to the finish</span></a>
-<a class="golf" href="golf/">Mini-Golf Battle<span>Same hole, same time</span></a>
-</div></main></body></html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Party Arcade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="core/ui.css">
+<link rel="stylesheet" href="core/hub.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "peerjs": "https://cdn.jsdelivr.net/npm/peerjs@1.5.4/+esm"
+} }
+</script>
+</head>
+<body>
+<!-- Games render here (one at a time). The hub never reloads the page. -->
+<div id="stage"></div>
+<div id="hud"></div>
+<canvas id="hubCanvas"></canvas>
+
+<!-- HOME -->
+<section id="home" class="ph-screen hidden">
+  <div class="home-wrap">
+    <div class="ph-title">PARTY ARCADE</div>
+    <p class="ph-sub">One party, lots of games. Stay connected all night.</p>
+    <div class="home-grid">
+      <div class="ph-panel profile">
+        <div id="homeAvatar" class="avatar-slot"></div>
+        <label class="ph-field">Name <input id="nameIn" maxlength="14" placeholder="Your name" autocomplete="off"></label>
+        <div class="swatches" id="colorPick"></div>
+        <div class="hats" id="hatPick"></div>
+      </div>
+      <div class="ph-panel play">
+        <div id="joinBox" class="hidden">
+          <h2>Join party <span class="ph-code" id="joinCodeShow">----</span></h2>
+          <button id="joinLinkBtn" class="ph-btn big wide">Join Party</button>
+          <div class="or">or start your own</div>
+        </div>
+        <button id="createBtn" class="ph-btn big wide">Create Party</button>
+        <div class="ph-row" style="margin-top:14px">
+          <input id="codeIn" maxlength="4" placeholder="CODE" autocomplete="off">
+          <button id="joinBtn" class="ph-btn green">Join</button>
+        </div>
+        <label class="offline"><input type="checkbox" id="localNet"> Same-computer mode (tabs, no internet)</label>
+        <div id="homeMsg" class="ph-msg"></div>
+        <div id="homeExtra" class="hidden"><button id="tryLocalBtn" class="ph-btn small">Use same-computer mode instead</button></div>
+        <div class="ph-row" style="margin-top:6px"><button class="ph-btn ghost small" data-open="settings">⚙ Settings</button><button class="ph-btn ghost small" data-open="controls">🎮 Controls</button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- LOBBY -->
+<section id="lobby" class="ph-screen hidden">
+  <div class="lobby-grid">
+    <div class="ph-panel l-left">
+      <div class="room-head">
+        <div>Party <span id="roomCode" class="ph-code big">----</span></div>
+        <button id="copyLink" class="ph-btn small">Copy link</button>
+      </div>
+      <div id="netBadge" class="net-badge"></div>
+      <ul id="playerList" class="ph-list players"></ul>
+      <div id="botCtl" class="ph-row host-only">
+        <button id="addBot" class="ph-btn small">+ Bot</button>
+        <button id="remBot" class="ph-btn small">− Bot</button>
+        <select id="botLevel"><option value="easy">Easy bots</option><option value="normal">Normal bots</option><option value="hard">Hard bots</option></select>
+      </div>
+      <div class="ph-row" style="margin-top:8px">
+        <button id="readyBtn" class="ph-btn big">Ready!</button>
+      </div>
+      <div class="ph-row" style="margin-top:8px">
+        <button class="ph-btn ghost small" id="editProfile">✏ Name / color / hat</button>
+        <button class="ph-btn ghost small" data-open="settings">⚙</button>
+        <button class="ph-btn danger small" id="leaveBtn">Leave</button>
+      </div>
+    </div>
+    <div class="ph-panel l-mid">
+      <div id="lobbyAvatars" class="avatar-row"></div>
+      <div class="mode-row">
+        <span>Choose:</span>
+        <button class="ph-btn small mode" data-mode="pick">Host picks</button>
+        <button class="ph-btn small mode" data-mode="vote">Everyone votes</button>
+        <button class="ph-btn small mode" data-mode="shuffle">Shuffle</button>
+        <select id="shuffleLen"><option value="3">3 games</option><option value="5">5 games</option><option value="7">7 games</option></select>
+      </div>
+      <div id="gameGrid" class="game-grid"></div>
+      <div id="lobbyHint" class="ph-sub"></div>
+      <div class="ph-row">
+        <button id="startBtn" class="ph-btn big host-only">Start</button>
+        <button id="forceStart" class="ph-btn ghost small">Start anyway</button>
+      </div>
+    </div>
+    <div class="ph-panel dark l-right">
+      <h3>🏆 Tonight's champions</h3>
+      <div id="leaderboard"></div>
+      <h3 style="margin-top:12px">💬 Chat <small class="muted">(Enter)</small></h3>
+      <div id="chatPanel" class="chat-panel"></div>
+    </div>
+  </div>
+</section>
+
+<!-- PRE-ROUND SETUP (per-game picks, e.g. skier/snowboarder) -->
+<section id="setup" class="ph-screen hidden">
+  <div class="ph-panel setup-panel">
+    <div class="ph-sub" id="setupCount"></div>
+    <h2 id="setupTitle">Game</h2>
+    <div id="setupBody"></div>
+    <div class="ph-row" style="margin-top:12px"><button id="setupReady" class="ph-btn big">Ready!</button></div>
+    <div id="setupWho" class="ph-sub"></div>
+  </div>
+</section>
+
+<!-- LOADING -->
+<section id="loading" class="ph-screen hidden">
+  <div class="ph-panel loading-panel">
+    <div class="ph-sub" id="loadSub"></div>
+    <div class="ph-title small" id="loadTitle">Game</div>
+    <p class="ph-sub" id="loadTag"></p>
+    <div id="loadControls" class="controls-box"></div>
+    <div id="loadWho" class="ph-row"></div>
+  </div>
+</section>
+
+<!-- RESULTS -->
+<section id="results" class="ph-screen hidden">
+  <div class="ph-panel results-panel">
+    <div class="ph-sub" id="resSub"></div>
+    <h2 id="resTitle">Results</h2>
+    <div id="resBody"></div>
+    <div id="resExtra" class="ph-sub"></div>
+    <h3>Party standings</h3>
+    <div id="resStandings"></div>
+    <div class="ph-row"><button id="resContinue" class="ph-btn big host-only">Continue</button></div>
+    <div id="resWait" class="ph-sub"></div>
+  </div>
+</section>
+
+<!-- PODIUM -->
+<section id="podium" class="ph-screen hidden">
+  <div class="podium-wrap">
+    <div class="ph-title" id="podTitle">CHAMPION!</div>
+    <div id="podiumStage" class="podium-stage"></div>
+    <div id="podNames" class="pod-names"></div>
+    <div class="ph-row"><button id="podContinue" class="ph-btn big host-only">Back to lobby</button></div>
+    <div id="podWait" class="ph-sub"></div>
+  </div>
+</section>
+
+<!-- OVERLAYS -->
+<section id="pause" class="ph-screen hidden overlay">
+  <div class="ph-panel pause-panel">
+    <h2>Paused <small class="muted">(the game keeps running)</small></h2>
+    <div class="ph-col">
+      <button class="ph-btn big" id="resumeBtn">Resume</button>
+      <button class="ph-btn" data-open="settings">⚙ Settings</button>
+      <button class="ph-btn" data-open="controls">🎮 Controls</button>
+      <button class="ph-btn danger host-only" id="endGameBtn">End game for everyone</button>
+      <button class="ph-btn ghost" id="pauseLeave">Leave party</button>
+    </div>
+  </div>
+</section>
+<section id="settings" class="ph-screen hidden overlay">
+  <div class="ph-panel settings-panel">
+    <h2>Settings</h2>
+    <label class="ph-field">Master volume <input type="range" min="0" max="1" step="0.05" data-set="master"></label>
+    <label class="ph-field">Music volume <input type="range" min="0" max="1" step="0.05" data-set="music"></label>
+    <label class="ph-field">Sound effects <input type="range" min="0" max="1" step="0.05" data-set="sfx"></label>
+    <label class="ph-field">Mouse sensitivity <input type="range" min="0.2" max="3" step="0.1" data-set="sens"></label>
+    <label class="ph-field">Graphics quality <select data-set="quality"><option value="low">Low (fastest)</option><option value="med">Medium</option><option value="high">High</option></select></label>
+    <label class="ph-field">Show FPS <input type="checkbox" data-set="showFps"></label>
+    <button class="ph-btn big" data-close>Done</button>
+  </div>
+</section>
+<section id="controls" class="ph-screen hidden overlay">
+  <div class="ph-panel controls-panel">
+    <h2>Controls</h2>
+    <div id="controlsBody" class="controls-box"></div>
+    <button class="ph-btn big" data-close>Got it</button>
+  </div>
+</section>
+<section id="profile" class="ph-screen hidden overlay">
+  <div class="ph-panel profile">
+    <h2>You</h2>
+    <div id="profileAvatar" class="avatar-slot"></div>
+    <label class="ph-field">Name <input id="nameIn2" maxlength="14" autocomplete="off"></label>
+    <div class="swatches" id="colorPick2"></div>
+    <div class="hats" id="hatPick2"></div>
+    <button class="ph-btn big" data-close>Done</button>
+  </div>
+</section>
+<section id="scoreboard" class="ph-screen hidden overlay passthrough">
+  <div class="ph-panel dark board-panel"><div id="boardBody"></div></div>
+</section>
+<div id="reconnect" class="hidden"><div class="ph-panel yellow">📡 <span id="reconnectText">Reconnecting…</span></div></div>
+<div id="chatlog"></div>
+<div id="chatBox" class="hidden"><input id="chatIn" maxlength="120" placeholder="Say something… (Enter to send, Esc to cancel)" autocomplete="off"></div>
+<div id="fps" class="hidden"></div>
+
+<script type="module" src="core/hub.js"></script>
+</body>
+</html>
