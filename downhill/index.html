@@ -1,1 +1,146 @@
-<!doctype html><meta charset="utf-8"><title>downhill</title><p>Coming soon. <a href="../">Back</a></p>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Downhill Rush</title>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "peerjs": "https://cdn.jsdelivr.net/npm/peerjs@1.5.4/+esm"
+} }
+</script>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:#9cc8f0;font-family:system-ui,Segoe UI,sans-serif;color:#fff;user-select:none}
+canvas{display:block}
+#c{position:fixed;inset:0}
+#lines{position:fixed;inset:0;pointer-events:none}
+.ui{position:fixed;inset:0;display:none;align-items:center;justify-content:center;pointer-events:none}
+.ui.show{display:flex}
+.panel{pointer-events:auto;background:rgba(13,20,40,.88);border-radius:16px;padding:26px 30px;min-width:360px;max-width:560px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+h1{margin:0 0 4px;font-size:2.4rem;letter-spacing:.06em;font-style:italic}
+h2{margin:0 0 12px}
+.sub{opacity:.75;margin:0 0 18px}
+button{font:inherit;font-weight:700;border:0;border-radius:10px;padding:11px 16px;cursor:pointer;background:#3e9bff;color:#fff;margin:4px 0}
+button:hover{filter:brightness(1.12)}
+button.big{width:100%;font-size:1.15rem;padding:14px}
+button.alt{background:#2a3450}
+button.green{background:#30a46c}
+button.red{background:#c0394b}
+button.sel{outline:3px solid #ffd400}
+button:disabled{opacity:.45;cursor:default}
+input{font:inherit;padding:10px 12px;border-radius:10px;border:0;background:#e9eef8;color:#111;width:100%}
+.row{display:flex;gap:8px;align-items:center;margin:8px 0}
+.row>*{flex:1}
+label{font-size:.85rem;opacity:.8}
+.cls{display:flex;gap:8px}.cls button{flex:1;padding:12px 6px;background:#2a3450}
+.cls button small{display:block;font-weight:400;opacity:.8;font-size:.75rem}
+.cls button.sel{background:#1b4f9f}
+#back{position:fixed;top:10px;left:12px;color:#fff;background:rgba(0,0,0,.35);padding:6px 10px;border-radius:8px;text-decoration:none;font-size:.9rem;z-index:20}
+#err{color:#ff9aa5;min-height:1.2em;font-size:.9rem}
+.code{font-size:2.6rem;font-weight:800;letter-spacing:.25em;text-align:center;background:#0b1020;border-radius:10px;padding:6px;margin:6px 0 12px}
+#plist{list-style:none;padding:0;margin:0 0 12px;max-height:300px;overflow:auto}
+#plist li{display:flex;align-items:center;gap:8px;padding:6px 8px;background:#1a2440;border-radius:8px;margin:4px 0}
+#plist .dot{width:14px;height:14px;border-radius:50%}
+#plist .nm{flex:1}
+#plist .tag{font-size:.75rem;background:#2a3450;padding:2px 6px;border-radius:6px}
+#plist button{padding:4px 8px;font-size:.8rem;margin:0}
+.keys{font-size:.82rem;opacity:.8;line-height:1.5;margin-top:12px}
+kbd{background:#2a3450;border-radius:4px;padding:1px 5px;font-family:inherit}
+/* HUD */
+#hud{position:fixed;inset:0;pointer-events:none;display:none}
+#hud.show{display:block}
+#pos{position:absolute;top:12px;left:50%;transform:translateX(-50%);font-size:2.6rem;font-weight:900;font-style:italic;text-shadow:0 2px 8px rgba(0,0,0,.5)}
+#pos small{font-size:1.1rem;opacity:.85}
+#time{position:absolute;top:16px;right:18px;font-size:1.6rem;font-weight:800;text-shadow:0 2px 6px rgba(0,0,0,.5);font-variant-numeric:tabular-nums}
+#speed{position:absolute;bottom:18px;left:20px;font-size:2.4rem;font-weight:900;font-style:italic;text-shadow:0 2px 6px rgba(0,0,0,.5)}
+#speed small{font-size:1rem}
+#speed .c{display:block;font-size:.9rem;font-style:normal;font-weight:600;opacity:.85}
+#prog{position:absolute;bottom:26px;left:50%;transform:translateX(-50%);width:46%;height:10px;background:rgba(0,0,0,.35);border-radius:6px}
+#prog .m{position:absolute;top:-4px;width:12px;height:18px;border-radius:4px;margin-left:-6px;border:2px solid rgba(0,0,0,.4)}
+#prog .m.me{height:22px;top:-6px;border-color:#fff}
+#msg{position:absolute;top:30%;left:50%;transform:translateX(-50%);font-size:1.9rem;font-weight:900;font-style:italic;text-shadow:0 3px 10px rgba(0,0,0,.6);white-space:nowrap;transition:opacity .3s}
+#cd{position:absolute;top:38%;left:50%;transform:translate(-50%,-50%);font-size:7rem;font-weight:900;font-style:italic;text-shadow:0 4px 18px rgba(0,0,0,.5)}
+#fin{position:absolute;top:22%;left:50%;transform:translateX(-50%);text-align:center;font-size:2.4rem;font-weight:900;text-shadow:0 3px 12px rgba(0,0,0,.6)}
+#fin small{display:block;font-size:1.1rem;font-weight:600}
+#hint{position:absolute;bottom:56px;left:50%;transform:translateX(-50%);font-size:.85rem;opacity:.8;text-shadow:0 1px 4px #000}
+#debug{position:fixed;top:44px;left:12px;background:rgba(0,0,0,.6);font:12px/1.45 ui-monospace,monospace;padding:8px 10px;border-radius:8px;display:none;z-index:20;white-space:pre}
+table{width:100%;border-collapse:collapse;margin-bottom:14px}
+td,th{padding:6px 8px;text-align:left}
+tr:nth-child(even) td{background:#1a2440}
+tr.me td{background:#1b4f9f}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.7);padding:10px 16px;border-radius:10px;display:none;z-index:30}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="lines"></canvas>
+<a id="back" href="../">&larr; Back to menu</a>
+<div id="debug"></div>
+<div id="toast"></div>
+
+<div id="hud">
+  <div id="pos"></div>
+  <div id="time"></div>
+  <div id="speed"></div>
+  <div id="prog"></div>
+  <div id="msg"></div>
+  <div id="cd"></div>
+  <div id="fin"></div>
+  <div id="hint"></div>
+</div>
+
+<div class="ui show" id="menu"><div class="panel">
+  <h1>DOWNHILL RUSH</h1>
+  <p class="sub">Random mountain every race. First to the bottom wins.</p>
+  <div class="row"><div><label>Your name</label><input id="name" maxlength="12" placeholder="Rider"></div></div>
+  <label>Ride as</label>
+  <div class="cls" data-cls>
+    <button data-c="ski">SKIER<small>Sharp turns, faster on groomed</small></button>
+    <button data-c="board">SNOWBOARDER<small>Big air, tricks = speed</small></button>
+  </div>
+  <button class="big green" id="quick" style="margin-top:14px">Quick Play vs Bots</button>
+  <button class="big" id="create">Create Room</button>
+  <div class="row"><input id="joincode" maxlength="4" placeholder="CODE" style="text-transform:uppercase;letter-spacing:.2em"><button id="join" class="alt">Join</button></div>
+  <div id="err"></div>
+  <div class="keys"><kbd>A</kbd><kbd>D</kbd>/<kbd>&larr;</kbd><kbd>&rarr;</kbd> steer &middot; <kbd>W</kbd> tuck &middot; <kbd>S</kbd> brake &middot; <kbd>Space</kbd> jump<br>
+  In the air: <kbd>&larr;</kbd><kbd>&rarr;</kbd> spin, <kbd>&uarr;</kbd><kbd>&darr;</kbd> flip &mdash; land straight for a boost &middot; <kbd>`</kbd> debug</div>
+</div></div>
+
+<div class="ui" id="lobby"><div class="panel">
+  <h2>Lobby</h2>
+  <div id="codewrap"><label>Room code &mdash; share it with friends</label><div class="code" id="code">----</div></div>
+  <ul id="plist"></ul>
+  <label>Ride as</label>
+  <div class="cls" data-cls>
+    <button data-c="ski">SKIER</button>
+    <button data-c="board">SNOWBOARDER</button>
+  </div>
+  <div id="hostctl" style="margin-top:10px">
+    <div class="row"><button class="alt" id="addbot">+ Add bot</button><button class="alt" id="rmbot">&minus; Remove bot</button></div>
+    <button class="big green" id="start">Start Race</button>
+  </div>
+  <p id="lobbymsg" class="sub" style="margin:10px 0 0"></p>
+  <button class="alt" id="leave" style="width:100%">Leave</button>
+</div></div>
+
+<div class="ui" id="results"><div class="panel">
+  <h2>Results</h2>
+  <table id="rtable"></table>
+  <label>Next race ride as</label>
+  <div class="cls" data-cls>
+    <button data-c="ski">SKIER</button>
+    <button data-c="board">SNOWBOARDER</button>
+  </div>
+  <div id="resctl" style="margin-top:10px">
+    <button class="big green" id="again">Play Again</button>
+    <button class="big alt" id="tolobby">Back to Lobby</button>
+  </div>
+  <p id="resmsg" class="sub" style="margin:8px 0 0"></p>
+  <button class="alt" id="quit" style="width:100%">Main menu</button>
+</div></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
