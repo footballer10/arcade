@@ -1,7 +1,7 @@
 # Party Arcade — guide for Claude Code sessions
 
 A free, static, browser **party game hub** (think Jackbox / Fall Guys): friends join one party and stay
-connected while the host switches between 3D games all night. Hosted on GitHub Pages at
+connected while the host switches between 3D games. Hosted on GitHub Pages at
 `https://footballer10.github.io/arcade-prototypes/`. Laptop first, Chrome, keyboard + mouse.
 
 **Every new game must use `/core` and must pass the checklist in [`docs/ADDING_A_GAME.md`](docs/ADDING_A_GAME.md).**

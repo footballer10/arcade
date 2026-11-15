@@ -1,5 +1,5 @@
 // Party connection (generalised from the old arena/js/net.js netcode). Star topology, host-authoritative:
-// clients talk only to the host; the host talks to everyone. The hub owns one PartyNet for the whole night;
+// clients talk only to the host; the host talks to everyone. The hub owns one PartyNet for the whole session;
 // games never touch it directly — they get a per-round channel (see makeChannel / ctx.net).
 //
 // TRANSPORT INTERFACE (core/transport-peer.js = PeerJS/WebRTC, core/transport-local.js = BroadcastChannel tabs):

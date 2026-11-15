@@ -1,4 +1,4 @@
-// PARTY HUB — the single page that owns the party connection for the whole night.
+// PARTY HUB — the single page that owns the party connection for the whole session.
 // Lobby → choose game (host picks / vote / shuffle) → pre-round picks → loading → shared countdown → play
 // → results (+trophies) → lobby. Games are loaded with import() and unloaded when done; the page never reloads.
 import * as THREE from 'three';
@@ -772,7 +772,7 @@ function renderResults() {
 function renderPodium() {
   const P = S.podium; if (!P) return;
   const top = P.top;
-  $('podTitle').textContent = top[0] ? `${top[0].name} is tonight's champion!` : 'Champion!';
+  $('podTitle').textContent = top[0] ? `${top[0].name} is the party champion!` : 'Champion!';
   $('podNames').innerHTML = [1, 0, 2].map((i) => top[i] ? `<div>${MEDAL[i]} ${esc(top[i].name)} <small>(+${top[i].trophies}🏆)</small></div>` : '').join('');
   $('podWait').textContent = countdownText(S.deadline, 'Back to the lobby in');
 }

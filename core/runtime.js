@@ -1,6 +1,6 @@
 // Game runtime: builds the ctx a game's start(ctx) receives, and guarantees cleanup on stop.
 // Everything registered through ctx (timers, listeners, frame loops, ticks, renderers, HUD, input, net) is
-// released by the hub after the game's own stop() runs, so the 10th game of the night runs like the first.
+// released by the hub after the game's own stop() runs, so the 10th game in a row runs like the first.
 import { Emitter } from './emitter.js';
 import { makeChannel } from './net.js';
 import { scopedInput } from './input.js';

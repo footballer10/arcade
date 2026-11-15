@@ -1,4 +1,4 @@
-// Shared WebAudio engine: one AudioContext for the whole night, with master / music / sfx buses
+// Shared WebAudio engine: one AudioContext for the whole session, with master / music / sfx buses
 // controlled by the settings sliders. Games route every sound into audio.sfx (or audio.music):
 //   const a = ctx.audio;  if (a.ready) a.tone('square', 600, 600, 0.1, 0.2)   // quick synth beep
 //   const o = a.ctx.createOscillator(); o.connect(a.sfx)                     // or build your own graph

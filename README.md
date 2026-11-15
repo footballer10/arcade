@@ -1,6 +1,6 @@
 # Party Arcade
 
-A free browser party-game hub: create a party, share the 4-letter code or link, and play a night of 3D mini-games
+A free browser party-game hub: create a party, share the 4-letter code or link, and play a session of 3D mini-games
 together without ever leaving the party. Host-authoritative peer-to-peer (PeerJS/WebRTC), static files only.
 
 **Play:** https://footballer10.github.io/arcade-prototypes/
