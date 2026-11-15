@@ -115,13 +115,13 @@ export function makeCourse(seed) {
     if (inSpecial(z)) continue;
     const x = cxMain(z) + (R() - 0.5) * HW_MAIN * 1.1;
     const big = R() < 0.4;
-    ramps.push({ x, z0: z, len: big ? 9 : 7, w: big ? 9 : 8, h: big ? 3.6 : 2.6 });
+    ramps.push({ x, z0: z, len: big ? 10 : 8, w: big ? 9 : 8, h: big ? 5.2 : 3.8 });
   }
   for (const s of shortcuts) {
-    for (const u of [0.3, 0.7]) { const z = s.z0 + s.len * u; ramps.push({ x: cxMain(z), z0: z, len: 7, w: 8, h: 2.4 }); }
-    const z = s.z0 + s.len * 0.45; ramps.push({ x: cxBase(z), z0: z, len: 8, w: 7, h: 3.2 });
+    for (const u of [0.3, 0.7]) { const z = s.z0 + s.len * u; ramps.push({ x: cxMain(z), z0: z, len: 8, w: 8, h: 3.4 }); }
+    const z = s.z0 + s.len * 0.45; ramps.push({ x: cxBase(z), z0: z, len: 8, w: 7, h: 4.0 });
   }
-  { const z = halfpipe.z0 + halfpipe.len + 25; ramps.push({ x: cxMain(z), z0: z, len: 9, w: 10, h: 3.8 }); } // pipe exit kicker
+  { const z = halfpipe.z0 + halfpipe.len + 25; ramps.push({ x: cxMain(z), z0: z, len: 10, w: 10, h: 5.5 }); } // pipe exit kicker
   for (const r of ramps) { addB(rampBuckets, r.z0, r.z0 + r.len, r); blocked.push({ x: r.x, z: r.z0, rx: r.w, rz: 35 }); }
 
   // Boost pads
@@ -203,7 +203,7 @@ export function makeCourse(seed) {
   function groundH(x, z) {
     let y = baseH(z) + 0.45 * Math.sin(x * 0.11 + z * 0.05) * Math.sin(z * 0.07 - x * 0.03);
     const d = corridorD(x, z);
-    if (d > 0) y += d * d * 0.035 + d * 0.25;
+    if (d > 0) y += 30 * (1 - Math.exp(-d * d / 450)) + 0.06 * d; // rolling valley sides, not cliffs
     const w = hpW(z);
     if (w > 0) {
       const ax = Math.abs(x - cxMain(z)), t = clamp01((ax - (HW_MAIN - HP_W)) / HP_W);
@@ -220,6 +220,6 @@ export function makeCourse(seed) {
     return m;
   }
 
-  return { seed, L, shortcuts, halfpipe, pitches, rollers, cxMain, cxBase, scActive, scAt, hpW, corridor, groundH, baseH,
+  return { seed, L, rampH, shortcuts, halfpipe, pitches, rollers, cxMain, cxBase, scActive, scAt, hpW, corridor, groundH, baseH,
     ramps, pads, obstacles, forest, gates, flags, signs, obstaclesNear, nearestCenter };
 }

@@ -25,13 +25,18 @@ If the friend can't connect, one of you is likely behind a strict/corporate netw
 | A / D or ← / → | Steer |
 | W or ↑ | Tuck (faster, turns wider) |
 | S or ↓ | Brake |
-| Space | Jump |
-| In the air: ← / → (or A/D) | Spin |
-| In the air: ↑ / ↓ (or W/S) | Front / back flip |
+| Space | Jump (small ollie on flat snow; extra pop if you hit it at a kicker lip) |
+| In the air: ← / → (or A/D) | Spin (counts in 180s: 180, 360, 540, 720…) |
+| In the air: ↑ / ↓ (or W/S) | Frontflip / backflip |
+| In the air: hold Q / E / R / F (or J / K / L / I) | Grab — Indy / Method / Melon / Tail (snowboard), Safety / Japan / Mute / Tail (ski) |
 | M | Mute / unmute |
+| G | Graphics High / Low (drops to Low automatically if the frame rate is poor) |
 | ` | Debug overlay |
 
-Trick keys only count if you press them **after** leaving the ground (so you don't auto-spin while carving into a jump). Land facing forward (within ~40°) for a boost; land sideways or upside down and you wipe out and respawn after ~1.3 s.
+**Tricks:** you only get real air off the kickers (a flat-ground ollie is a short hop that never earns a boost). Combine spins, flips and grabs — e.g. "Backflip 540 Indy" — the name and rotation show live above your rider. Any multiple of 180° is rideable (odd ones land you switch/backwards). Let go of the grab before you touch down.
+- **Landing quality:** the closer to straight you land, the bigger the boost — PERFECT > CLEAN > SKETCHY. Up to ~70° off you ride away at that angle with a smaller boost; beyond that (or still grabbing, or over-rotated flip) is a wipeout and ~1.3 s respawn.
+- **Landing assist:** when you let go of the spin/flip keys you drift toward the nearest landable angle, so you don't have to be frame-perfect.
+- Trick keys only count if pressed **after** leaving the ground (no accidental spins when carving into a kicker).
 
 **Skier vs Snowboarder:** skiers turn sharper and are faster on the groomed (white, striped) main run. Snowboarders turn wider, launch higher off kickers, lose less speed in powder, and get a much bigger speed boost for landing tricks.
 
@@ -48,6 +53,6 @@ Trick keys only count if you press them **after** leaving the ground (so you don
 - No mobile/touch controls. If the host closes their tab, the room ends.
 
 ## Top 3 next improvements
-1. Real track-side art pass: textured snow, rider animations (arms, crouch blend), trail marks in the snow.
+1. More art: ski/board trails in the snow, animated crowd/flags at the finish, nicer menu screen.
 2. Host migration + reconnect so a dropped host doesn't end the room; TURN fallback for strict networks.
-3. Progression: persistent ghosts/leaderboards per seed (shareable "mountain codes"), trick combos and style score.
+3. Progression: persistent ghosts/leaderboards per seed (shareable "mountain codes"), a style score for tricks shown in the results.

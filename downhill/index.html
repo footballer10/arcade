@@ -61,6 +61,8 @@ kbd{background:#2a3450;border-radius:4px;padding:1px 5px;font-family:inherit}
 #prog .m{position:absolute;top:-4px;width:12px;height:18px;border-radius:4px;margin-left:-6px;border:2px solid rgba(0,0,0,.4)}
 #prog .m.me{height:22px;top:-6px;border-color:#fff}
 #msg{position:absolute;top:30%;left:50%;transform:translateX(-50%);font-size:1.9rem;font-weight:900;font-style:italic;text-shadow:0 3px 10px rgba(0,0,0,.6);white-space:nowrap;transition:opacity .3s}
+#live{position:absolute;top:19%;left:50%;transform:translateX(-50%);text-align:center;font-size:1.6rem;font-weight:900;font-style:italic;color:#ffe27a;text-shadow:0 2px 8px rgba(0,0,0,.6);transition:opacity .15s;white-space:nowrap}
+#live small{display:block;font-size:1rem;color:#fff;font-style:normal;font-weight:700}
 #cd{position:absolute;top:38%;left:50%;transform:translate(-50%,-50%);font-size:7rem;font-weight:900;font-style:italic;text-shadow:0 4px 18px rgba(0,0,0,.5)}
 #fin{position:absolute;top:22%;left:50%;transform:translateX(-50%);text-align:center;font-size:2.4rem;font-weight:900;text-shadow:0 3px 12px rgba(0,0,0,.6)}
 #fin small{display:block;font-size:1.1rem;font-weight:600}
@@ -70,7 +72,8 @@ table{width:100%;border-collapse:collapse;margin-bottom:14px}
 td,th{padding:6px 8px;text-align:left}
 tr:nth-child(even) td{background:#1a2440}
 tr.me td{background:#1b4f9f}
-#mute{position:fixed;top:10px;left:150px;z-index:20;margin:0;padding:6px 10px;font-size:.85rem;font-weight:600;background:rgba(0,0,0,.35)}
+#gfx{position:fixed;top:10px;left:318px;z-index:20;margin:0;padding:6px 10px;font-size:.85rem;font-weight:600;background:rgba(0,0,0,.35)}
+#mute{position:fixed;top:10px;left:158px;z-index:20;margin:0;padding:6px 10px;font-size:.85rem;font-weight:600;background:rgba(0,0,0,.35)}
 #mini{position:absolute;right:14px;top:50%;transform:translateY(-50%);border-radius:10px}
 #ghost{position:absolute;top:52px;right:18px;font-size:.95rem;font-weight:700;opacity:.85;text-shadow:0 1px 4px #000}
 #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.7);padding:10px 16px;border-radius:10px;display:none;z-index:30}
@@ -81,6 +84,7 @@ tr.me td{background:#1b4f9f}
 <canvas id="lines"></canvas>
 <a id="back" href="../">&larr; Back to menu</a>
 <button id="mute"></button>
+<button id="gfx"></button>
 <div id="debug"></div>
 <div id="toast"></div>
 
@@ -90,6 +94,7 @@ tr.me td{background:#1b4f9f}
   <div id="speed"></div>
   <div id="prog"></div>
   <div id="msg"></div>
+  <div id="live"></div>
   <div id="cd"></div>
   <div id="fin"></div>
   <div id="hint"></div>
@@ -111,7 +116,7 @@ tr.me td{background:#1b4f9f}
   <div class="row"><input id="joincode" maxlength="4" placeholder="CODE" style="text-transform:uppercase;letter-spacing:.2em"><button id="join" class="alt">Join</button></div>
   <div id="err"></div>
   <div class="keys"><kbd>A</kbd><kbd>D</kbd>/<kbd>&larr;</kbd><kbd>&rarr;</kbd> steer &middot; <kbd>W</kbd> tuck &middot; <kbd>S</kbd> brake &middot; <kbd>Space</kbd> jump<br>
-  In the air: <kbd>&larr;</kbd><kbd>&rarr;</kbd> spin, <kbd>&uarr;</kbd><kbd>&darr;</kbd> flip &mdash; land straight for a boost &middot; <kbd>M</kbd> mute &middot; <kbd>`</kbd> debug</div>
+  Off a kicker: <kbd>&larr;</kbd><kbd>&rarr;</kbd> spin, <kbd>&uarr;</kbd><kbd>&darr;</kbd> flip, hold <kbd>Q</kbd><kbd>E</kbd><kbd>R</kbd><kbd>F</kbd> to grab (let go before landing) &mdash; cleaner landing = bigger boost &middot; <kbd>M</kbd> mute &middot; <kbd>`</kbd> debug</div>
 </div></div>
 
 <div class="ui" id="lobby"><div class="panel">

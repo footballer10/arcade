@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import { makeCourse, mulberry32 } from './course.js';
-import { CLASSES, newEntity, stepEntity, bump, botInput, newBrain, sanitizeInput, packInput } from './physics.js';
+import { CLASSES, newEntity, stepEntity, bump, botInput, newBrain, sanitizeInput, packInput, trickName } from './physics.js';
 import { createRenderer, buildCourse, disposeGroup, makeRider, poseRider, COLORS, Spray, makeMinimap } from './render.js';
 import { unlock as unlockAudio, sfx, setRide, toggleMute, isMuted } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
-const { renderer, scene, camera } = createRenderer($('c'));
+const { renderer, scene, camera, env } = createRenderer($('c'));
 const linesCv = $('lines'), lctx = linesCv.getContext('2d');
 const fitLines = () => { linesCv.width = innerWidth; linesCv.height = innerHeight; };
 fitLines(); addEventListener('resize', fitLines);
@@ -90,6 +90,13 @@ const muteLabel = () => { $('mute').textContent = isMuted() ? '🔇 Sound off (M
 muteLabel();
 $('mute').onclick = (ev) => { ev.currentTarget.blur(); unlockAudio(); toggleMute(); muteLabel(); };
 addEventListener('pointerdown', () => unlockAudio());
+const gfxLabel = () => { $('gfx').textContent = `Graphics: ${env.quality === 'high' ? 'High' : 'Low'} (G)`; };
+const setGfx = (q) => { env.setQuality(q); store.set('dh_gfx', q); gfxLabel(); };
+if (store.get('dh_gfx', 'high') === 'low') env.setQuality('low');
+gfxLabel();
+$('gfx').onclick = (ev) => { ev.currentTarget.blur(); setGfx(env.quality === 'high' ? 'low' : 'high'); };
+addEventListener('keydown', (ev) => { if (ev.code === 'KeyG' && ev.target.tagName !== 'INPUT') setGfx(env.quality === 'high' ? 'low' : 'high'); });
+let slowT = 0, autoLowDone = false;
 addEventListener('keydown', (ev) => { unlockAudio(); if (ev.code === 'KeyM' && ev.target.tagName !== 'INPUT') { toggleMute(); muteLabel(); } });
 $('tolobby').onclick = () => { if (S.mode === 'host') { endRaceObjects(); show('lobby'); renderLobby(); broadcast({ t: 'tolobby' }); broadcastLobby(); } };
 
@@ -176,7 +183,7 @@ async function joinRoom(code) {
   let Peer; try { Peer = await loadPeer(); } catch (e) { setErr('Could not load PeerJS (check internet).'); return; }
   const peer = new Peer({ debug: 1 });
   let opened = false;
-  const to = setTimeout(() => { if (!opened) { setErr('Could not reach that room. Check the code and try again.'); peer.destroy(); } }, 12000);
+  const to = setTimeout(() => { if (!opened) { setErr('Could not reach that room. Check the code and try again.'); peer.destroy(); } }, 20000);
   peer.on('error', (err) => {
     console.warn('peer error', err.type, err);
     if (err.type === 'peer-unavailable') { setErr(`Room ${code} not found.`); clearTimeout(to); peer.destroy(); }
@@ -281,7 +288,7 @@ function startRace(seed, list, cd) {
   camState.init = false;
   buildProgressMarkers();
   $('fin').innerHTML = ''; $('msg').textContent = '';
-  $('hint').textContent = 'W tuck · S brake · Space jump · arrows in air = tricks';
+  $('hint').textContent = 'W tuck · S brake · Space jump · in the air: arrows spin/flip, Q/E/R/F grab';
   show('race');
 }
 
@@ -306,11 +313,11 @@ const STATE_CODE = { ride: 0, wipe: 2 };
 function packEnt(e) {
   const st = (e.state === 'wipe' ? 2 : e.air ? 1 : 0) | (e.tuck ? 4 : 0) | (e.finished ? 8 : 0) | (e.ghostT > 0 ? 16 : 0);
   const r = (n, k = 100) => Math.round(n * k) / k;
-  return [r(e.x), r(e.y), r(e.z), r(e.h, 1000), r(e.spin, 100), r(e.flip, 100), r(e.v), st, e.finished ? r(e.finishTime, 1000) : 0, r(e.lean)];
+  return [r(e.x), r(e.y), r(e.z), r(e.h, 1000), r(e.spin, 100), r(e.flip, 100), r(e.v), st, e.finished ? r(e.finishTime, 1000) : 0, r(e.lean), e.stance ? 1 : 0, e.grab || 0];
 }
-const FULL_KEYS = ['x', 'y', 'z', 'h', 'v', 'vy', 'airT', 'spin', 'flip', 'wipeT', 'ghostT', 'jumpCD', 'boostT', 'pushX', 'pushZ', 'finishTime', 'lean'];
-function packFull(e) { return [...FULL_KEYS.map(k => e[k]), (e.air ? 1 : 0) | (e.state === 'wipe' ? 2 : 0) | (e.finished ? 4 : 0) | (e.tuck ? 8 : 0)]; }
-function applyFull(e, a) { FULL_KEYS.forEach((k, i) => { e[k] = a[i]; }); const f = a[FULL_KEYS.length]; e.air = !!(f & 1); e.state = (f & 2) ? 'wipe' : 'ride'; e.finished = !!(f & 4); e.tuck = !!(f & 8); }
+const FULL_KEYS = ['x', 'y', 'z', 'h', 'v', 'vy', 'airT', 'spin', 'flip', 'wipeT', 'ghostT', 'jumpCD', 'boostT', 'pushX', 'pushZ', 'finishTime', 'lean', 'stance', 'grab'];
+function packFull(e) { return [...FULL_KEYS.map(k => e[k]), (e.air ? 1 : 0) | (e.state === 'wipe' ? 2 : 0) | (e.finished ? 4 : 0) | (e.tuck ? 8 : 0) | (e.airSwitch ? 16 : 0), e.gt]; }
+function applyFull(e, a) { FULL_KEYS.forEach((k, i) => { e[k] = a[i]; }); const f = a[FULL_KEYS.length]; e.air = !!(f & 1); e.state = (f & 2) ? 'wipe' : 'ride'; e.finished = !!(f & 4); e.tuck = !!(f & 8); e.airSwitch = !!(f & 16); e.gt = Array.isArray(a[FULL_KEYS.length + 1]) ? a[FULL_KEYS.length + 1].slice(0, 4) : [0, 0, 0, 0]; }
 
 // Client-side prediction: rewind to the host's state for my rider, replay unacknowledged inputs,
 // and hide the correction with a decaying visual offset.
@@ -332,7 +339,7 @@ function applyRemoteState(id, s) {
   if (!ent || ent.local || !Array.isArray(s)) return;
   ent.remote = { x: s[0], y: s[1], z: s[2], h: s[3], spin: s[4], flip: s[5], v: s[6], st: s[7], finT: s[8], t: performance.now() };
   const e = ent.e;
-  e.h = s[3]; e.spin = s[4]; e.flip = s[5]; e.v = s[6]; e.lean = s[9] || 0;
+  e.h = s[3]; e.spin = s[4]; e.flip = s[5]; e.v = s[6]; e.lean = s[9] || 0; e.stance = s[10] ? Math.PI : 0; e.grab = s[11] || 0;
   e.state = (s[7] & 3) === 2 ? 'wipe' : 'ride'; e.air = (s[7] & 3) === 1; e.tuck = !!(s[7] & 4); e.ghostT = (s[7] & 16) ? 1 : 0;
   if ((s[7] & 8) && !e.finished) { e.finished = true; e.finishTime = s[8]; onFinish(ent); }
 }
@@ -380,6 +387,7 @@ function localInput(e) {
   const L = K.KeyA || K.ArrowLeft, Rr = K.KeyD || K.ArrowRight;
   const inp = { steer: (Rr ? 1 : 0) - (L ? 1 : 0), tuck: !!(K.KeyW || K.ArrowUp), brake: !!(K.KeyS || K.ArrowDown), jump: jumpBuf > 0, spin: 0, flip: 0 };
   if (e.air) {
+    inp.grab = (K.KeyQ || K.KeyJ) ? 1 : (K.KeyE || K.KeyK) ? 2 : (K.KeyR || K.KeyL) ? 3 : (K.KeyF || K.KeyI) ? 4 : 0;
     inp.spin = ((fresh('ArrowRight') || fresh('KeyD')) ? 1 : 0) - ((fresh('ArrowLeft') || fresh('KeyA')) ? 1 : 0);
     inp.flip = ((fresh('ArrowUp') || fresh('KeyW')) ? 1 : 0) - ((fresh('ArrowDown') || fresh('KeyS')) ? 1 : 0);
   }
@@ -566,6 +574,14 @@ function updateHud(dt) {
   r.mini.draw(mctx, dots);
   for (const ent of r.ents.values()) if (ent.marker) ent.marker.style.left = (Math.max(0, Math.min(1, ent.e.z / r.course.L)) * 100) + '%';
   if (msgTimer > 0) { msgTimer -= dt; if (msgTimer <= 0) $('msg').style.opacity = 0; }
+  // live trick readout while airborne
+  const live = $('live');
+  if (me && me.e.air && me.e.airT > 0.2 && me.e.state === 'ride') {
+    const e = me.e, deg = Math.round(Math.abs(e.spin) * 180 / Math.PI / 10) * 10;
+    const name = trickName(e);
+    live.innerHTML = `${name || '&nbsp;'}<small>${deg ? deg + '°' : ''}${e.grab ? ' · grabbing' : ''}</small>`;
+    live.style.opacity = 1;
+  } else live.style.opacity = 0;
   if (rt > 8) $('hint').textContent = '';
 }
 
@@ -610,10 +626,10 @@ function updateCamera(dt) {
   if (!camState.init) { camState.h = e.h; camState.init = true; camState.pos.set(e.x - Math.sin(e.h) * 9, e.y + 4, e.z - Math.cos(e.h) * 9); }
   camState.h += (e.h - camState.h) * (1 - Math.exp(-5 * dt));
   const sx = Math.sin(camState.h), sz = Math.cos(camState.h);
-  const dist = 8 + Math.min(e.v, 50) * 0.04;
+  const dist = 6.6 + Math.min(e.v, 50) * 0.035;
   tmpV.set(e.x - sx * dist, 0, e.z - sz * dist);
   const gy = r.course.groundH(tmpV.x, tmpV.z);
-  tmpV.y = Math.max(e.y + 3.4, gy + 2);
+  tmpV.y = Math.max(e.y + 2.9, gy + 1.8);
   camState.pos.lerp(tmpV, 1 - Math.exp(-9 * dt));
   camera.position.copy(camState.pos);
   lookV.set(e.x + sx * 6, e.y + 1.2, e.z + sz * 6);
@@ -627,7 +643,7 @@ let lastT = performance.now();
 let fpsAcc = 0, fpsN = 0, debugT = 0;
 function tick(render) {
   const now = performance.now();
-  let dt = Math.min(0.1, (now - lastT) / 1000); lastT = now;
+  let dt = Math.min(0.25, (now - lastT) / 1000); lastT = now;
   if (jumpBuf > 0) jumpBuf -= dt;
   const r = S.race;
   if (r && S.screen !== 'menu') {
@@ -635,8 +651,8 @@ function tick(render) {
     if (r.phase === 'race' && !r.over) {
       acc += dt;
       let n = 0;
-      while (acc >= FIXED && n < 8) { simStep(FIXED); acc -= FIXED; n++; }
-      if (n === 8) acc = 0;
+      while (acc >= FIXED && n < 16) { simStep(FIXED); acc -= FIXED; n++; }
+      if (n === 16) acc = 0;
       for (const ent of r.ents.values()) if (!ent.local && !ent.bot && !ent.hostSim) smoothRemote(ent, dt);
       // record my run for the ghost (10 Hz)
       if (r.me && !r.me.e.finished) {
@@ -694,10 +710,18 @@ function tick(render) {
     updateHud(dt);
   } else setRide(0, 0, false, false);
   updateCamera(dt);
+  { const fe = S.race && S.race.me ? S.race.me.e : null; if (fe) env.follow(fe.x, fe.y, fe.z + 10); else { const t = new THREE.Vector3(); camera.getWorldDirection(t); env.follow(camera.position.x + t.x * 40, camera.position.y + t.y * 40, camera.position.z + t.z * 40); } }
   drawSpeedLines(S.race && S.race.me ? S.race.me.e.v : 0);
   renderer.render(scene, camera);
   fpsAcc += dt; fpsN++;
-  if (fpsAcc >= 0.5) { S.fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
+  if (fpsAcc >= 0.5) {
+    S.fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0;
+    // drop to low graphics automatically if a race is running badly
+    if (S.screen === 'race' && env.quality === 'high' && !autoLowDone && !window.__dhNoAutoLow) {
+      slowT = S.fps < 28 ? slowT + 0.5 : 0;
+      if (slowT >= 3) { autoLowDone = true; setGfx('low'); toast('Switched to low graphics for speed — press G to switch back', 4000); }
+    }
+  }
   debugT -= dt;
   if (S.debug && debugT <= 0) {
     debugT = 0.2;
