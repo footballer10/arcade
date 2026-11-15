@@ -12,6 +12,7 @@ node migration.mjs arena                    # host closes their tab mid-game
 node party.mjs                              # vote, shuffle + podium, mid-game join, handover, kick
 node local.mjs                              # BroadcastChannel transport (two tabs, no PeerJS)
 node solo.mjs [nopeer]                      # Play Solo vs Bots (with / without a reachable PeerJS server)
+node emotes.mjs [ids]                       # emotes from host + client don't flood or stall games
 node shot.mjs <gameId>                      # screenshots into artifacts/
 ```
 Notes
