@@ -35,6 +35,7 @@ One session = one game. Read `CLAUDE.md` first (contract, control map, HUD and s
 - [ ] Level is generated from the seed; identical on every client.
 - [ ] Host-authoritative; works with 1 human + bots, and with 2–3 humans; bots respect `ctx.bots.level`.
 - [ ] Waits for `'go'`; calls `ctx.endGame` exactly once with valid placements; provides `standings()`.
+- [ ] Host never relays a message under the type it handles (`toAll` loops back to the host); if the game has emotes/chat-like messages, `node emotes.mjs <id>` passes.
 - [ ] Survives host migration (`'hostchange'`) and mid-round joiners (`'join'`, `ctx.spectator`).
 - [ ] Respects graphics quality (low: no shadows / post), master/sfx volume (route sound into `ctx.audio.sfx`), mouse sensitivity if it uses mouse look.
 - [ ] `stop()` frees everything: `node memory.mjs <id>` shows 0 renderers/canvases/HUD nodes after each unload and a flat heap.

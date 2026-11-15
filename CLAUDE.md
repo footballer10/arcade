@@ -65,6 +65,8 @@ manifest = { id, dir?, name, tagline, minPlayers, maxPlayers, teams: false|2, su
 | `on(event, fn)` | `'go'` (shared countdown done: start now), `'hostchange'` `{amHost, hostId, oldHost}`, `'join'` (id loaded mid-round: send them a full sync), `'leave'` (id), `'rejoin'`, `'resize'`, `'settings'` |
 | `endGame(placements, {stats, note, title})` | host only. `placements` = ids best→worst; ties as arrays: `[[a, b], c]`. `stats[id]` text shows on the results screen |
 
+**Relay trap:** `toAll(msg)` also delivers `msg` to the host's own `onMessage` (from = host). Never relay a message under the same type you are handling (e.g. client `{t:'emote'}` → host relays `{t:'emoted'}`), or the host re-broadcasts its own copy forever and the game locks up.
+
 `standings()` (optional) returns current placements; used if the host ends the game early (otherwise no trophies).
 Trophies: 1st 5, 2nd 3, 3rd 2, everyone else 1 (ties share the higher place).
 
