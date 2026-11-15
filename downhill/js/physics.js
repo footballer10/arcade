@@ -5,13 +5,13 @@ export const CLASSES = {
     label: 'Skier', turn: 2.5, drag: 0.0046, dragTuck: 0.0029, groomedBonus: 0.86,
     powderFric: 2.6, carveLoss: 0.045, jumpV: 5.0, airMult: 1.05, airBonus: 0.8,
     spinRate: Math.PI * 2 / 0.9, flipRate: Math.PI * 2 / 1.1, landBoost: 2, trickBoost: 1.3,
-    grabs: ['Safety', 'Japan', 'Mute', 'Tail'],
+    grabs: ['Safety', 'Japan', 'Mute', 'Tail', 'Truck Driver', 'Critical'],
   },
   board: {
     label: 'Snowboarder', turn: 1.65, drag: 0.0046, dragTuck: 0.0031, groomedBonus: 1.0,
     powderFric: 1.4, carveLoss: 0.035, jumpV: 5.5, airMult: 1.2, airBonus: 2.8,
     spinRate: Math.PI * 2 / 0.72, flipRate: Math.PI * 2 / 0.95, landBoost: 2, trickBoost: 2.3,
-    grabs: ['Indy', 'Method', 'Melon', 'Tail'],
+    grabs: ['Indy', 'Method', 'Melon', 'Tail', 'Nose', 'Stalefish'],
   },
 };
 
@@ -25,13 +25,20 @@ const SPIN_LIM = 1.25;   // max sideways angle you can still ride away from (~72
 const FLIP_LIM = 0.95;   // max over/under-rotation on a flip (~55°)
 const GRAB_MIN = 0.3;    // seconds a grab must be held to count
 const MIN_TRICK_AIR = 0.75; // a flat-ground ollie can't reach this, a kicker can
+export const GRAB_KEYS = ['Q', 'E', 'R', 'F', 'C', 'V'];
+export const ITEMS = [null, { name: 'Rocket', icon: '🚀' }, { name: 'Snowball', icon: '❄️' }, { name: 'Shield', icon: '🛡️' }];
+const hash01 = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 
 export function newEntity(id, cls, x, z, course) {
   return {
     id, cls, x, z, y: course.groundH(x, z), h: 0, v: 0, vy: 0, air: false, airT: 0,
     spin: 0, flip: 0, state: 'ride', wipeT: 0, ghostT: 0, jumpCD: 0, boostT: 0,
     pushX: 0, pushZ: 0, finished: false, finishTime: 0, tuck: false, lean: 0, msg: null, msgId: 0,
-    stance: 0, grab: 0, gt: [0, 0, 0, 0], airSwitch: false, grind: -1, grindT: 0, slideAng: 0, gpts: 0, gname: 0,
+    stance: 0, grab: 0, gt: [0, 0, 0, 0, 0, 0], airSwitch: false, grind: -1, grindT: 0, slideAng: 0, gpts: 0, gname: 0,
+    // style + party
+    score: 0, bestPts: 0, bestName: '', lastTrick: '', tricks: 0, butterT: 0, butterCD: 0,
+    item: 0, itemCD: 0, shieldT: 0, hitT: 0, fireId: 0, pickups: 0, rankFrac: 0.5, handicap: 1,
+    idh: [...String(id)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 9973, 7),
   };
 }
 
@@ -39,8 +46,9 @@ const wrapPi = (a) => { a = (a + Math.PI) % TWO_PI; if (a < 0) a += TWO_PI; retu
 
 function say(e, text, good) { e.msg = { text, good }; e.msgId++; }
 
-export function wipeout(e, why) {
+export function wipeout(e, why, landing = false) {
   if (e.state === 'wipe' || e.ghostT > 0) return;
+  if (!landing && e.shieldT > 0) { e.shieldT = 0; e.v *= 0.75; e.ghostT = 0.6; say(e, 'SHIELD SAVED YOU!', true); return; }
   e.state = 'wipe'; e.wipeT = 1.3; e.air = false; e.boostT = 0;
   say(e, why || 'WIPEOUT!', false);
 }
@@ -49,7 +57,7 @@ function respawn(e, course) {
   const z = Math.max(5, e.z - 8);
   const cx = course.nearestCenter(e.x, z);
   e.x = cx; e.z = z; e.y = course.groundH(cx, z); e.vy = 0;
-  e.h = 0; e.v = 10; e.spin = 0; e.flip = 0; e.state = 'ride'; e.ghostT = 1.6; e.stance = 0; e.grab = 0;
+  e.h = 0; e.v = 10; e.spin = 0; e.flip = 0; e.state = 'ride'; e.ghostT = 1.6; e.stance = 0; e.grab = 0; e.hitT = 0;
   e.pushX = e.pushZ = 0;
 }
 
@@ -62,18 +70,39 @@ export function trickName(e, half, flips) {
   const parts = [];
   if (e.gname) parts.push(GRIND_NAMES[e.gname] + ' to');
   if (e.airSwitch && (half || flips)) parts.push('Switch');
-  if (flips) parts.push((Math.abs(flips) > 1 ? ['', '', 'Double ', 'Triple '][Math.min(3, Math.abs(flips))] : '') + (flips > 0 ? 'Frontflip' : 'Backflip'));
-  if (half) parts.push(String(Math.abs(half) * 180));
-  const grabs = P.grabs.filter((_, i) => e.gt[i] >= GRAB_MIN);
+  const mult = ['', '', 'Double ', 'Triple '][Math.min(3, Math.abs(flips))];
+  if (flips && half) parts.push(`${mult}${flips > 0 ? 'Misty' : 'Rodeo'} ${Math.abs(half) * 180}`);   // off-axis: flip + spin
+  else if (flips) parts.push(mult + (flips > 0 ? 'Frontflip' : 'Backflip'));
+  else if (half) parts.push(String(Math.abs(half) * 180));
+  const grabs = [];
+  P.grabs.forEach((g, i) => { if (e.gt[i] >= GRAB_MIN) grabs.push((e.gt[i] >= 0.8 ? 'Tweaked ' : '') + g); });
   if (grabs.length) parts.push(grabs.join(' + '));
   return parts.join(' ');
 }
 
+// speed-boost score (small numbers) and style points (big numbers) for the current air
 function trickScore(e, half, flips) {
   let s = Math.abs(half) + Math.abs(flips) * 3;
   for (const t of e.gt) if (t >= GRAB_MIN) s += 1 + Math.min(1, t);
   if (e.airSwitch && (half || flips)) s += 0.5;
   return s + e.gpts;
+}
+function stylePoints(e, half, flips, airT) {
+  let pts = Math.abs(half) * 100 + Math.abs(flips) * 450, kinds = (half ? 1 : 0) + (flips ? 1 : 0);
+  for (const t of e.gt) if (t >= GRAB_MIN) { pts += 150 + Math.min(1.5, t) * 200; kinds++; }
+  if (e.gpts > 0) { pts += e.gpts * 160; kinds++; }
+  if (e.airSwitch && (half || flips)) pts += 100;
+  if (pts > 0) pts += Math.min(3, airT) * 60;
+  return pts * (1 + 0.3 * Math.max(0, kinds - 1));
+}
+
+// What would happen if you touched down right now (used by the HUD landing meter)
+export function landingPreview(e) {
+  const half = Math.round(e.spin / Math.PI), rs = e.spin - half * Math.PI;
+  const flips = Math.round(e.flip / TWO_PI), rf = e.flip - flips * TWO_PI;
+  let q = 1 - Math.max(Math.abs(rs) / SPIN_LIM, Math.abs(rf) / FLIP_LIM);
+  if (e.grab > 0) q -= 0.4;
+  return { q, half, flips, rs, rf, label: q < 0 ? 'CRASH' : q > 0.85 ? 'PERFECT' : q > 0.5 ? 'CLEAN' : 'SKETCHY', sw: (Math.round(e.stance / Math.PI) + half) % 2 !== 0 };
 }
 
 function land(e, P, airT) {
@@ -84,22 +113,28 @@ function land(e, P, airT) {
   if (holding) q -= 0.4;
   let name = trickName(e, half, flips);
   if (e.gname && name.endsWith(' to')) name = name.slice(0, -3);
-  const score = airT >= MIN_TRICK_AIR || e.gpts > 0 ? trickScore(e, half, flips) : 0;
-  e.spin = 0; e.flip = 0; e.grab = 0; e.gt = [0, 0, 0, 0]; e.gpts = 0; e.gname = 0;
-  if (q < 0) { e.stance = 0; wipeout(e, holding && Math.abs(rs) < SPIN_LIM ? 'STILL GRABBING!' : Math.abs(rf) > FLIP_LIM ? 'OVER-ROTATED!' : 'BAD LANDING!'); return; }
+  const real = airT >= MIN_TRICK_AIR || e.gpts > 0;
+  const score = real ? trickScore(e, half, flips) : 0;
+  let pts = real ? stylePoints(e, half, flips, airT) : 0;
+  e.spin = 0; e.flip = 0; e.grab = 0; e.gt = [0, 0, 0, 0, 0, 0]; e.gpts = 0; e.gname = 0;
+  if (q < 0) { e.stance = 0; wipeout(e, holding && Math.abs(rs) < SPIN_LIM ? 'STILL GRABBING!' : Math.abs(rf) > FLIP_LIM ? 'OVER-ROTATED!' : 'BAD LANDING!', true); return; }
   // ride away in the direction you landed (sketchy landings keep their angle)
   e.stance = ((Math.round((e.stance + half * Math.PI) / Math.PI) % 2) + 2) % 2 ? Math.PI : 0;
   e.h = Math.max(-1.75, Math.min(1.75, e.h + rs * 0.9));
   e.v *= 1 - 0.18 * (1 - q);
   const label = q > 0.85 ? 'PERFECT' : q > 0.5 ? 'CLEAN' : 'SKETCHY';
   if (score > 0) {
+    const repeat = name && name === e.lastTrick;
+    pts = Math.round(pts * (q > 0.85 ? 1.2 : q > 0.5 ? 1 : 0.5) * (repeat ? 0.5 : 1) / 10) * 10;
+    e.lastTrick = name; e.score += pts; e.tricks++;
+    if (pts > e.bestPts) { e.bestPts = pts; e.bestName = name; }
     const boost = Math.min(15, P.landBoost + score * P.trickBoost) * (0.25 + 0.75 * q * q);
     e.v = Math.min(VMAX, e.v + boost); e.boostT = Math.max(e.boostT, 0.4 + 0.15 * score * q);
-    say(e, `${name || 'Air'} · ${label}  +${Math.round(boost * 3.6)} km/h`, q > 0.5);
+    say(e, `${name || 'Air'} · ${label}${repeat ? ' (repeat)' : ''}  +${pts} pts  +${Math.round(boost * 3.6)} km/h`, q > 0.5);
   } else if (airT >= 1.0 && q > 0.5) {
     const boost = P.landBoost * q;
-    e.v = Math.min(VMAX, e.v + boost);
-    say(e, `Big air · ${label}  +${Math.round(boost * 3.6)} km/h`, true);
+    e.v = Math.min(VMAX, e.v + boost); e.score += 50;
+    say(e, `Big air · ${label}  +50 pts  +${Math.round(boost * 3.6)} km/h`, true);
   } else if (half || flips) {
     say(e, `${name} · ${label}`, q > 0.5);
   }
@@ -111,6 +146,11 @@ export function stepEntity(e, inp, dt, course) {
   if (e.ghostT > 0) e.ghostT -= dt;
   if (e.jumpCD > 0) e.jumpCD -= dt;
   if (e.boostT > 0) e.boostT -= dt;
+  if (e.itemCD > 0) e.itemCD -= dt;
+  if (e.shieldT > 0) e.shieldT -= dt;
+  if (e.hitT > 0) e.hitT -= dt;
+  if (e.butterT > 0) e.butterT -= dt;
+  if (e.butterCD > 0) e.butterCD -= dt;
 
   if (e.state === 'wipe') {
     e.wipeT -= dt;
@@ -124,6 +164,23 @@ export function stepEntity(e, inp, dt, course) {
 
   if (e.finished) inp = { steer: 0, tuck: false, brake: true, jump: false, spin: 0, flip: 0, grab: 0 };
   inp = { steer: 0, spin: 0, flip: 0, grab: 0, ...inp };
+  // items: pick up from boxes, use with the item key
+  if (!e.finished) {
+    if (!e.item && e.itemCD <= 0) for (const b of course.itemsNear(e.z)) {
+      if (Math.abs(b.z - e.z) < 2.4 && Math.abs(b.x - e.x) < 2.2 && e.y - b.y < 4) {
+        const r = hash01(b.i * 31 + e.pickups * 17 + e.idh), wB = 0.25 + 0.5 * e.rankFrac, wS = 0.45, wSh = 0.3 - 0.2 * e.rankFrac;
+        e.item = r * (wB + wS + wSh) < wB ? 1 : r * (wB + wS + wSh) < wB + wS ? 2 : 3;
+        e.pickups++; e.itemCD = 0.4; say(e, `GOT ${ITEMS[e.item].name.toUpperCase()}!`, true);
+        break;
+      }
+    }
+    if (inp.use && e.item && e.itemCD <= 0) {
+      if (e.item === 1) { e.v = Math.min(VMAX, e.v + 11); e.boostT = 1.8; say(e, 'ROCKET!', true); }
+      else if (e.item === 2) e.fireId++;
+      else { e.shieldT = 7; say(e, 'SHIELD UP', true); }
+      e.item = 0; e.itemCD = 1;
+    }
+  }
   if (e.grind >= 0) { grindStep(e, inp, dt, course, P); return; }
   const info = course.corridor(e.x, e.z);
   const powder = !info.groomed;
@@ -132,6 +189,8 @@ export function stepEntity(e, inp, dt, course) {
   let drag = e.tuck ? P.dragTuck : P.drag;
   if (info.groomed) drag *= P.groomedBonus; else drag *= 1.15;
   if (e.boostT > 0) drag *= 0.55;
+  drag *= e.handicap;
+  if (e.hitT > 0) drag *= 3;
 
   if (!e.air) {
     const rate = P.turn * (1 - Math.min(e.v, 55) / 150) * (e.tuck ? 0.8 : 1);
@@ -157,9 +216,15 @@ export function stepEntity(e, inp, dt, course) {
         e.boostT = 1.4;
       }
     }
+    // butter: a 180 on the snow (changes stance, small style points, no boost)
+    if (inp.butter && e.butterCD <= 0 && e.v > 8 && !e.finished) {
+      e.stance = e.stance ? 0 : Math.PI; e.butterT = 0.35; e.butterCD = 0.9; e.v *= 0.985;
+      const rep = e.lastTrick === 'Butter 180'; e.lastTrick = 'Butter 180';
+      const pts = rep ? 20 : 60; e.score += pts; say(e, `Butter 180  +${pts} pts`, true);
+    }
     if (inp.jump && e.jumpCD <= 0 && !e.finished) {
       // pop relative to the slope you're riding (an ollie on flat ground is a small hop; on a kicker lip it adds height)
-      e.vy = e.vy + P.jumpV; e.air = true; e.airT = 0; e.spin = 0; e.flip = 0; e.grab = 0; e.gt = [0, 0, 0, 0];
+      e.vy = e.vy + P.jumpV; e.air = true; e.airT = 0; e.spin = 0; e.flip = 0; e.grab = 0; e.gt = [0, 0, 0, 0, 0, 0];
       e.airSwitch = e.stance !== 0; e.jumpCD = 0.6; e.y += 0.05;
     }
   } else {
@@ -192,11 +257,11 @@ export function stepEntity(e, inp, dt, course) {
     e.vy = Math.max(-45, Math.min(25, (hg - prevY) / dt));
     e.air = false; e.airT = 0;
     if (wasAir && (airT > 0.3 || e.gpts > 0)) land(e, P, airT);
-    else if (wasAir) { e.spin = 0; e.flip = 0; e.grab = 0; e.gt = [0, 0, 0, 0]; }
+    else if (wasAir) { e.spin = 0; e.flip = 0; e.grab = 0; e.gt = [0, 0, 0, 0, 0, 0]; }
   } else {
     e.y = ny;
     if (!e.air && ny - hg > 0.3) {
-      e.air = true; e.airT = 0; e.spin = 0; e.flip = 0; e.grab = 0; e.gt = [0, 0, 0, 0]; e.airSwitch = e.stance !== 0;
+      e.air = true; e.airT = 0; e.spin = 0; e.flip = 0; e.grab = 0; e.gt = [0, 0, 0, 0, 0, 0]; e.airSwitch = e.stance !== 0;
       if (course.rampH(px, pz) > 0.5) e.vy = Math.max(0, e.vy) * P.airMult + P.airBonus; // off a kicker (snowboarders pop higher)
     }
   }
@@ -258,7 +323,7 @@ function grindStep(e, inp, dt, course, P) {
     const slid = Math.abs(e.slideAng) > 1.0;
     e.gname = slid ? (r.type === 'box' ? 2 : 3) : 1;
     e.gpts += 0.5 + Math.min(2, e.grindT * 1.2) + (slid ? 1 : 0);
-    e.grind = -1; e.air = true; e.airT = 0; e.spin = e.slideAng; e.slideAng = 0; e.flip = 0; e.grab = 0; e.gt = [0, 0, 0, 0];
+    e.grind = -1; e.air = true; e.airT = 0; e.spin = e.slideAng; e.slideAng = 0; e.flip = 0; e.grab = 0; e.gt = [0, 0, 0, 0, 0, 0];
     e.vy = Math.max(0, e.vy) + (inp.jump ? P.jumpV * 0.9 : 2.5); e.y += 0.05; e.jumpCD = 0.4;
   }
 }
@@ -285,10 +350,19 @@ export function sanitizeInput(a) {
   const c = (v) => { v = Number(v); return Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0; };
   if (!Array.isArray(a)) return null;
   const g = Math.round(Number(a[5]) || 0);
-  return { steer: c(a[1]), tuck: !!(a[2] & 1), brake: !!(a[2] & 2), jump: !!(a[2] & 4), spin: Math.round(c(a[3])), flip: Math.round(c(a[4])), grab: g >= 0 && g <= 4 ? g : 0 };
+  return { steer: c(a[1]), tuck: !!(a[2] & 1), brake: !!(a[2] & 2), jump: !!(a[2] & 4), use: !!(a[2] & 8), butter: !!(a[2] & 16),
+    spin: Math.round(c(a[3])), flip: Math.round(c(a[4])), grab: g >= 0 && g <= 6 ? g : 0 };
 }
 export function packInput(seq, inp) {
-  return [seq, Math.round(inp.steer * 100) / 100, (inp.tuck ? 1 : 0) | (inp.brake ? 2 : 0) | (inp.jump ? 4 : 0), inp.spin, inp.flip, inp.grab || 0];
+  return [seq, Math.round(inp.steer * 100) / 100, (inp.tuck ? 1 : 0) | (inp.brake ? 2 : 0) | (inp.jump ? 4 : 0) | (inp.use ? 8 : 0) | (inp.butter ? 16 : 0), inp.spin, inp.flip, inp.grab || 0];
+}
+
+// Snowball hit (host only)
+export function snowballHit(e) {
+  if (e.state === 'wipe' || e.ghostT > 0 || e.finished) return false;
+  if (e.shieldT > 0) { e.shieldT = 0; say(e, 'BLOCKED!', true); return true; }
+  e.v *= 0.45; e.hitT = 0.9; e.boostT = 0; say(e, 'SNOWBALLED!', false);
+  return true;
 }
 
 // ---- Bots ----
@@ -308,6 +382,10 @@ export function newBrain(rnd, cls) {
 export function botInput(e, br, course, dt) {
   const inp = { steer: 0, tuck: true, brake: false, jump: false, spin: 0, flip: 0, grab: 0 };
   if (e.state === 'wipe' || e.finished) return inp;
+  if (e.item && e.itemCD <= 0) {
+    br.useT = (br.useT || 0) + dt;
+    if (e.item === 3 || (e.item === 1 && !e.air && Math.abs(e.h) < 0.3 && br.useT > 0.6) || (e.item === 2 && br.targetAhead && br.useT > 0.4) || br.useT > 9) { inp.use = true; br.useT = 0; }
+  } else br.useT = 0;
   if (e.grind >= 0) { inp.tuck = false; if (br.slide) inp.steer = br.slide; return inp; }
   br.laneT -= dt;
   if (br.laneT <= 0) { br.lane = (br.rnd() - 0.5) * 14; br.laneT = 2 + br.rnd() * 4; }
@@ -321,7 +399,7 @@ export function botInput(e, br, course, dt) {
         const tr = { t: 0, T, spinDir: br.rnd() < 0.5 ? -1 : 1, half: 0, flip: 0, grab: 0, gFrom: 0.15, gTo: T - 0.35 };
         if (br.rnd() < 0.35 && avail * P.flipRate > TWO_PI * 1.05) tr.flip = br.rnd() < 0.5 ? 1 : -1;
         else tr.half = Math.min(5, Math.floor(avail * P.spinRate / Math.PI));
-        if (br.rnd() < 0.6) tr.grab = 1 + Math.floor(br.rnd() * 4);
+        if (br.rnd() < 0.6) tr.grab = 1 + Math.floor(br.rnd() * 6);
         // occasionally misjudge the rotation
         if (br.rnd() < 0.12) tr.half += 1;
         br.trick = tr;

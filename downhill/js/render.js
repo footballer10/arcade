@@ -91,6 +91,14 @@ export function createRenderer(canvas) {
     m.position.set(Math.sin(a) * dist, hgt / 2 - 60, Math.cos(a) * dist); m.rotation.y = rnd() * 6;
     backdrop.add(m);
   }
+  // soft clouds (hidden at night)
+  const cloudMat = new THREE.SpriteMaterial({ map: dotTexture(), transparent: true, opacity: 0.5, depthWrite: false, fog: false });
+  const clouds = new THREE.Group();
+  for (let i = 0; i < 26; i++) {
+    const a = rnd() * Math.PI * 2, d = 900 + rnd() * 700, sp = new THREE.Sprite(cloudMat);
+    sp.position.set(Math.sin(a) * d, 330 + rnd() * 320, Math.cos(a) * d); sp.scale.set(420 + rnd() * 500, 110 + rnd() * 90, 1); clouds.add(sp);
+  }
+  backdrop.add(clouds);
   scene.add(backdrop);
 
   // bloom post-processing (high quality only)
@@ -141,6 +149,7 @@ export function createRenderer(canvas) {
       hemi.color.set(t.hemi[0]); hemi.groundColor.set(t.hemi[1]); hemi.intensity = t.hemi[2];
       renderer.toneMappingExposure = t.exposure;
       mtnMat.color.set(t.mtn);
+      clouds.visible = !t.night; cloudMat.opacity = t.snow > 1000 ? 0.75 : 0.5; cloudMat.color.set(t.fog[0]).lerp(new THREE.Color(0xffffff), 0.6);
       bloom.strength = t.bloom[0]; bloom.radius = t.bloom[1]; bloom.threshold = t.bloom[2];
       riderLight.intensity = t.night ? 6 : 0;
       snowfall.setCount(t.snow);
@@ -580,58 +589,82 @@ export function disposeGroup(g) {
 }
 
 // ---------------- Riders ----------------
-const capsule = (r, len, mat) => { const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 4, 10), mat); m.castShadow = true; return m; };
-function limb(r, len, mat) {
-  // pivot at the top, hangs down along -y
-  const g = new THREE.Group(); const c = capsule(r, len, mat); c.position.y = -len / 2 - r * 0.5; g.add(c); return g;
+// Chunky, readable characters. FRONT: goggles, chest stripe, bright ski tips / board nose.
+// BACK: dark backpack with a white stripe. That makes facing obvious in the air.
+const RS = 1.18; // overall rider scale
+const mk = (geo, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; return m; };
+function limb(r, len, mat) { // pivot at the top, hangs down along -y
+  const g = new THREE.Group(); g.add(mk(new THREE.CapsuleGeometry(r, len, 4, 10), mat, 0, -len / 2 - r * 0.4, 0)); return g;
 }
 
 export function makeRider(cls, color, name, ghost = false) {
   const root = new THREE.Group();
   const tilt = new THREE.Group(); root.add(tilt);
   const spinG = new THREE.Group(); tilt.add(spinG);
-  const inner = new THREE.Group(); spinG.add(inner);
+  const inner = new THREE.Group(); spinG.add(inner); inner.scale.setScalar(RS);
   const body = new THREE.Group(); inner.add(body);
-  const jacket = new THREE.MeshStandardMaterial({ color, roughness: 0.55 });
-  const pantsC = new THREE.Color(color).multiplyScalar(0.35);
-  const pants = new THREE.MeshStandardMaterial({ color: pantsC, roughness: 0.8 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x1b2230, roughness: 0.6 });
-  const skin = new THREE.MeshStandardMaterial({ color: 0xf0c4a0, roughness: 0.8 });
-  const helmetM = new THREE.MeshStandardMaterial({ color: 0xf5f7fb, roughness: 0.35 });
-  const goggleM = new THREE.MeshStandardMaterial({ color: 0xff9a2e, roughness: 0.15, metalness: 0.6, emissive: 0x6a2a00, emissiveIntensity: 0.4 });
+  const col = new THREE.Color(color);
+  const jacket = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
+  const pants = new THREE.MeshStandardMaterial({ color: col.clone().multiplyScalar(0.28).lerp(new THREE.Color(0x1a2233), 0.4), roughness: 0.85 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x151a24, roughness: 0.6 });
+  const white = new THREE.MeshStandardMaterial({ color: 0xf4f6fa, roughness: 0.5 });
+  const skin = new THREE.MeshStandardMaterial({ color: 0xf2c6a2, roughness: 0.8 });
+  const bright = new THREE.MeshStandardMaterial({ color: col.clone().lerp(new THREE.Color(0xffffff), 0.25), roughness: 0.4, emissive: col.clone().multiplyScalar(0.25) });
+  const goggleM = new THREE.MeshStandardMaterial({ color: 0xffa22e, roughness: 0.1, metalness: 0.7, emissive: 0x803000, emissiveIntensity: 0.6 });
 
-  // hips group bends for tuck / grabs
-  const hips = new THREE.Group(); hips.position.y = 0.95; body.add(hips);
-  const legL = limb(0.12, 0.62, pants), legR = limb(0.12, 0.62, pants);
-  legL.position.set(-0.13, 0, 0); legR.position.set(0.13, 0, 0);
-  body.add(legL, legR); legL.position.y = legR.position.y = 0.92;
-  const torso = capsule(0.22, 0.42, jacket); torso.position.y = 0.32; hips.add(torso);
-  const head = new THREE.Group(); head.position.y = 0.86; hips.add(head);
-  const face = new THREE.Mesh(new THREE.SphereGeometry(0.17, 14, 10), skin); face.castShadow = true; head.add(face);
-  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.2, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.6), helmetM); helmet.position.y = 0.02; head.add(helmet);
-  const goggles = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.09, 14, 1, true, -1.1, 2.2), goggleM);
-  goggles.position.y = 0.0; goggles.rotation.y = 0; head.add(goggles);
-  const armL = limb(0.08, 0.48, jacket), armR = limb(0.08, 0.48, jacket);
-  armL.position.set(-0.28, 0.55, 0); armR.position.set(0.28, 0.55, 0);
-  hips.add(armL, armR);
-  for (const a of [armL, armR]) { const glove = new THREE.Mesh(new THREE.SphereGeometry(0.085, 8, 6), dark); glove.position.y = -0.68; a.add(glove); }
+  // legs: thigh + shin so knees can bend
+  const mkLeg = (x) => {
+    const thigh = limb(0.115, 0.3, pants); thigh.position.set(x, 0.86, 0);
+    const shin = limb(0.1, 0.28, pants); shin.position.y = -0.4; thigh.add(shin);
+    shin.add(mk(new THREE.BoxGeometry(0.2, 0.18, 0.34), dark, 0, -0.42, 0.04)); // boot
+    body.add(thigh); return { thigh, shin };
+  };
+  const legL = mkLeg(-0.14), legR = mkLeg(0.14);
 
-  const accent = new THREE.MeshStandardMaterial({ color: new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.35), roughness: 0.4 });
+  const hips = new THREE.Group(); hips.position.y = 0.88; body.add(hips);
+  hips.add(mk(new THREE.SphereGeometry(0.21, 12, 10), pants, 0, 0.03, 0));
+  const torso = mk(new THREE.CapsuleGeometry(0.2, 0.32, 4, 12), jacket, 0, 0.36, 0); torso.scale.set(1.18, 1, 0.92); hips.add(torso);
+  hips.add(mk(new THREE.BoxGeometry(0.44, 0.09, 0.02), white, 0, 0.44, 0.19));          // chest stripe (front)
+  const pack = mk(new THREE.BoxGeometry(0.3, 0.38, 0.16), dark, 0, 0.4, -0.25); hips.add(pack); // backpack (back)
+  pack.add(mk(new THREE.BoxGeometry(0.31, 0.06, 0.17), white, 0, 0.06, 0));
+  const head = new THREE.Group(); head.position.y = 0.82; hips.add(head);
+  head.add(mk(new THREE.SphereGeometry(0.175, 16, 12), skin, 0, 0, 0));
+  const helmet = mk(new THREE.SphereGeometry(0.205, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.62), jacket, 0, 0.02, -0.01); head.add(helmet);
+  const gog = mk(new THREE.BoxGeometry(0.29, 0.1, 0.12), goggleM, 0, 0.03, 0.13); head.add(gog);
+  head.add(mk(new THREE.BoxGeometry(0.4, 0.045, 0.34), dark, 0, 0.03, -0.01));             // goggle strap
+  const mkArm = (x) => {
+    const upper = limb(0.085, 0.24, jacket); upper.position.set(x, 0.56, 0);
+    const fore = limb(0.075, 0.22, jacket); fore.position.y = -0.32; upper.add(fore);
+    fore.add(mk(new THREE.SphereGeometry(0.09, 10, 8), dark, 0, -0.33, 0));                // mitten
+    hips.add(upper); return { upper, fore };
+  };
+  const armL = mkArm(-0.3), armR = mkArm(0.3);
+
+  let poles = null;
   if (cls === 'ski') {
-    for (const sx of [-0.14, 0.14]) {
-      const ski = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.04, 1.75), accent); ski.position.set(sx, 0.03, 0.05); ski.castShadow = true; inner.add(ski);
-      const tip = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.04, 0.25), accent); tip.position.set(sx, 0.08, 0.98); tip.rotation.x = -0.5; inner.add(tip);
+    for (const sx of [-0.15, 0.15]) {
+      inner.add(mk(new THREE.BoxGeometry(0.11, 0.035, 1.5), dark, sx, 0.03, -0.1));
+      const tip = mk(new THREE.BoxGeometry(0.11, 0.035, 0.42), bright, sx, 0.07, 0.83); tip.rotation.x = -0.28; inner.add(tip);
     }
-    for (const a of [armL, armR]) {
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 1.15), dark); pole.position.set(0, -0.68, -0.35); pole.rotation.x = -1.1; a.add(pole);
-    }
+    poles = [armL, armR].map((a) => {
+      const pg = new THREE.Group(); pg.position.y = -0.33; a.fore.add(pg);
+      const geo = new THREE.CylinderGeometry(0.014, 0.014, 1.05, 6); geo.translate(0, -0.5, 0);
+      pg.add(mk(geo, dark)); pg.add(mk(new THREE.CylinderGeometry(0.06, 0.06, 0.02, 8), bright, 0, -0.98, 0));
+      return pg;
+    });
   } else {
-    const board = new THREE.Mesh(new THREE.CapsuleGeometry(0.15, 1.25, 4, 10), accent);
-    board.rotation.x = Math.PI / 2; board.scale.set(1.25, 1, 0.22); board.position.y = 0.04; board.castShadow = true; inner.add(board);
-    body.rotation.y = Math.PI / 2; // stands sideways on the board
-    legL.position.x = -0.2; legR.position.x = 0.2;
+    const deck = mk(new THREE.CapsuleGeometry(0.15, 1.2, 4, 12), dark, 0, 0.04, 0);
+    deck.rotation.x = Math.PI / 2; deck.scale.set(1.3, 1, 0.2); inner.add(deck);
+    const nose = mk(new THREE.CapsuleGeometry(0.152, 0.34, 4, 12), bright, 0, 0.045, 0.5);
+    nose.rotation.x = Math.PI / 2; nose.scale.set(1.3, 1, 0.22); inner.add(nose);       // bright nose = forward
+    body.rotation.y = Math.PI / 2 - 0.25; // stands sideways, shoulders slightly open
+    legL.thigh.position.x = -0.24; legR.thigh.position.x = 0.24;
   }
-  const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.55, 16), new THREE.MeshBasicMaterial({ color: 0x0a1a33, transparent: true, opacity: 0.18, depthWrite: false }));
+  // shield bubble (items)
+  const shield = new THREE.Mesh(new THREE.SphereGeometry(1.25, 18, 12), new THREE.MeshBasicMaterial({ color: 0x35c6ff, transparent: true, opacity: 0.2, depthWrite: false }));
+  shield.position.y = 1.0; shield.visible = false; inner.add(shield);
+
+  const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.6, 16), new THREE.MeshBasicMaterial({ color: 0x0a1a33, transparent: true, opacity: 0.2, depthWrite: false }));
   shadow.rotation.x = -Math.PI / 2;
   if (ghost) {
     root.traverse(o => { if (o.material) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.32; o.material.depthWrite = false; o.castShadow = false; } });
@@ -640,49 +673,127 @@ export function makeRider(cls, color, name, ghost = false) {
   if (name) {
     const tex = textTexture(name.slice(0, 14), { w: 256, h: 64, bg: null, fg: '#fff', font: 'bold 34px system-ui' });
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, sizeAttenuation: false }));
-    sp.scale.set(0.13, 0.0325, 1); sp.position.y = 2.45; root.add(sp);
+    sp.scale.set(0.13, 0.0325, 1); sp.position.y = 2.8; root.add(sp);
   }
-  return { root, tilt, spinG, inner, body, hips, armL, armR, legL, legR, shadow, cls, pitch: 0, crouch: 0 };
+  return { root, tilt, spinG, inner, body, hips, head, armL, armR, legL, legR, poles, shield, shadow, cls, pitch: 0, crouch: 0, ghost };
 }
 
-// Grab poses: which arm reaches where (x = forward/back on the board, side = which hand)
+// Arm targets: [upper.x, upper.z, fore.x]  (negative x = forward)
 const GRAB_POSE = [null,
-  { arm: 'R', rx: 0.9, rz: 0.35, crouch: 1.0, hipTwist: 0.0 },   // Indy / Safety: back hand to toes
-  { arm: 'L', rx: -0.7, rz: -0.6, crouch: 0.8, hipTwist: 0.5 },  // Method / Japan: arch back
-  { arm: 'L', rx: 0.9, rz: -0.35, crouch: 1.0, hipTwist: 0.0 },  // Melon / Mute: front hand
-  { arm: 'R', rx: -1.1, rz: 0.2, crouch: 0.9, hipTwist: -0.3 },  // Tail
+  { arm: 'R', a: [-0.5, 0.25, -0.9], crouch: 1.0, twist: 0.0, lean: 0.35 },   // Indy / Safety
+  { arm: 'L', a: [0.9, -0.5, 0.6], crouch: 0.75, twist: 0.55, lean: -0.3 },   // Method / Japan (arched back)
+  { arm: 'L', a: [-0.5, -0.25, -0.9], crouch: 1.0, twist: 0.0, lean: 0.35 },  // Melon / Mute
+  { arm: 'R', a: [1.0, 0.3, 0.3], crouch: 0.9, twist: -0.4, lean: -0.1 },     // Tail
+  { arm: 'L', a: [-1.5, -0.2, -0.4], crouch: 0.9, twist: 0.35, lean: 0.6 },   // Nose / Truck Driver
+  { arm: 'R', a: [0.7, 0.45, 0.9], crouch: 1.0, twist: -0.6, lean: -0.25 },   // Stalefish / Critical
 ];
+const damp = (obj, key, target, k) => { obj[key] += (target - obj[key]) * k; };
 
 // slope = terrain drop per metre along the heading (positive = downhill)
 export function poseRider(r, e, groundY, t, slope = 0, dt = 0.016, off = null) {
   r.root.position.set(e.x + (off ? off.x : 0), e.y + (off ? off.y : 0), e.z + (off ? off.z : 0));
   r.root.rotation.set(0, e.h, 0);
-  const targetPitch = e.air || e.state === 'wipe' ? 0 : Math.atan(slope);
+  const grind = e.grind >= 0;
+  const targetPitch = e.air || grind || e.state === 'wipe' ? 0 : Math.atan(slope);
   r.pitch += (targetPitch - r.pitch) * Math.min(1, dt * 10);
-  const lean = (e.air ? 0 : (e.lean || 0)) * 0.55 * Math.min(1, (e.v || 0) / 18);
+  const lean = (e.air ? 0 : (e.lean || 0)) * 0.55 * Math.min(1, (e.v || 0) / 18) + (e.hitT > 0 ? Math.sin(t * 30) * 0.35 : 0);
   r.tilt.rotation.set(r.pitch, 0, lean, 'YXZ');
-  r.spinG.rotation.set(0, (e.stance || 0) + (e.spin || 0) + (e.slideAng || 0), 0);
+  const butter = e.butterT > 0 ? (e.butterT / 0.35) * Math.PI : 0;
+  r.spinG.rotation.set(0, (e.stance || 0) + (e.spin || 0) + (e.slideAng || 0) + butter, 0);
   r.inner.rotation.set(e.flip || 0, 0, 0);
   const g = GRAB_POSE[e.grab || 0];
-  const targetCrouch = g ? g.crouch : e.tuck ? 0.65 : e.air ? 0.35 : 0.15;
-  r.crouch += (targetCrouch - r.crouch) * Math.min(1, dt * 12);
+  const targetCrouch = g ? g.crouch : e.tuck ? 0.8 : e.air ? 0.4 : grind ? 0.45 : 0.22 + Math.abs(e.lean || 0) * 0.25;
+  const k = Math.min(1, dt * 12);
+  r.crouch += (targetCrouch - r.crouch) * k;
   const c = r.crouch;
-  r.hips.position.y = 0.95 - c * 0.38;
-  r.hips.rotation.set(c * 0.55, g ? g.hipTwist : 0, 0);
-  r.legL.position.y = r.legR.position.y = 0.92 - c * 0.3;
-  r.legL.rotation.x = r.legR.rotation.x = -c * 0.5;
-  r.legL.scale.y = r.legR.scale.y = 1 - c * 0.25;
-  // arms: relaxed, tucked forward, or grabbing
-  let lx = 0.25 + c * 0.6, lz = -0.25, rx = 0.25 + c * 0.6, rz = 0.25;
-  if (e.state === 'wipe') { lx = -2.5; rx = -2.2; lz = -1; rz = 1; }
-  if (g) { if (g.arm === 'R') { rx = g.rx + 0.6; rz = g.rz; } else { lx = g.rx + 0.6; lz = g.rz; } }
-  const k = Math.min(1, dt * 14);
-  r.armL.rotation.x += (lx - r.armL.rotation.x) * k; r.armL.rotation.z += (lz - r.armL.rotation.z) * k;
-  r.armR.rotation.x += (rx - r.armR.rotation.x) * k; r.armR.rotation.z += (rz - r.armR.rotation.z) * k;
+  // knees bend, hips drop, torso leans forward
+  const knee = c * 1.15;
+  const hipY = 0.91 * Math.cos(knee * 0.75) - 0.05;
+  for (const L of [r.legL, r.legR]) { L.thigh.rotation.x = -knee * 0.75; L.shin.rotation.x = knee * 1.5; L.thigh.position.y = hipY; }
+  r.hips.position.y = hipY + 0.02; r.hips.position.z = -c * 0.06;
+  damp(r.hips.rotation, 'x', c * 0.75 + (g ? g.lean : 0), k); damp(r.hips.rotation, 'y', g ? g.twist : 0, k);
+  r.head.rotation.x = -c * 0.5;
+  // arms
+  let L = [-0.45, -0.22, -0.55], R = [-0.45, 0.22, -0.55];               // relaxed: hands forward and low
+  if (e.tuck && !g) { L = [-1.35, 0.25, -0.5]; R = [-1.35, -0.25, -0.5]; }  // tuck: fists together in front
+  else if (e.air && !g) { L = [-0.2, -0.9, -0.3]; R = [-0.2, 0.9, -0.3]; }  // air: arms out for balance
+  if (e.state === 'wipe') { L = [-2.6, -1, 0]; R = [-2.2, 1, 0]; }
+  if (g) { if (g.arm === 'R') { R = g.a; L = [-0.3, -1.2, -0.2]; } else { L = g.a; R = [-0.3, 1.2, -0.2]; } }
+  const ka = Math.min(1, dt * 14);
+  damp(r.armL.upper.rotation, 'x', L[0], ka); damp(r.armL.upper.rotation, 'z', L[1], ka); damp(r.armL.fore.rotation, 'x', L[2], ka);
+  damp(r.armR.upper.rotation, 'x', R[0], ka); damp(r.armR.upper.rotation, 'z', R[1], ka); damp(r.armR.fore.rotation, 'x', R[2], ka);
+  if (r.poles) { // poles trail behind the hands at a steady angle whatever the arms do
+    const want = e.tuck ? 1.45 : e.air ? 1.25 : 1.0;
+    r.poles[0].rotation.x = want - (r.armL.upper.rotation.x + r.armL.fore.rotation.x) - r.hips.rotation.x;
+    r.poles[1].rotation.x = want - (r.armR.upper.rotation.x + r.armR.fore.rotation.x) - r.hips.rotation.x;
+    r.poles[0].rotation.z = -r.armL.upper.rotation.z; r.poles[1].rotation.z = -r.armR.upper.rotation.z;
+  }
+  r.shield.visible = e.shieldT > 0 && !r.ghost;
+  if (r.shield.visible) r.shield.scale.setScalar(1 + Math.sin(t * 6) * 0.04);
   r.shadow.position.set(e.x + (off ? off.x : 0), groundY + 0.06, e.z + (off ? off.z : 0));
   const hgt = Math.max(0, e.y - groundY);
   r.shadow.scale.setScalar(Math.max(0.3, 1 - hgt * 0.08));
   r.root.visible = !(e.ghostT > 0 && Math.floor(t * 10) % 2 === 0);
+}
+
+// ---------------- Air guide: which way you face vs. which way you're travelling ----------------
+export class AirGuide {
+  constructor(scene) {
+    const g = new THREE.Group(); g.visible = false; g.renderOrder = 5; scene.add(g); this.group = g;
+    const flat = (pts, color, op) => {
+      const sh = new THREE.Shape(); sh.moveTo(pts[0][0], pts[0][1]); for (const p of pts.slice(1)) sh.lineTo(p[0], p[1]);
+      const m = new THREE.Mesh(new THREE.ShapeGeometry(sh), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: op, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
+      m.rotation.x = Math.PI / 2; m.renderOrder = 5; return m; // shape y -> world +z
+    };
+    // travel direction: long thin white track; good-landing wedges (forward + switch)
+    this.travel = new THREE.Group(); g.add(this.travel);
+    this.travel.add(flat([[-0.12, 0.6], [0.12, 0.6], [0.12, 5], [0.32, 5], [0, 5.9], [-0.32, 5], [-0.12, 5]], 0xffffff, 0.55));
+    this.travel.add(flat([[-0.12, -0.6], [0.12, -0.6], [0.12, -3], [-0.12, -3]], 0xffffff, 0.25));
+    // facing arrow (rotates with your body); colour = what the landing would be right now
+    this.face = flat([[-0.5, 0.2], [0.5, 0.2], [0.5, 2.2], [1.0, 2.2], [0, 3.6], [-1.0, 2.2], [-0.5, 2.2]], 0xffffff, 0.85);
+    this.faceHold = new THREE.Group(); this.faceHold.add(this.face); g.add(this.faceHold);
+    this.faceHold.scale.setScalar(0.62); this.travel.scale.setScalar(0.8);
+    this.ring = new THREE.Mesh(new THREE.RingGeometry(0.75, 0.9, 28), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
+    this.ring.rotation.x = Math.PI / 2; this.ring.renderOrder = 5; g.add(this.ring);
+  }
+  update(show, x, groundY, z, h, facing, q) {
+    this.group.visible = show; if (!show) return;
+    this.group.position.set(x, groundY + 0.25, z);
+    this.travel.rotation.y = h; this.faceHold.rotation.y = facing;
+    const c = q < 0 ? 0xff4d5e : q > 0.85 ? 0x4dff9a : q > 0.5 ? 0xb8ff5c : 0xffc94d;
+    this.face.material.color.set(c); this.ring.material.color.set(c);
+  }
+}
+
+// ---------------- Party items: boxes on the course + snowballs ----------------
+export function buildItemBoxes(course) {
+  const n = course.items.length; if (!n) return null;
+  const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, 64, 64); gr.addColorStop(0, '#ff5ad1'); gr.addColorStop(0.5, '#ffd23f'); gr.addColorStop(1, '#3ee6ff'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  g.fillStyle = '#fff'; g.font = '900 48px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('?', 32, 35);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1.3, 1.3, 1.3), new THREE.MeshStandardMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.7, roughness: 0.3, transparent: true, opacity: 0.92 }), n);
+  im.userData.items = course.items; im.frustumCulled = false;
+  return im;
+}
+const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _s = new THREE.Vector3(1, 1, 1), _p = new THREE.Vector3();
+export function spinItemBoxes(im, t) {
+  if (!im) return;
+  im.userData.items.forEach((it, i) => {
+    _q.setFromEuler(_e.set(t * 1.3 + i, t * 1.9 + i * 2, 0));
+    _m.compose(_p.set(it.x, it.y + Math.sin(t * 2 + i) * 0.15, it.z), _q, _s); im.setMatrixAt(i, _m);
+  });
+  im.instanceMatrix.needsUpdate = true;
+}
+export class Snowballs {
+  constructor(scene, n = 16) {
+    this.meshes = [];
+    const geo = new THREE.IcosahedronGeometry(0.4, 1), mat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x9fdcff, emissiveIntensity: 0.5, roughness: 0.6 });
+    for (let i = 0; i < n; i++) { const m = new THREE.Mesh(geo, mat); m.visible = false; m.castShadow = true; scene.add(m); this.meshes.push(m); }
+  }
+  update(list, t) {
+    this.meshes.forEach((m, i) => { const p = list[i]; m.visible = !!p; if (p) { m.position.set(p[0], p[1], p[2]); m.rotation.set(t * 9, t * 7, 0); } });
+  }
 }
 
 // ---------------- Snow spray particles ----------------

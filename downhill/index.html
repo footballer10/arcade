@@ -81,6 +81,25 @@ select{font:inherit;padding:10px 12px;border-radius:10px;border:0;background:#e9
 .mapdesc{font-size:.85rem;opacity:.75;margin:6px 0 4px;min-height:1.1em}
 #mapname{position:absolute;top:58%;left:50%;transform:translateX(-50%);text-align:center;font-size:2.2rem;font-weight:900;font-style:italic;letter-spacing:.04em;text-shadow:0 3px 12px rgba(0,0,0,.55);transition:opacity .8s}
 #mapname small{display:block;font-size:1rem;font-style:normal;font-weight:600;opacity:.9}
+.row3{display:flex;gap:6px;margin:4px 0 2px}.row3 select{font-size:.8rem;padding:8px 6px;margin:0}
+.panel{max-height:96vh;overflow:auto}
+#results .panel{max-width:680px}
+#rtable .dot{display:inline-block;width:10px;height:10px;border-radius:50%}
+#awards{font-size:.9rem;margin:-6px 0 10px}#awards div{padding:3px 8px;background:#1a2440;border-radius:6px;margin:3px 0}
+#vig{position:absolute;inset:0;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 55%,rgba(5,10,30,.38) 100%)}
+#score{position:absolute;top:64px;left:50%;transform:translateX(-50%);font-size:1.25rem;font-weight:900;font-style:italic;color:#ffe27a;text-shadow:0 2px 6px rgba(0,0,0,.6);white-space:nowrap}
+#score small{font-size:.7rem;color:#fff;opacity:.8;letter-spacing:.1em}
+#item{position:absolute;bottom:70px;left:22px;display:flex;align-items:center;gap:8px;background:rgba(10,20,40,.5);border-radius:12px;padding:6px 12px 6px 8px;border:2px solid transparent}
+#item:empty{display:none}
+#item.has{border-color:#ffd23f;box-shadow:0 0 14px rgba(255,210,63,.5)}
+#item .ic{font-size:1.9rem;line-height:1}#item small{font-size:.8rem;font-weight:700}
+#help{position:absolute;left:14px;top:92px;width:236px;background:rgba(10,20,40,.5);border-radius:10px;padding:8px 10px;font-size:.74rem;line-height:1.45;transition:opacity .2s;opacity:.6}
+#help.air{opacity:1;background:rgba(10,20,40,.72)}
+#help b{font-size:.85rem;letter-spacing:.08em;color:#ffe27a}#help small{opacity:.6}
+#help .grabs{display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;margin:4px 0}
+#help .g{padding:1px 4px;border-radius:5px}#help .g.on{background:#ffd23f;color:#111;font-weight:800}
+#help kbd{font-size:.72rem}
+#help .row2{margin-top:2px}
 #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.7);padding:10px 16px;border-radius:10px;display:none;z-index:30}
 </style>
 </head>
@@ -94,7 +113,11 @@ select{font:inherit;padding:10px 12px;border-radius:10px;border:0;background:#e9
 <div id="toast"></div>
 
 <div id="hud">
+  <div id="vig"></div>
   <div id="pos"></div>
+  <div id="score"></div>
+  <div id="item"></div>
+  <div id="help"></div>
   <div id="time"></div>
   <div id="speed"></div>
   <div id="prog"></div>
@@ -110,7 +133,7 @@ select{font:inherit;padding:10px 12px;border-radius:10px;border:0;background:#e9
 
 <div class="ui show" id="menu"><div class="panel">
   <h1>DOWNHILL RUSH</h1>
-  <p class="sub">Random mountain every race. First to the bottom wins.</p>
+  <p class="sub">Race your friends down a new mountain every time. Tricks = speed and style.</p>
   <div class="row"><div><label>Your name</label><input id="name" maxlength="12" placeholder="Rider"></div></div>
   <label>Ride as</label>
   <div class="cls" data-cls>
@@ -120,12 +143,14 @@ select{font:inherit;padding:10px 12px;border-radius:10px;border:0;background:#e9
   <label>Mountain</label>
   <select id="mapSel"></select>
   <p class="mapdesc" id="mapDesc"></p>
+  <div class="row3"><select id="optMode"></select><select id="optItems"></select><select id="optDiff"></select></div>
   <button class="big green" id="quick" style="margin-top:6px">Quick Play vs Bots</button>
   <button class="big" id="create">Create Room</button>
   <div class="row"><input id="joincode" maxlength="4" placeholder="CODE" style="text-transform:uppercase;letter-spacing:.2em"><button id="join" class="alt">Join</button></div>
   <div id="err"></div>
-  <div class="keys"><kbd>A</kbd><kbd>D</kbd>/<kbd>&larr;</kbd><kbd>&rarr;</kbd> steer (tap = small, hold = hard, <kbd>Shift</kbd> = precise) &middot; <kbd>W</kbd> tuck &middot; <kbd>S</kbd> brake &middot; <kbd>Space</kbd> jump<br>
-  Off a kicker: <kbd>&larr;</kbd><kbd>&rarr;</kbd> spin, <kbd>&uarr;</kbd><kbd>&darr;</kbd> flip, hold <kbd>Q</kbd><kbd>E</kbd><kbd>R</kbd><kbd>F</kbd> to grab (let go before landing) &mdash; cleaner landing = bigger boost &middot; <kbd>M</kbd> mute &middot; <kbd>`</kbd> debug</div>
+  <div class="keys"><kbd>A</kbd><kbd>D</kbd> steer (tap = small, hold = hard, <kbd>Shift</kbd> = precise) &middot; <kbd>W</kbd> tuck &middot; <kbd>S</kbd> brake &middot; <kbd>Space</kbd> jump<br>
+  <b>Tricks</b> (off kickers): <kbd>&larr;</kbd><kbd>&rarr;</kbd> spin &middot; <kbd>&uarr;</kbd><kbd>&darr;</kbd> flip &middot; hold <kbd>Q</kbd><kbd>E</kbd><kbd>R</kbd><kbd>F</kbd><kbd>C</kbd><kbd>V</kbd> to grab, let go before landing &middot; <kbd>B</kbd> butter 180<br>
+  <b>Items</b>: ride through a <b>?</b> box, then click or <kbd>X</kbd> &middot; <kbd>H</kbd> trick list &middot; <kbd>M</kbd> mute &middot; <kbd>G</kbd> graphics &middot; <kbd>`</kbd> debug</div>
 </div></div>
 
 <div class="ui" id="lobby"><div class="panel">
@@ -135,6 +160,8 @@ select{font:inherit;padding:10px 12px;border-radius:10px;border:0;background:#e9
   <label>Mountain</label>
   <select id="lobbyMap"></select>
   <p class="mapdesc" id="lobbyMapDesc"></p>
+  <div class="row3" id="lobOpts"><select id="lobMode"></select><select id="lobItems"></select><select id="lobDiff"></select></div>
+  <p class="mapdesc" id="lobOptsText"></p>
   <label>Ride as</label>
   <div class="cls" data-cls>
     <button data-c="ski">SKIER</button>
@@ -151,6 +178,7 @@ select{font:inherit;padding:10px 12px;border-radius:10px;border:0;background:#e9
 <div class="ui" id="results"><div class="panel">
   <h2>Results <small id="resmap" style="font-size:.9rem;opacity:.7;font-weight:600"></small></h2>
   <table id="rtable"></table>
+  <div id="awards"></div>
   <label>Next race ride as</label>
   <div class="cls" data-cls>
     <button data-c="ski">SKIER</button>

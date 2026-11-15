@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makeCourse, mulberry32, MAPS, MAP_IDS } from './course.js';
-import { CLASSES, newEntity, stepEntity, bump, botInput, newBrain, sanitizeInput, packInput, trickName } from './physics.js';
-import { createRenderer, buildCourse, disposeGroup, makeRider, poseRider, COLORS, Spray, makeMinimap, Trails } from './render.js';
+import { CLASSES, newEntity, stepEntity, bump, botInput, newBrain, sanitizeInput, packInput, trickName, landingPreview, GRAB_KEYS, ITEMS, snowballHit } from './physics.js';
+import { createRenderer, buildCourse, disposeGroup, makeRider, poseRider, COLORS, Spray, makeMinimap, Trails, AirGuide, buildItemBoxes, spinItemBoxes, Snowballs } from './render.js';
 import { unlock as unlockAudio, sfx, setRide, toggleMute, isMuted } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -11,6 +11,8 @@ const fitLines = () => { linesCv.width = innerWidth; linesCv.height = innerHeigh
 fitLines(); addEventListener('resize', fitLines);
 const spray = new Spray(scene);
 const trails = new Trails(scene);
+const airGuide = new AirGuide(scene);
+const snowballs = new Snowballs(scene);
 const miniCv = $('mini'), mctx = miniCv.getContext('2d');
 
 const PREFIX = 'dhrush-v1-';
@@ -26,6 +28,8 @@ const S = {
   players: [], peer: null, conns: new Map(), hostConn: null, code: null,
   ping: 0, race: null, debug: false, fps: 0, waiting: false,
   ghosts: new Map(), lastSeed: null, lastMap: null, map: store.get('dh_map', 'random'),
+  opts: { gmode: store.get('dh_gmode', 'race'), items: store.get('dh_items', 'on') !== 'off', diff: store.get('dh_diff', 'normal') },
+  party: new Map(), races: 0, help: store.get('dh_help', 'on') !== 'off',
 };
 $('name').value = S.name;
 const resolveMap = (m) => MAP_IDS.includes(m) ? m : MAP_IDS[Math.floor(Math.random() * MAP_IDS.length)];
@@ -45,10 +49,30 @@ for (const id of ['mapSel', 'lobbyMap']) {
   };
 }
 $('mapDesc').textContent = mapDesc(S.map); $('lobbyMapDesc').textContent = mapDesc(S.map);
+const GMODES = { race: 'Race — first to the bottom', tricks: 'Trick Battle — most style points' };
+const DIFFS = { easy: { name: 'Easy bots', h: 1.22, trick: 0.6 }, normal: { name: 'Normal bots', h: 1.07, trick: 1 }, hard: { name: 'Hard bots', h: 0.97, trick: 1.25 } };
+function syncOpts() {
+  for (const pre of ['opt', 'lob']) {
+    $(pre + 'Mode').value = S.opts.gmode; $(pre + 'Items').value = S.opts.items ? 'on' : 'off'; $(pre + 'Diff').value = S.opts.diff;
+  }
+}
+for (const pre of ['opt', 'lob']) {
+  $(pre + 'Mode').innerHTML = Object.entries(GMODES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+  $(pre + 'Items').innerHTML = '<option value="on">Items on</option><option value="off">Items off</option>';
+  $(pre + 'Diff').innerHTML = Object.entries(DIFFS).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('');
+  for (const id of ['Mode', 'Items', 'Diff']) $(pre + id).onchange = () => {
+    S.opts = { gmode: $(pre + 'Mode').value, items: $(pre + 'Items').value === 'on', diff: $(pre + 'Diff').value };
+    store.set('dh_gmode', S.opts.gmode); store.set('dh_items', S.opts.items ? 'on' : 'off'); store.set('dh_diff', S.opts.diff);
+    syncOpts(); if (S.mode === 'host') broadcastLobby();
+  };
+}
+syncOpts();
+const optsText = (o) => o ? `${GMODES[o.gmode] || ''} · Items ${o.items ? 'on' : 'off'} · ${DIFFS[o.diff]?.name || ''}` : '';
 
 // ---------------- UI helpers ----------------
 function show(screen) {
   S.screen = screen;
+  $('help').style.display = S.help && screen === 'race' ? '' : 'none';
   for (const id of ['menu', 'lobby', 'results']) $(id).classList.toggle('show', id === screen);
   $('hud').classList.toggle('show', screen === 'race' || screen === 'results');
 }
@@ -94,7 +118,8 @@ function renderLobby() {
   $('hostctl').style.display = host ? '' : 'none';
   $('start').disabled = S.players.length < 2;
   $('code').textContent = S.code || '----';
-  $('lobbyMap').style.display = host ? '' : 'none';
+  $('lobbyMap').style.display = host ? '' : 'none'; $('lobOpts').style.display = host ? '' : 'none';
+  $('lobOptsText').textContent = host ? '' : optsText(S.hostOpts);
   $('lobbyMapDesc').textContent = host ? mapDesc(S.map) : `Mountain: ${S.hostMap === 'random' || !S.hostMap ? 'Random' : MAPS[S.hostMap].name} — ${mapDesc(S.hostMap || 'random')}`;
   $('lobbymsg').textContent = host ? (S.players.length < 2 ? 'Add a bot or wait for a friend to join (2–8 riders).' : `${S.players.length}/8 riders. Start when ready.`)
     : (S.waiting ? 'Race in progress — you will join the next one.' : 'Waiting for the host to start…');
@@ -128,7 +153,7 @@ async function loadPeer() {
 }
 function send(conn, msg) { try { if (conn && conn.open) conn.send(msg); } catch (e) { console.warn('send failed', e); } }
 function broadcast(msg) { for (const c of S.conns.values()) send(c, msg); }
-function lobbyPayload() { return { t: 'lobby', code: S.code, map: S.map, players: S.players.map(({ id, name, cls, bot }) => ({ id, name, cls, bot })) }; }
+function lobbyPayload() { return { t: 'lobby', code: S.code, map: S.map, opts: S.opts, players: S.players.map(({ id, name, cls, bot }) => ({ id, name, cls, bot })) }; }
 function broadcastLobby() { if (S.mode === 'host') broadcast(lobbyPayload()); }
 
 function randomCode() { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; let s = ''; for (let i = 0; i < 4; i++) s += A[Math.floor(Math.random() * A.length)]; return s; }
@@ -142,6 +167,7 @@ async function createRoom(tries = 0) {
     setErr('');
     S.peer = peer; S.mode = 'host'; S.code = code; S.myId = 'host';
     S.players = [{ id: 'host', name: myName(), cls: S.cls, bot: false }];
+    S.party.clear(); S.races = 0;
     show('lobby'); renderLobby();
   });
   peer.on('connection', (conn) => hostAcceptConn(conn));
@@ -224,11 +250,11 @@ function clientOnMsg(msg) {
   if (!msg || typeof msg !== 'object') return;
   switch (msg.t) {
     case 'welcome': S.myId = msg.id; S.waiting = !!msg.inRace; show('lobby'); renderLobby(); break;
-    case 'lobby': S.players = msg.players; S.code = msg.code; S.hostMap = msg.map; if (S.screen === 'lobby') renderLobby(); break;
+    case 'lobby': S.players = msg.players; S.code = msg.code; S.hostMap = msg.map; S.hostOpts = msg.opts; if (S.screen === 'lobby') renderLobby(); break;
     case 'tolobby': S.waiting = false; endRaceObjects(); show('lobby'); renderLobby(); break;
-    case 'start': S.waiting = false; startRace(msg.seed, msg.players, msg.cd - S.ping / 2, MAP_IDS.includes(msg.map) ? msg.map : 'alpine'); break;
+    case 'start': S.waiting = false; startRace(msg.seed, msg.players, msg.cd - S.ping / 2, MAP_IDS.includes(msg.map) ? msg.map : 'alpine', msg.opts || {}); break;
     case 'snap': if (S.race && !S.waiting) applySnap(msg); break;
-    case 'results': if (S.race) showResults(msg.list); break;
+    case 'results': if (S.race) showResults(msg.list, msg.awards, msg.races); break;
     case 'kick': leaveToMenu(); setErr(msg.reason); break;
     case 'pong': S.ping = performance.now() - msg.ts; break;
   }
@@ -250,6 +276,7 @@ $('joincode').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinRo
 $('quick').onclick = () => {
   S.mode = 'solo'; S.myId = 'me';
   S.players = [{ id: 'me', name: myName(), cls: S.cls, bot: false }];
+  S.party.clear(); S.races = 0;
   for (let i = 0; i < 5; i++) addBot();
   hostStartRace();
 };
@@ -273,20 +300,24 @@ function hostStartRace(sameSeed = false) {
   const map = same ? S.lastMap : resolveMap(S.map);
   const cd = 3500;
   const list = S.players.map(({ id, name, cls, bot }) => ({ id, name, cls, bot }));
-  if (S.mode === 'host') broadcast({ t: 'start', seed, map, players: list, cd });
-  startRace(seed, list, cd, map);
+  const opts = { ...S.opts };
+  if (S.mode === 'host') broadcast({ t: 'start', seed, map, players: list, cd, opts });
+  startRace(seed, list, cd, map, opts);
 }
 
-function startRace(seed, list, cd, map = 'alpine') {
+function startRace(seed, list, cd, map = 'alpine', opts = {}) {
   endRaceObjects(); dropMenuCourse();
   env.applyMap(map);
   trails.clear();
-  const course = makeCourse(seed, map);
+  opts = { gmode: opts.gmode === 'tricks' ? 'tricks' : 'race', items: opts.items !== false, diff: DIFFS[opts.diff] ? opts.diff : 'normal' };
+  const course = makeCourse(seed, map, { items: opts.items });
   const mesh = buildCourse(course); scene.add(mesh);
+  const boxes = buildItemBoxes(course); if (boxes) mesh.add(boxes);
   const rnd = mulberry32(seed ^ 0x5bd1e995);
   const race = { seed, course, mesh, startAt: performance.now() + Math.max(500, cd), phase: 'countdown', ents: new Map(), firstFinish: null,
     over: false, sendT: 0, lastMsgId: 0, msgUntil: 0, endIn: null, list,
-    seq: 0, history: [], outbox: [], ghostRec: [], ghostRecT: 0, lastCd: null };
+    seq: 0, history: [], outbox: [], ghostRec: [], ghostRecT: 0, lastCd: null,
+    opts, boxes, projectiles: [], finCount: 0, hostOff: null };
   S.lastSeed = seed; S.lastMap = map; race.map = map; race.ghostKey = map + ':' + seed;
   list.forEach((p, i) => {
     const row = Math.floor(i / 4), colI = i % 4;
@@ -297,8 +328,9 @@ function startRace(seed, list, cd, map = 'alpine') {
     const local = p.id === S.myId, bot = p.bot && S.mode !== 'client';
     const ent = { e, rider, info: { ...p, color: COLORS[i % 8] }, local, bot, remote: null,
       hostSim: S.mode === 'host' && !local && !bot, inQ: [], ack: 0, lastInp: null,
-      off: new THREE.Vector3(), prevAir: false, prevState: 'ride', prevMsg: 0 };
-    if (ent.bot) ent.brain = newBrain(mulberry32(Math.floor(rnd() * 1e9)), p.cls);
+      off: new THREE.Vector3(), prevAir: false, prevState: 'ride', prevMsg: 0,
+      pv: { x: e.x, y: e.y, z: e.z, h: 0 }, view: { x: e.x, y: e.y, z: e.z, h: 0 }, pose: Object.create(e), buf: [], lastFire: 0 };
+    if (ent.bot) { ent.brain = newBrain(mulberry32(Math.floor(rnd() * 1e9)), p.cls); ent.brain.trickProb = Math.min(0.95, ent.brain.trickProb * DIFFS[opts.diff].trick); e.handicap = DIFFS[opts.diff].h; }
     race.ents.set(p.id, ent);
   });
   race.me = race.ents.get(S.myId) || null;
@@ -316,7 +348,8 @@ function startRace(seed, list, cd, map = 'alpine') {
   $('fin').innerHTML = ''; $('msg').textContent = '';
   $('mapname').innerHTML = `${MAPS[map].name}<small>${MAPS[map].desc}</small>`; $('mapname').style.opacity = 1;
   setTimeout(() => { $('mapname').style.opacity = 0; }, 4200);
-  $('hint').textContent = 'W tuck · S brake · Space jump · in the air: arrows spin/flip, Q/E/R/F grab';
+  $('hint').textContent = opts.gmode === 'tricks' ? 'TRICK BATTLE — most style points wins. Hit every kicker and rail!' : 'RACE — tricks give speed boosts. H shows the trick list.';
+  buildHelp();
   show('race');
 }
 
@@ -339,19 +372,20 @@ function endRaceObjects() {
 // ---------------- Network state sync ----------------
 const STATE_CODE = { ride: 0, wipe: 2 };
 function packEnt(e) {
-  const st = (e.state === 'wipe' ? 2 : e.air ? 1 : 0) | (e.tuck ? 4 : 0) | (e.finished ? 8 : 0) | (e.ghostT > 0 ? 16 : 0) | (e.grind >= 0 ? 32 : 0);
+  const st = (e.state === 'wipe' ? 2 : e.air ? 1 : 0) | (e.tuck ? 4 : 0) | (e.finished ? 8 : 0) | (e.ghostT > 0 ? 16 : 0) | (e.grind >= 0 ? 32 : 0) | (e.shieldT > 0 ? 64 : 0) | (e.hitT > 0 ? 128 : 0);
   const r = (n, k = 100) => Math.round(n * k) / k;
-  return [r(e.x), r(e.y), r(e.z), r(e.h, 1000), r(e.spin, 100), r(e.flip, 100), r(e.v), st, e.finished ? r(e.finishTime, 1000) : 0, r(e.lean), e.stance ? 1 : 0, e.grab || 0, r(e.slideAng || 0)];
+  return [r(e.x), r(e.y), r(e.z), r(e.h, 1000), r(e.spin, 100), r(e.flip, 100), r(e.v), st, e.finished ? r(e.finishTime, 1000) : 0, r(e.lean), e.stance ? 1 : 0, e.grab || 0, r(e.slideAng || 0), Math.round(e.score), e.item || 0, r(e.butterT || 0), Math.round(e.bestPts), e.bestName];
 }
-const FULL_KEYS = ['x', 'y', 'z', 'h', 'v', 'vy', 'airT', 'spin', 'flip', 'wipeT', 'ghostT', 'jumpCD', 'boostT', 'pushX', 'pushZ', 'finishTime', 'lean', 'stance', 'grab', 'grind', 'grindT', 'slideAng', 'gpts', 'gname'];
+const FULL_KEYS = ['x', 'y', 'z', 'h', 'v', 'vy', 'airT', 'spin', 'flip', 'wipeT', 'ghostT', 'jumpCD', 'boostT', 'pushX', 'pushZ', 'finishTime', 'lean', 'stance', 'grab', 'grind', 'grindT', 'slideAng', 'gpts', 'gname',
+  'score', 'bestPts', 'bestName', 'lastTrick', 'tricks', 'butterT', 'butterCD', 'item', 'itemCD', 'shieldT', 'hitT', 'fireId', 'pickups', 'rankFrac'];
 function packFull(e) { return [...FULL_KEYS.map(k => e[k]), (e.air ? 1 : 0) | (e.state === 'wipe' ? 2 : 0) | (e.finished ? 4 : 0) | (e.tuck ? 8 : 0) | (e.airSwitch ? 16 : 0), e.gt]; }
-function applyFull(e, a) { FULL_KEYS.forEach((k, i) => { e[k] = a[i]; }); const f = a[FULL_KEYS.length]; e.air = !!(f & 1); e.state = (f & 2) ? 'wipe' : 'ride'; e.finished = !!(f & 4); e.tuck = !!(f & 8); e.airSwitch = !!(f & 16); e.gt = Array.isArray(a[FULL_KEYS.length + 1]) ? a[FULL_KEYS.length + 1].slice(0, 4) : [0, 0, 0, 0]; }
+function applyFull(e, a) { FULL_KEYS.forEach((k, i) => { e[k] = a[i]; }); const f = a[FULL_KEYS.length]; e.air = !!(f & 1); e.state = (f & 2) ? 'wipe' : 'ride'; e.finished = !!(f & 4); e.tuck = !!(f & 8); e.airSwitch = !!(f & 16); e.gt = Array.isArray(a[FULL_KEYS.length + 1]) ? a[FULL_KEYS.length + 1].slice(0, 6) : [0, 0, 0, 0, 0, 0]; }
 
 // Client-side prediction: rewind to the host's state for my rider, replay unacknowledged inputs,
 // and hide the correction with a decaying visual offset.
 function reconcile(me, full, ack) {
   const r = S.race, e = me.e;
-  const ox = e.x, oy = e.y, oz = e.z, oPush = Math.hypot(e.pushX, e.pushZ), wasFinished = e.finished, oFin = e.finishTime;
+  const ox = e.x, oy = e.y, oz = e.z, oPush = Math.hypot(e.pushX, e.pushZ), wasFinished = e.finished, oFin = e.finishTime, oHit = e.hitT, oSh = e.shieldT;
   const msgId = e.msgId, msg = e.msg;
   applyFull(e, full);
   r.history = r.history.filter(h => h.seq > ack);
@@ -361,40 +395,54 @@ function reconcile(me, full, ack) {
   const dx = ox - e.x, dy = oy - e.y, dz = oz - e.z;
   if (dx * dx + dy * dy + dz * dz < 64) me.off.add(new THREE.Vector3(dx, dy, dz)); else me.off.set(0, 0, 0);
   if (Math.hypot(e.pushX, e.pushZ) > oPush + 2.5) { flash('BUMP!', null, 500); sfx.bump(); }
+  if (e.hitT > 0.5 && oHit <= 0) { flash('SNOWBALLED!', false); sfx.wipe(); }
+  if (oSh > 0.5 && e.shieldT <= 0) { flash('BLOCKED!', true); sfx.bump(); }
 }
-function applyRemoteState(id, s) {
+function applyRemoteState(id, s, rt) {
   const ent = S.race && S.race.ents.get(id);
   if (!ent || ent.local || !Array.isArray(s)) return;
-  ent.remote = { x: s[0], y: s[1], z: s[2], h: s[3], spin: s[4], flip: s[5], v: s[6], st: s[7], finT: s[8], t: performance.now() };
+  ent.buf.push({ t: rt, x: s[0], y: s[1], z: s[2], h: s[3], spin: s[4], flip: s[5], v: s[6], slide: s[12] || 0 });
+  if (ent.buf.length > 14) ent.buf.shift();
   const e = ent.e;
-  e.h = s[3]; e.spin = s[4]; e.flip = s[5]; e.v = s[6]; e.lean = s[9] || 0; e.stance = s[10] ? Math.PI : 0; e.grab = s[11] || 0; e.slideAng = s[12] || 0; e.grind = (s[7] & 32) ? 0 : -1;
+  e.v = s[6]; e.lean = s[9] || 0; e.stance = s[10] ? Math.PI : 0; e.grab = s[11] || 0; e.grind = (s[7] & 32) ? 0 : -1;
   e.state = (s[7] & 3) === 2 ? 'wipe' : 'ride'; e.air = (s[7] & 3) === 1; e.tuck = !!(s[7] & 4); e.ghostT = (s[7] & 16) ? 1 : 0;
+  e.shieldT = (s[7] & 64) ? 1 : 0; e.hitT = (s[7] & 128) ? 1 : 0;
+  e.score = s[13] || 0; e.item = s[14] || 0; e.butterT = s[15] || 0; e.bestPts = s[16] || 0; e.bestName = s[17] || '';
   if ((s[7] & 8) && !e.finished) { e.finished = true; e.finishTime = s[8]; onFinish(ent); }
 }
 function applySnap(msg) {
   const r = S.race;
   r.endIn = msg.endIn;
   if (r.phase === 'countdown' && msg.rt > 0) { r.startAt = performance.now() - msg.rt * 1000; }
+  // estimate the host clock from the fastest packets we've seen
+  const off = performance.now() / 1000 - msg.rt;
+  r.hostOff = r.hostOff == null ? off : Math.min(r.hostOff + 0.0004, off);
+  r.projectiles = Array.isArray(msg.pr) ? msg.pr : [];
   for (const row of msg.e) {
     const id = row[0];
     if (id === S.myId) continue;
-    applyRemoteState(id, row.slice(1));
+    applyRemoteState(id, row.slice(1), msg.rt);
   }
   if (msg.me && r.me && r.phase === 'race') reconcile(r.me, msg.me, msg.ack);
   for (const id of [...r.ents.keys()]) if (id !== S.myId && !msg.e.some(row => row[0] === id)) removeEnt(id);
 }
-function smoothRemote(ent, dt) {
-  const R = ent.remote; if (!R) return;
-  const e = ent.e;
-  const age = Math.min(0.25, (performance.now() - R.t) / 1000);
-  const moving = e.state !== 'wipe' && !e.finished;
-  const tx = R.x + (moving ? Math.sin(R.h) * R.v * age : 0), tz = R.z + (moving ? Math.cos(R.h) * R.v * age : 0);
-  const dx = tx - e.x, dz = tz - e.z;
-  if (dx * dx + dz * dz > 100) { e.x = tx; e.z = tz; e.y = R.y; return; }
-  const k = 1 - Math.exp(-14 * dt);
-  e.x += dx * k; e.z += dz * k;
-  const gy = S.race.course.groundH(e.x, e.z);
-  e.y = e.air || e.grind >= 0 ? e.y + (R.y - e.y) * k : gy;
+// Other riders are drawn ~0.1 s in the past, interpolated between two host snapshots (no more vibrating).
+const INTERP_DELAY = 0.11;
+function interpRemote(ent) {
+  const b = ent.buf, r = S.race; if (!b.length || r.hostOff == null) return;
+  const t = performance.now() / 1000 - r.hostOff - INTERP_DELAY, e = ent.e;
+  let i = b.length - 1; while (i > 0 && b[i].t > t) i--;
+  const A = b[i], B = b[i + 1];
+  if (B && t >= A.t) {
+    const k = Math.min(1, (t - A.t) / Math.max(1e-3, B.t - A.t)), L = (p, q) => p + (q - p) * k;
+    const jump = (B.x - A.x) ** 2 + (B.z - A.z) ** 2 > 400;
+    if (jump) { e.x = B.x; e.y = B.y; e.z = B.z; e.h = B.h; e.spin = B.spin; e.flip = B.flip; e.slideAng = B.slide; }
+    else { e.x = L(A.x, B.x); e.y = L(A.y, B.y); e.z = L(A.z, B.z); e.h = L(A.h, B.h); e.spin = L(A.spin, B.spin); e.flip = L(A.flip, B.flip); e.slideAng = L(A.slide, B.slide); }
+  } else {
+    const ex = Math.max(0, Math.min(0.25, t - A.t)), mv = e.state !== 'wipe' && !e.finished ? A.v : 0;
+    e.x = A.x + Math.sin(A.h) * mv * ex; e.z = A.z + Math.cos(A.h) * mv * ex; e.h = A.h; e.spin = A.spin; e.flip = A.flip; e.slideAng = A.slide;
+    e.y = e.air || e.grind >= 0 ? A.y : r.course.groundH(e.x, e.z);
+  }
 }
 
 // ---------------- Input ----------------
@@ -406,8 +454,13 @@ addEventListener('keydown', (ev) => {
   if (ev.code === 'Backquote') { S.debug = !S.debug; $('debug').style.display = S.debug ? 'block' : 'none'; return; }
   if (S.screen === 'race' && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(ev.code)) ev.preventDefault();
   if (ev.code === 'Space' && !ev.repeat) jumpBuf = 0.18;
+  if (ev.code === 'KeyX' && !ev.repeat) useBuf = 0.2;
+  if (ev.code === 'KeyB' && !ev.repeat) butterBuf = 0.15;
+  if (ev.code === 'KeyH' && !ev.repeat) { S.help = !S.help; store.set('dh_help', S.help ? 'on' : 'off'); $('help').style.display = S.help && S.screen === 'race' ? '' : 'none'; }
   K[ev.code] = true;
 });
+let useBuf = 0, butterBuf = 0;
+addEventListener('pointerdown', (ev) => { if (S.screen === 'race' && !ev.target.closest('button, a, select, input')) useBuf = 0.2; });
 addEventListener('keyup', (ev) => { K[ev.code] = false; stale.delete(ev.code); });
 addEventListener('blur', () => { for (const k in K) K[k] = false; });
 const fresh = (c) => K[c] && !stale.has(c);
@@ -425,9 +478,9 @@ function steerAmount() {
   return dir * mag;
 }
 function localInput(e) {
-  const inp = { steer: steerAmount(), tuck: !!(K.KeyW || K.ArrowUp), brake: !!(K.KeyS || K.ArrowDown), jump: jumpBuf > 0, spin: 0, flip: 0 };
+  const inp = { steer: steerAmount(), tuck: !!(K.KeyW || K.ArrowUp), brake: !!(K.KeyS || K.ArrowDown), jump: jumpBuf > 0, spin: 0, flip: 0, grab: 0, use: useBuf > 0, butter: butterBuf > 0 };
   if (e.air) {
-    inp.grab = (K.KeyQ || K.KeyJ) ? 1 : (K.KeyE || K.KeyK) ? 2 : (K.KeyR || K.KeyL) ? 3 : (K.KeyF || K.KeyI) ? 4 : 0;
+    inp.grab = (K.KeyQ || K.KeyJ) ? 1 : (K.KeyE || K.KeyK) ? 2 : (K.KeyR || K.KeyL) ? 3 : (K.KeyF || K.KeyI) ? 4 : (K.KeyC || K.KeyU) ? 5 : (K.KeyV || K.KeyO) ? 6 : 0;
     inp.spin = ((fresh('ArrowRight') || fresh('KeyD')) ? 1 : 0) - ((fresh('ArrowLeft') || fresh('KeyA')) ? 1 : 0);
     inp.flip = ((fresh('ArrowUp') || fresh('KeyW')) ? 1 : 0) - ((fresh('ArrowDown') || fresh('KeyS')) ? 1 : 0);
   }
@@ -464,7 +517,9 @@ function simStep(dt) {
         if (wasAir && !e.air && e.state === 'ride' && airT0 > 0.35) sfx.land(e.msg && e.msgId !== m && e.msg.good);
         if (e.msgId !== m && e.msg) {
           flash(e.msg.text, e.msg.good);
-          if (e.msg.text.includes('CLEAN!')) sfx.trick(); else if (e.msg.text === 'BOOST!') sfx.boost();
+          const tx = e.msg.text;
+          if (tx.includes(' pts')) sfx.trick(); else if (tx === 'BOOST!' || tx === 'ROCKET!') sfx.boost(); else if (tx.startsWith('GOT') || tx === 'SHIELD UP') sfx.beep(true);
+          else if (tx === 'SNOWBALLED!') sfx.wipe();
         }
         if (wasState !== 'wipe' && e.state === 'wipe') sfx.wipe();
       }
@@ -475,13 +530,44 @@ function simStep(dt) {
   if (S.mode === 'client') return;
   const list = [...r.ents.values()];
   for (const a of list) for (const b of list) {
-    if (a !== b && bump(a.e, b.e) && a.local) { flash('BUMP!', null, 500); sfx.bump(); }
+    if (a !== b && a.e.shieldT <= 0 && bump(a.e, b.e) && a.local) { flash('BUMP!', null, 500); sfx.bump(); }
   }
+  // ranks feed the item roll (riders at the back get more rockets)
+  const st = standings();
+  st.forEach((ent, i) => { ent.e.rankFrac = st.length > 1 ? i / (st.length - 1) : 0.5; });
+  // bots: gentle rubber band around the humans + snowball targeting
+  const humans = list.filter(x => !x.info.bot);
+  const refZ = humans.length ? humans.reduce((a, x) => a + x.e.z, 0) / humans.length : 0;
+  for (const ent of list) {
+    const e = ent.e;
+    if (ent.bot) {
+      e.handicap = DIFFS[r.opts.diff].h + Math.max(-1, Math.min(1, (e.z - refZ) / 160)) * 0.08;
+      ent.brain.targetAhead = list.some(o => o !== ent && o.e.z - e.z > 4 && o.e.z - e.z < 45 && Math.abs(o.e.x - e.x - Math.sin(e.h) * (o.e.z - e.z)) < 3.5);
+    }
+    if (e.fireId !== ent.lastFire) { // snowball thrown
+      ent.lastFire = e.fireId;
+      const sp = Math.max(e.v, 14) + 26;
+      r.projectiles.push({ x: e.x + Math.sin(e.h) * 1.5, z: e.z + Math.cos(e.h) * 1.5, y: e.y + 0.8, vx: Math.sin(e.h) * sp, vz: Math.cos(e.h) * sp, life: 2.6, owner: ent });
+      if (ent.local) sfx.jump();
+    }
+  }
+  for (const p of r.projectiles) {
+    p.x += p.vx * dt; p.z += p.vz * dt; p.life -= dt;
+    p.y += (r.course.groundH(p.x, p.z) + 0.7 - p.y) * Math.min(1, dt * 12);
+    for (const ent of list) {
+      const e = ent.e;
+      if (ent === p.owner || (e.x - p.x) ** 2 + (e.z - p.z) ** 2 > 2.6 || Math.abs(e.y - p.y) > 2.6) continue;
+      if (snowballHit(e)) { p.life = 0; spray.emit(p.x, p.y, p.z, 0, 3, 0, 9, 40); if (ent.local && e.msg) { flash(e.msg.text, e.msg.good); sfx.wipe(); } else if (p.owner.local) { flash('HIT ' + ent.info.name + '!', true, 900); sfx.trick(); } break; }
+    }
+  }
+  r.projectiles = r.projectiles.filter(p => p.life > 0);
 }
 
 function onFinish(ent) {
   const r = S.race;
   if (r.firstFinish == null) r.firstFinish = raceTime();
+  if (S.mode !== 'client' && r.opts.gmode === 'tricks') { const bonus = [500, 300, 150][r.finCount] || 0; ent.e.score += bonus; if (ent.local && bonus) flash(`Finish bonus +${bonus} pts`, true, 1800); }
+  r.finCount++;
   if (ent.local) {
     sfx.finish();
     // save ghost if this is my best on this mountain
@@ -497,6 +583,7 @@ function onFinish(ent) {
 
 function standings() {
   const arr = [...S.race.ents.values()];
+  if (S.race.opts.gmode === 'tricks') return arr.sort((a, b) => b.e.score - a.e.score || b.e.z - a.e.z);
   arr.sort((a, b) => {
     if (a.e.finished && b.e.finished) return a.e.finishTime - b.e.finishTime;
     if (a.e.finished) return -1; if (b.e.finished) return 1;
@@ -521,24 +608,43 @@ function hostCheckEnd() {
   }
   if (allDone || r.endIn === 0 || rt > 200) {
     r.over = true;
-    const list = standings().map(x => ({ id: x.info.id, name: x.info.name, cls: x.info.cls, bot: !!x.info.bot, time: x.e.finished ? x.e.finishTime : null, color: x.info.color }));
-    if (S.mode === 'host') broadcast({ t: 'results', list });
-    setTimeout(() => showResults(list), 900);
+    const order = standings(), PTS = [10, 8, 6, 5, 4, 3, 2, 1], awards = [];
+    const gain = new Map(order.map((x, i) => [x.info.id, PTS[i] || 0]));
+    const bestTrick = [...order].sort((a, b) => b.e.bestPts - a.e.bestPts)[0];
+    if (bestTrick && bestTrick.e.bestPts > 0) { gain.set(bestTrick.info.id, gain.get(bestTrick.info.id) + 2); awards.push(`🏅 Best trick: ${bestTrick.info.name} — ${bestTrick.e.bestName} (${bestTrick.e.bestPts} pts)  +2`); }
+    if (r.opts.gmode === 'race') {
+      const style = [...order].sort((a, b) => b.e.score - a.e.score)[0];
+      if (style && style.e.score > 0) { gain.set(style.info.id, gain.get(style.info.id) + 1); awards.push(`✨ Most style: ${style.info.name} (${Math.round(style.e.score)} pts)  +1`); }
+    } else {
+      const fast = order.filter(x => x.e.finished).sort((a, b) => a.e.finishTime - b.e.finishTime)[0];
+      if (fast) { gain.set(fast.info.id, gain.get(fast.info.id) + 1); awards.push(`⚡ Fastest run: ${fast.info.name} (${fmtTime(fast.e.finishTime)})  +1`); }
+    }
+    S.races++;
+    for (const x of order) { const p = S.party.get(x.info.id) || { pts: 0 }; p.pts += gain.get(x.info.id); p.name = x.info.name; S.party.set(x.info.id, p); }
+    const list = order.map(x => ({ id: x.info.id, name: x.info.name, cls: x.info.cls, bot: !!x.info.bot, time: x.e.finished ? x.e.finishTime : null, color: x.info.color,
+      score: Math.round(x.e.score), gain: gain.get(x.info.id), total: S.party.get(x.info.id).pts }));
+    if (S.mode === 'host') broadcast({ t: 'results', list, awards, races: S.races });
+    setTimeout(() => showResults(list, awards, S.races), 900);
   }
 }
 
-function showResults(list) {
+function showResults(list, awards = [], races = 1) {
   const t = $('rtable');
-  t.innerHTML = '<tr><th>#</th><th>Rider</th><th>Class</th><th>Time</th></tr>';
-  $('resmap').textContent = S.race ? MAPS[S.race.map].name : '';
-  const best = list.find(x => x.time != null)?.time;
+  const tricks = S.race && S.race.opts.gmode === 'tricks';
+  t.innerHTML = `<tr><th>#</th><th>Rider</th><th>Time</th><th>Style</th><th>Pts</th><th>Party total</th></tr>`;
+  $('resmap').textContent = S.race ? `${MAPS[S.race.map].name} · ${tricks ? 'Trick Battle' : 'Race'} · round ${races}` : '';
+  const best = list.reduce((a, x) => x.time != null && (a == null || x.time < a) ? x.time : a, null);
+  const leader = Math.max(...list.map(x => x.total || 0));
   list.forEach((x, i) => {
     const tr = document.createElement('tr'); if (x.id === S.myId) tr.className = 'me';
-    const gap = x.time != null && best != null && i > 0 ? ` <small style="opacity:.6">+${(x.time - best).toFixed(2)}</small>` : '';
-    tr.innerHTML = `<td>${i + 1}</td><td></td><td>${CLASSES[x.cls].label}</td><td>${fmtTime(x.time)}${gap}</td>`;
-    tr.children[1].textContent = x.name;
+    const gap = !tricks && x.time != null && best != null && i > 0 ? ` <small style="opacity:.6">+${(x.time - best).toFixed(2)}</small>` : '';
+    tr.innerHTML = `<td>${i + 1}</td><td><span class="dot" style="background:#${(x.color || 0xffffff).toString(16).padStart(6, '0')}"></span> <span></span> <small style="opacity:.6">${x.cls === 'ski' ? 'ski' : 'board'}</small></td>
+      <td>${fmtTime(x.time)}${gap}</td><td>${(x.score || 0).toLocaleString()}</td><td>+${x.gain ?? 0}</td><td><b>${x.total ?? 0}</b>${x.total === leader && leader > 0 ? ' 👑' : ''}</td>`;
+    tr.children[1].children[1].textContent = x.name;
     t.appendChild(tr);
   });
+  $('awards').innerHTML = awards.map(a => `<div></div>`).join('');
+  [...$('awards').children].forEach((d, i) => { d.textContent = awards[i]; });
   const host = S.mode !== 'client';
   $('resctl').style.display = host ? '' : 'none';
   $('tolobby').style.display = S.mode === 'host' ? '' : 'none';
@@ -557,9 +663,10 @@ function netTick(dt) {
     const e = [];
     for (const [id, ent] of r.ents) e.push([id, ...packEnt(ent.e)]);
     const rt = Math.round(raceTime() * 1000) / 1000;
+    const pr = r.projectiles.map(p => [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10, Math.round(p.z * 10) / 10]);
     for (const [pid, conn] of S.conns) {
       const ent = r.ents.get(pid);
-      send(conn, { t: 'snap', rt, e, endIn: r.endIn, me: ent ? packFull(ent.e) : null, ack: ent ? ent.ack : 0 });
+      send(conn, { t: 'snap', rt, e, endIn: r.endIn, me: ent ? packFull(ent.e) : null, ack: ent ? ent.ack : 0, pr });
     }
   }
 }
@@ -570,6 +677,19 @@ function flash(text, good, ms = 1400) {
   const el = $('msg'); el.textContent = text;
   el.style.color = good === true ? '#7dffb0' : good === false ? '#ff7a8a' : '#fff';
   el.style.opacity = 1; msgTimer = ms / 1000;
+}
+const helpEls = [];
+function buildHelp() {
+  const P = CLASSES[S.race?.me?.e.cls || S.cls], el = $('help');
+  el.innerHTML = `<b>TRICKS</b> <small>(H hides)</small>
+    <div class="row2"><kbd>←</kbd><kbd>→</kbd> spin &nbsp; <kbd>↑</kbd><kbd>↓</kbd> flip</div>
+    <div class="grabs">${P.grabs.map((g, i) => `<span class="g"><kbd>${GRAB_KEYS[i]}</kbd> ${g}</span>`).join('')}</div>
+    <div class="row2">hold a grab in the air, <u>let go before landing</u></div>
+    <div class="row2">flip + spin = Rodeo / Misty · mix them for more points</div>
+    <div class="row2"><kbd>B</kbd> butter 180 on snow · rails: line up, <kbd>A</kbd><kbd>D</kbd> slide, <kbd>Space</kbd> pop</div>
+    <div class="row2">arrow on the snow: <span style="color:#5dffa5">green</span> = clean landing, <span style="color:#ff6b7a">red</span> = crash</div>`;
+  helpEls.length = 0; el.querySelectorAll('.g').forEach(g => helpEls.push(g));
+  el.style.display = S.help ? '' : 'none';
 }
 function buildProgressMarkers() {
   const pr = $('prog'); pr.innerHTML = '';
@@ -593,6 +713,10 @@ function updateHud(dt) {
   if (me) {
     const e = me.e;
     $('pos').innerHTML = `${ordinal(rankOf(me))}<small> / ${r.ents.size}</small>`;
+    $('score').innerHTML = `<small>STYLE</small> ${Math.round(e.score).toLocaleString()}`;
+    const it = ITEMS[e.item];
+    $('item').innerHTML = r.opts.items ? (it ? `<span class="ic">${it.icon}</span><small>${it.name} — click or X</small>` : '<span class="ic" style="opacity:.25">?</span><small>no item</small>') : '';
+    $('item').classList.toggle('has', !!it);
     $('time').textContent = fmtTime(e.finished ? e.finishTime : Math.max(0, rt));
     $('speed').innerHTML = `${Math.round(e.v * 3.6)}<small> km/h</small><span class="c">${CLASSES[e.cls].label}${e.boostT > 0 ? ' · BOOST' : ''}</span>`;
     if (e.finished) {
@@ -615,17 +739,24 @@ function updateHud(dt) {
   r.mini.draw(mctx, dots);
   for (const ent of r.ents.values()) if (ent.marker) ent.marker.style.left = (Math.max(0, Math.min(1, ent.e.z / r.course.L)) * 100) + '%';
   if (msgTimer > 0) { msgTimer -= dt; if (msgTimer <= 0) $('msg').style.opacity = 0; }
-  // live trick readout while airborne
+  // live trick readout + landing meter while airborne
   const live = $('live');
   if (me && me.e.grind >= 0) {
     const e = me.e;
-    live.innerHTML = `${Math.abs(e.slideAng) > 1 ? 'Boardslide' : '50-50'}<small>${e.grindT.toFixed(1)}s · Space to pop off</small>`; live.style.opacity = 1;
+    live.innerHTML = `${Math.abs(e.slideAng) > 1 ? 'Boardslide' : '50-50'}<small>${e.grindT.toFixed(1)}s · A/D slide · Space pops off</small>`; live.style.opacity = 1;
   } else if (me && me.e.air && me.e.airT > 0.2 && me.e.state === 'ride') {
-    const e = me.e, deg = Math.round(Math.abs(e.spin) * 180 / Math.PI / 10) * 10;
+    const e = me.e, deg = Math.round(Math.abs(e.spin) * 180 / Math.PI / 10) * 10, pv = landingPreview(e);
     const name = trickName(e);
-    live.innerHTML = `${name || '&nbsp;'}<small>${deg ? deg + '°' : ''}${e.grab ? ' · grabbing' : ''}</small>`;
+    const col = pv.q < 0 ? '#ff6b7a' : pv.q > 0.85 ? '#5dffa5' : pv.q > 0.5 ? '#c4ff6b' : '#ffcf5a';
+    live.innerHTML = `${name || '&nbsp;'}<small>${deg ? deg + '° · ' : ''}<span style="color:${col}">landing: ${pv.label}${pv.sw && pv.q >= 0 ? ' (switch)' : ''}</span>${e.grab ? ' · let go of the grab!' : ''}</small>`;
     live.style.opacity = 1;
   } else live.style.opacity = 0;
+  // trick list: highlight what you're pressing
+  if (S.help && me) {
+    const e = me.e;
+    for (let i = 0; i < 6; i++) helpEls[i]?.classList.toggle('on', e.grab === i + 1);
+    $('help').classList.toggle('air', e.air || e.grind >= 0);
+  }
   if (rt > 8) $('hint').textContent = '';
 }
 
@@ -665,15 +796,17 @@ function updateCamera(dt) {
     }
     return;
   }
-  const e0 = r.me.e, o = r.me.off;
-  const e = { x: e0.x + o.x, y: e0.y + o.y, z: e0.z + o.z, h: e0.h, v: e0.v };
+  const e0 = r.me.view, o = r.me.off;
+  const e = { x: e0.x + o.x, y: e0.y + o.y, z: e0.z + o.z, h: e0.h, v: r.me.e.v };
+  const inAir = r.me.e.air && r.me.e.airT > 0.25;
   if (!camState.init) { camState.h = e.h; camState.init = true; camState.pos.set(e.x - Math.sin(e.h) * 9, e.y + 4, e.z - Math.cos(e.h) * 9); }
   camState.h += (e.h - camState.h) * (1 - Math.exp(-5 * dt));
   const sx = Math.sin(camState.h), sz = Math.cos(camState.h);
-  const dist = 6.6 + Math.min(e.v, 50) * 0.035;
+  camState.air = (camState.air || 0) + ((inAir ? 1 : 0) - (camState.air || 0)) * (1 - Math.exp(-4 * dt));
+  const dist = 6.6 + Math.min(e.v, 50) * 0.035 + camState.air * 1.8; // pull back a little in the air so you can read your rotation
   tmpV.set(e.x - sx * dist, 0, e.z - sz * dist);
   const gy = r.course.groundH(tmpV.x, tmpV.z);
-  tmpV.y = Math.max(e.y + 2.9, gy + 1.8);
+  tmpV.y = Math.max(e.y + 2.9 + camState.air * 1.2, gy + 1.8);
   camState.pos.lerp(tmpV, 1 - Math.exp(-9 * dt));
   camera.position.copy(camState.pos);
   lookV.set(e.x + sx * 6, e.y + 1.2, e.z + sz * 6);
@@ -688,16 +821,19 @@ let fpsAcc = 0, fpsN = 0, debugT = 0;
 function tick(render) {
   const now = performance.now();
   let dt = Math.min(0.25, (now - lastT) / 1000); lastT = now;
-  if (jumpBuf > 0) jumpBuf -= dt;
   const r = S.race;
   if (r && S.screen !== 'menu') {
     if (r.phase === 'countdown' && raceTime() >= 0) r.phase = 'race';
     if (r.phase === 'race' && !r.over) {
       acc += dt;
       let n = 0;
-      while (acc >= FIXED && n < 16) { simStep(FIXED); acc -= FIXED; n++; }
+      while (acc >= FIXED && n < 16) {
+        for (const ent of r.ents.values()) { const e = ent.e, q = ent.pv; q.x = e.x; q.y = e.y; q.z = e.z; q.h = e.h; }
+        simStep(FIXED); acc -= FIXED; n++;
+        // input buffers tick down per physics step, so a key press is never missed at low frame rates
+        if (jumpBuf > 0) jumpBuf -= FIXED; if (useBuf > 0) useBuf -= FIXED; if (butterBuf > 0) butterBuf -= FIXED;
+      }
       if (n === 16) acc = 0;
-      for (const ent of r.ents.values()) if (!ent.local && !ent.bot && !ent.hostSim) smoothRemote(ent, dt);
       // record my run for the ghost (10 Hz)
       if (r.me && !r.me.e.finished) {
         r.ghostRecT -= dt;
@@ -713,9 +849,16 @@ function tick(render) {
   if (!render) return;
   if (S.race) {
     const r2 = S.race, c = r2.course;
+    // render positions: blend between the last two physics ticks (smooth at any frame rate)
+    const al = r2.phase === 'race' && !r2.over ? Math.min(1, acc / FIXED) : 1;
     for (const ent of r2.ents.values()) {
-      const e = ent.e;
+      const e0 = ent.e, v = ent.view, q = ent.pv;
+      const simulated = ent.local || ent.bot || ent.hostSim;
+      if (!simulated) interpRemote(ent);
+      if (simulated && al < 1 && (e0.x - q.x) ** 2 + (e0.z - q.z) ** 2 < 16) { v.x = q.x + (e0.x - q.x) * al; v.y = q.y + (e0.y - q.y) * al; v.z = q.z + (e0.z - q.z) * al; v.h = q.h + (e0.h - q.h) * al; }
+      else { v.x = e0.x; v.y = e0.y; v.z = e0.z; v.h = e0.h; }
       ent.off.multiplyScalar(Math.exp(-8 * dt));
+      const e = ent.pose; e.x = v.x; e.y = v.y; e.z = v.z; e.h = v.h;
       const gy = c.groundH(e.x, e.z);
       const sh = Math.sin(e.h), ch = Math.cos(e.h);
       const slope = (c.groundH(e.x - sh, e.z - ch) - c.groundH(e.x + sh, e.z + ch)) / 2;
@@ -750,12 +893,20 @@ function tick(render) {
       poseRider(r2.ghost.rider, g, c.groundH(g.x, g.z), now / 1000, 0, dt);
     }
     spray.update(dt);
+    spinItemBoxes(r2.boxes, now / 1000);
+    snowballs.update(r2.projectiles.map(p => Array.isArray(p) ? p : [p.x, p.y, p.z]), now / 1000);
+    { // air guide under my rider
+      const m = r2.me, e = m && m.pose;
+      const showG = !!e && e.air && e.airT > 0.12 && e.state === 'ride' && !e.finished;
+      if (showG) { const pv = landingPreview(m.e); airGuide.update(true, e.x + m.off.x, c.groundH(e.x, e.z), e.z + m.off.z, e.h, e.h + e.stance + e.spin, pv.q); }
+      else airGuide.update(false);
+    }
     const me = r2.me?.e;
     setRide(me ? me.v : 0, me ? Math.abs(me.lean || 0) : 0, me ? !me.air : false, !!me && r2.phase === 'race' && !r2.over && me.state === 'ride' && !me.finished);
     updateHud(dt);
-  } else setRide(0, 0, false, false);
+  } else { setRide(0, 0, false, false); airGuide.update(false); snowballs.update([], 0); }
   updateCamera(dt);
-  { const fe = S.race && S.race.me ? S.race.me.e : null; if (fe) env.follow(fe.x, fe.y, fe.z + 10, dt); else { const t = new THREE.Vector3(); camera.getWorldDirection(t); env.follow(camera.position.x + t.x * 40, camera.position.y + t.y * 40, camera.position.z + t.z * 40, dt); } }
+  { const fe = S.race && S.race.me ? S.race.me.view : null; if (fe) env.follow(fe.x, fe.y, fe.z + 10, dt); else { const t = new THREE.Vector3(); camera.getWorldDirection(t); env.follow(camera.position.x + t.x * 40, camera.position.y + t.y * 40, camera.position.z + t.z * 40, dt); } }
   drawSpeedLines(S.race && S.race.me ? S.race.me.e.v : 0);
   env.render();
   fpsAcc += dt; fpsN++;

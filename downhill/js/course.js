@@ -48,7 +48,7 @@ export const MAP_IDS = Object.keys(MAPS);
 
 const SEC_LEN = { shortcut: 360, halfpipe: 240, jumpline: 230, rails: 160, rollers: 110, pitch: 170, moguls: 160, cliff: 70, trees: 220 };
 
-export function makeCourse(seed, mapId = 'alpine') {
+export function makeCourse(seed, mapId = 'alpine', opts = {}) {
   const map = MAPS[mapId] || MAPS.alpine;
   const R = mulberry32(seed ^ (MAP_IDS.indexOf(mapId) * 0x9e3779b1));
   const L = map.L, HW = map.hw;
@@ -303,6 +303,20 @@ export function makeCourse(seed, mapId = 'alpine') {
   const railsNear = (zz) => railBuckets.get(Math.floor(zz / BUCKET)) || [];
   const obstaclesNear = (zz) => obBuckets.get(Math.floor(zz / BUCKET)) || [];
 
+  // item boxes (party items): rows of three across the run
+  const items = [], itemBuckets = new Map();
+  if (opts.items !== false) {
+    const RI = mulberry32(seed ^ 0x1234abcd);
+    for (let zz = 140 + RI() * 60; zz < L - 120; zz += 190 + RI() * 60) {
+      if (cliffs.some(c => zz > c.z0 + 10 && zz < c.z0 + 60)) continue;
+      for (const lane of [-0.55, 0, 0.55]) {
+        const x = cxMain(zz) + lane * HW, it = { i: items.length, x, z: zz, y: groundH(x, zz) + 1.1 };
+        items.push(it); addB(itemBuckets, zz - 3, zz + 3, it);
+      }
+    }
+  }
+  const itemsNear = (zz) => itemBuckets.get(Math.floor(zz / BUCKET)) || [];
+
   function nearestCenter(x, zz) {
     const m = cxMain(zz);
     if (scActive(zz)) { const s = cxBase(zz); if (Math.abs(x - s) < Math.abs(x - m)) return s; }
@@ -311,5 +325,5 @@ export function makeCourse(seed, mapId = 'alpine') {
 
   return { seed, mapId, map, L, hw: HW, rampH, sections, shortcuts, halfpipe, pipes, pitches, rollers, mogulSecs, cliffs,
     cxMain, cxBase, scActive, scAt, hpW, mogulW, corridor, groundH, baseH, ramps, pads, obstacles, forest, gates, flags, signs,
-    rails, railTop, railsNear, lifts, lights, obstaclesNear, nearestCenter };
+    rails, railTop, railsNear, lifts, lights, obstaclesNear, nearestCenter, items, itemsNear };
 }
