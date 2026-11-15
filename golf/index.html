@@ -1,1 +1,118 @@
-<!doctype html><meta charset="utf-8"><title>golf</title><p>Coming soon. <a href="../">Back</a></p>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mini-Golf Battle</title>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "peerjs": "https://cdn.jsdelivr.net/npm/peerjs@1.5.4/+esm"
+} }
+</script>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:#87c4ea;font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#fff;user-select:none}
+canvas{display:block}
+.hidden{display:none!important}
+.screen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(10,30,20,.55);z-index:20}
+.panel{background:#143d2b;border:2px solid #2f8f5f;border-radius:16px;padding:24px 28px;min-width:340px;max-width:92vw;max-height:90vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.4)}
+h1{margin:0 0 4px;font-size:2rem;letter-spacing:.04em}
+h2{margin:0 0 12px}
+.sub{opacity:.75;margin:0 0 18px}
+button{font:inherit;font-weight:700;border:0;border-radius:10px;padding:11px 16px;background:#30a46c;color:#fff;cursor:pointer;margin:4px 0}
+button:hover{filter:brightness(1.12)}
+button:disabled{opacity:.45;cursor:default;filter:none}
+button.alt{background:#2b5f8f}
+button.warn{background:#8f3b2b}
+.col{display:flex;flex-direction:column;gap:6px}
+.row{display:flex;gap:8px;align-items:center}
+input{font:inherit;padding:10px;border-radius:10px;border:2px solid #2f8f5f;background:#0d2a1d;color:#fff;width:100%}
+#codeIn{text-transform:uppercase;letter-spacing:.3em;width:120px;text-align:center}
+a.back{color:#bfe;font-size:.9rem}
+.err{color:#ffb4a8;min-height:1.2em;font-size:.9rem}
+.code{font-size:2.6rem;font-weight:800;letter-spacing:.35em;background:#0d2a1d;border-radius:10px;padding:6px 14px;display:inline-block;margin:6px 0 12px}
+ul.plist{list-style:none;padding:0;margin:0 0 12px}
+ul.plist li{padding:6px 10px;border-radius:8px;background:#0d2a1d;margin:4px 0;display:flex;gap:8px;align-items:center}
+.dot{width:14px;height:14px;border-radius:50%;display:inline-block;flex:none}
+.tag{font-size:.75rem;opacity:.7;margin-left:auto}
+#hud{position:fixed;inset:0;pointer-events:none;z-index:10}
+#hudTL{position:absolute;left:12px;top:10px;background:rgba(0,0,0,.35);padding:8px 12px;border-radius:10px;font-weight:700;line-height:1.4}
+#hudTL a{pointer-events:auto;color:#cfe;font-weight:400;font-size:.85rem}
+#timer{position:absolute;left:50%;top:8px;transform:translateX(-50%);font-size:2.2rem;font-weight:800;text-shadow:0 2px 6px rgba(0,0,0,.5)}
+#timer.low{color:#ff6b5b}
+#live{position:absolute;right:12px;top:10px;background:rgba(0,0,0,.35);padding:8px 12px;border-radius:10px;min-width:170px;font-size:.92rem}
+#live div{display:flex;gap:6px;align-items:center;padding:1px 0}
+#live .s{margin-left:auto;font-weight:700}
+#toasts{position:absolute;left:50%;top:64px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:4px}
+.toast{background:rgba(0,0,0,.55);padding:6px 14px;border-radius:20px;font-weight:700;animation:fade 2.6s forwards}
+@keyframes fade{0%{opacity:0;transform:translateY(-6px)}10%{opacity:1;transform:none}80%{opacity:1}100%{opacity:0}}
+#power{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);width:300px;height:22px;background:rgba(0,0,0,.45);border-radius:11px;overflow:hidden;border:2px solid rgba(255,255,255,.6)}
+#powerFill{height:100%;width:0;background:linear-gradient(90deg,#4ade80,#facc15,#ef4444)}
+#hint{position:absolute;left:50%;bottom:56px;transform:translateX(-50%);font-weight:700;text-shadow:0 1px 4px #000;white-space:nowrap}
+#debug{position:fixed;left:12px;bottom:12px;background:rgba(0,0,0,.7);font:12px/1.5 monospace;padding:8px 10px;border-radius:8px;z-index:30;white-space:pre;pointer-events:none}
+table.sb{border-collapse:collapse;font-size:.95rem;margin:6px 0 12px}
+table.sb th,table.sb td{padding:5px 8px;text-align:center;border-bottom:1px solid rgba(255,255,255,.15)}
+table.sb td.n{text-align:left;white-space:nowrap}
+table.sb tr.me{background:rgba(255,255,255,.08)}
+table.sb .cur{background:rgba(250,204,21,.18)}
+.star{color:#facc15}
+#tabBoard{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:15}
+</style>
+</head>
+<body>
+<!-- MENU -->
+<div id="menu" class="screen">
+  <div class="panel col">
+    <h1>⛳ Mini-Golf Battle</h1>
+    <p class="sub">Same hole. Same time. Knock 'em in the water.</p>
+    <label>Your name <input id="nameIn" maxlength="14" placeholder="Player"></label>
+    <button id="quickBtn">Quick Play vs Bots</button>
+    <button id="createBtn" class="alt">Create Room</button>
+    <div class="row"><input id="codeIn" maxlength="4" placeholder="CODE"><button id="joinBtn" class="alt" style="flex:1">Join</button></div>
+    <div id="menuErr" class="err"></div>
+    <a class="back" href="../">← Back to menu</a>
+  </div>
+</div>
+<!-- LOBBY -->
+<div id="lobby" class="screen hidden">
+  <div class="panel col">
+    <h2>Lobby</h2>
+    <div>Room code:<br><span id="roomCode" class="code">----</span></div>
+    <ul id="lobbyList" class="plist"></ul>
+    <div id="hostCtl" class="col">
+      <div class="row"><button id="addBot" class="alt" style="flex:1">+ Add Bot</button><button id="remBot" class="alt" style="flex:1">− Remove Bot</button></div>
+      <button id="startBtn">Start Match</button>
+    </div>
+    <div id="waitMsg" class="sub">Waiting for host to start…</div>
+    <div id="lobbyErr" class="err"></div>
+    <button id="leaveLobby" class="warn">Leave</button>
+  </div>
+</div>
+<!-- SCOREBOARD (hole end / match end) -->
+<div id="board" class="screen hidden">
+  <div class="panel col">
+    <h2 id="boardTitle">Scores</h2>
+    <div id="boardTable"></div>
+    <div id="boardMsg" class="sub"></div>
+    <div id="endCtl" class="col hidden">
+      <button id="againBtn">Play Again</button>
+      <button id="leaveEnd" class="warn">Leave to Menu</button>
+    </div>
+  </div>
+</div>
+<div id="tabBoard" class="panel hidden"></div>
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div id="hudTL"><div id="holeInfo">Hole 1/9</div><div id="strokeInfo">Strokes 0</div><a href="../">← Back to menu</a></div>
+  <div id="timer">60</div>
+  <div id="live"></div>
+  <div id="toasts"></div>
+  <div id="hint">Click &amp; drag back from your ball to shoot</div>
+  <div id="power"><div id="powerFill"></div></div>
+</div>
+<div id="debug" class="hidden"></div>
+<script type="module" src="./game.js"></script>
+</body>
+</html>
