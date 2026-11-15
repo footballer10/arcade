@@ -56,6 +56,10 @@ export function play(kind, vol = 1, tag = '') {
     case 'pickup': [660, 880, 1100, 1320].forEach((f, i) => tone(f, 0.08, 'square', 0.12 * vol, null, i * 0.06)); break;
     case 'use': tone(400, 0.2, 'triangle', 0.35 * vol, 1200); break;
     case 'shock': tone(90, 0.6, 'sawtooth', 0.35 * vol, 30); noise(0.5, 500, 0.5 * vol); break;
+    case 'ko': tone(520, 0.25, 'sawtooth', 0.25 * vol, 90); tone(980, 0.12, 'square', 0.15 * vol, null, 0.05); break;
+    case 'freeze': [1800, 2400, 3000].forEach((f, i) => tone(f, 0.25, 'sine', 0.14 * vol, f * 0.7, i * 0.05)); noise(0.3, 6000, 0.15 * vol); break;
+    case 'swap': tone(400, 0.12, 'triangle', 0.3 * vol, 900); tone(900, 0.12, 'triangle', 0.3 * vol, 400, 0.12); break;
+    case 'rocket': noise(0.5, 2500, 0.45 * vol); tone(160, 0.45, 'sawtooth', 0.25 * vol, 900); break;
     case 'tick': tone(1000, 0.06, 'square', 0.12 * vol); break;
     case 'win': [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.25, 'triangle', 0.3 * vol, null, i * 0.12)); break;
   }

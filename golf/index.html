@@ -20,7 +20,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#bfe1f7;font-family:Fr
 canvas{display:block}
 .hidden{display:none!important}
 .screen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,rgba(10,40,20,.05),rgba(5,25,12,.45));z-index:20}
-.panel{background:var(--paper);border-radius:24px;padding:26px 30px 24px;min-width:360px;max-width:94vw;max-height:92vh;overflow:auto;box-shadow:0 24px 70px rgba(0,0,0,.35),inset 0 -6px 0 rgba(0,0,0,.06)}
+.panel{background:var(--paper);border-radius:24px;padding:20px 28px 18px;min-width:360px;max-width:94vw;max-height:92vh;overflow:auto;box-shadow:0 24px 70px rgba(0,0,0,.35),inset 0 -6px 0 rgba(0,0,0,.06)}
 h1{margin:0;font-size:2.5rem;font-weight:700;color:#1d6b3a;line-height:1.05;letter-spacing:.01em}
 h1 small{display:block;font-size:1rem;font-weight:600;color:#e0573b;letter-spacing:.25em;text-transform:uppercase;margin-bottom:2px}
 h2{margin:0 0 10px;color:#1d6b3a;font-size:1.6rem}
@@ -41,9 +41,9 @@ input:focus{border-color:var(--green)}
 #codeIn{text-transform:uppercase;letter-spacing:.3em;width:130px;text-align:center;margin:0 0 4px}
 a.back{color:#2f7a4a;font-size:.9rem;font-weight:600;margin-top:6px}
 .err{color:#c0392b;min-height:1.2em;font-size:.9rem}
-.code{font-size:2.6rem;font-weight:700;letter-spacing:.35em;background:#1d6b3a;color:#fff;border-radius:14px;padding:6px 8px 6px 20px;display:inline-block;margin:6px 0 12px}
+.code{font-size:2rem;font-weight:700;letter-spacing:.35em;background:#1d6b3a;color:#fff;border-radius:14px;padding:6px 8px 6px 20px;display:inline-block;margin:6px 0 12px}
 ul.plist{list-style:none;padding:0;margin:0 0 12px}
-ul.plist li{padding:8px 12px;border-radius:12px;background:#eef5ea;margin:5px 0;display:flex;gap:10px;align-items:center;font-weight:500}
+ul.plist li{padding:6px 12px;border-radius:12px;background:#eef5ea;margin:5px 0;display:flex;gap:10px;align-items:center;font-weight:500}
 .dot{width:14px;height:14px;border-radius:50%;display:inline-block;flex:none;box-shadow:0 0 0 2px rgba(0,0,0,.15)}
 .tag{font-size:.75rem;font-weight:600;margin-left:auto;background:#1d6b3a;color:#fff;border-radius:8px;padding:2px 8px}
 .tag:empty{display:none}
@@ -79,6 +79,28 @@ table.sb tr.me td{background:#f3fbe9;font-weight:700}
 table.sb .cur{background:#fff6cc!important}
 table.sb th.cur{background:#e0a800!important}
 .star{color:#e0a800}
+select{font:inherit;padding:7px 8px;border-radius:10px;border:2px solid #cfe0c8;background:#f1f6ee;color:var(--ink);width:100%;margin-top:3px}
+.opts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px 8px;margin-bottom:6px}
+.opts label:first-child{grid-column:1/-1}
+ul.plist li.mine{cursor:pointer;outline:2px dashed #b9d6b0}
+ul.plist li small{color:#6b8573;font-weight:400}
+#modChip{font-size:.8rem;color:#b45309;font-weight:600}
+#live .tot{min-width:26px;text-align:right;color:#1d6b3a;font-weight:700}
+#live .hdr{font-size:.7rem;opacity:.6;text-transform:uppercase;letter-spacing:.05em}
+#live .hdr .s{margin-left:auto}
+#live .foot{opacity:.6;font-size:.75rem;display:block!important}
+#itemSlot .big{font-size:2rem;line-height:1.1}
+#itemSlot .desc{font-size:.75rem;font-weight:400;color:#4a6b55}
+#emotes{position:absolute;left:14px;bottom:20px;display:flex;gap:6px;pointer-events:auto}
+#emotes button{padding:6px 9px;margin:0;font-size:1.2rem;background:rgba(255,253,246,.92);box-shadow:0 4px 0 rgba(0,0,0,.2);border-radius:12px}
+#intro{position:absolute;left:50%;top:26%;transform:translate(-50%,-50%);text-align:center;color:#fff;text-shadow:0 4px 16px rgba(0,0,0,.55);animation:introIn 3s forwards;white-space:nowrap}
+#introHole{font-size:4.5rem;font-weight:700;line-height:1}
+#introSub{font-size:1.5rem;font-weight:600}
+#introMod{font-size:1.7rem;font-weight:700;color:#ffe14d;margin-top:6px}
+@keyframes introIn{0%{opacity:0;transform:translate(-50%,-50%) scale(.7)}12%{opacity:1;transform:translate(-50%,-50%) scale(1)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-60%) scale(1)}}
+#awards{font-weight:600;color:#1d6b3a;line-height:1.6;margin-bottom:8px}
+.screen.final{justify-content:flex-end;padding-right:3vw;background:none}
+.screen.final .panel{max-width:46vw}
 #tabBoard{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:15}
 </style>
 </head>
@@ -93,7 +115,7 @@ table.sb th.cur{background:#e0a800!important}
     <button id="createBtn" class="alt">Create Room</button>
     <div class="row"><input id="codeIn" maxlength="4" placeholder="CODE"><button id="joinBtn" class="alt" style="flex:1">Join</button></div>
     <div id="menuErr" class="err"></div>
-    <div class="keys">Drag back from ball = shoot · Right-drag = orbit · Wheel = zoom<br>E = use power-up · Space = recenter · Tab = scores · M = mute · ` = debug</div>
+    <div class="keys">Drag back from ball = shoot · Right-drag = orbit · Wheel = zoom<br>E = power-up · 1-4 = emotes · Space = recenter · Tab = scores<br>M = mute · G = graphics quality · ` = debug</div>
     <a class="back" href="../">← Back to menu</a>
   </div>
 </div>
@@ -104,9 +126,18 @@ table.sb th.cur{background:#e0a800!important}
     <div>Room code:<br><span id="roomCode" class="code">----</span></div>
     <ul id="lobbyList" class="plist"></ul>
     <div id="hostCtl" class="col">
+      <div class="opts">
+        <label>Mode<select id="opt_mode"><option value="classic">Classic — fewest strokes</option><option value="speed">Speed Golf — race for points</option></select></label>
+        <label>Holes<select id="opt_holes"><option>3</option><option>6</option><option>9</option></select></label>
+        <label>Time / hole<select id="opt_time"><option value="45">45 s</option><option value="60">60 s</option><option value="90">90 s</option></select></label>
+        <label>Power-ups<select id="opt_items"><option value="normal">Normal</option><option value="chaos">Chaos</option><option value="off">Off</option></select></label>
+        <label>Modifiers<select id="opt_mods"><option value="1">On</option><option value="0">Off</option></select></label>
+        <label>Bots<select id="opt_bots"><option value="easy">Easy</option><option value="normal">Normal</option><option value="hard">Hard</option></select></label>
+      </div>
       <div class="row"><button id="addBot" class="alt" style="flex:1">+ Add Bot</button><button id="remBot" class="alt" style="flex:1">− Remove Bot</button></div>
       <button id="startBtn">Start Match</button>
     </div>
+    <div id="optSummary" class="keys hidden"></div>
     <div id="waitMsg" class="sub">Waiting for host to start…</div>
     <div id="lobbyErr" class="err"></div>
     <button id="leaveLobby" class="warn">Leave</button>
@@ -118,6 +149,7 @@ table.sb th.cur{background:#e0a800!important}
     <h2 id="boardTitle">Scorecard</h2>
     <div id="boardTable"></div>
     <div id="boardMsg" class="sub"></div>
+    <div id="awards"></div>
     <div id="endCtl" class="col hidden">
       <button id="againBtn">Play Again</button>
       <button id="lobbyBtn" class="alt">Back to Lobby</button>
@@ -128,13 +160,15 @@ table.sb th.cur{background:#e0a800!important}
 <div id="tabBoard" class="panel hidden"></div>
 <!-- HUD -->
 <div id="hud" class="hidden">
-  <div id="hudTL" class="pill"><div id="holeInfo">Hole 1/9</div><div id="strokeInfo">Strokes 0</div><a href="../">← Back to menu</a></div>
+  <div id="hudTL" class="pill"><div id="holeInfo">Hole 1/9</div><div id="strokeInfo">Strokes 0</div><div id="modChip"></div><a href="../">← Back to menu</a></div>
   <div id="timer">60</div>
   <div id="live" class="pill"></div>
   <div id="toasts"></div>
   <div id="hint">Click &amp; drag back from your ball to shoot</div>
   <div id="power"><div id="powerFill"></div></div>
   <div id="itemSlot" class="hidden"></div>
+  <div id="emotes"><button>😂</button><button>😡</button><button>👏</button><button>😱</button></div>
+  <div id="intro" class="hidden"><div id="introHole">Hole 1</div><div id="introSub"></div><div id="introMod"></div></div>
 </div>
 <div id="debug" class="hidden"></div>
 <script type="module" src="./game.js"></script>
