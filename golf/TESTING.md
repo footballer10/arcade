@@ -23,29 +23,43 @@ It's peer-to-peer using the free public PeerJS server. Most home networks connec
 |---|---|
 | Aim + power | Left-click and drag **back** from your ball (like a slingshot), release to shoot |
 | Cancel shot | Right-click while dragging, or Esc |
+| Use power-up | E (or click the power-up box, bottom right) |
 | Orbit camera | Right-drag |
 | Zoom | Mouse wheel |
 | Recenter camera | Space or C |
 | Live scoreboard | Hold Tab |
+| Mute/unmute | M |
 | Debug overlay (FPS, ping, players) | `` ` `` |
+
+Test URL options: `?holes=2` for shorter matches, `?seed=65` to replay the same set of holes (seed 65's first hole has a jump and a drop).
 
 ## Rules
 - Everyone plays the same randomly generated hole (same seed) at the same time. Balls collide.
-- Pieces: ramps, walls/gates, bumpers, sliding blocks, spinning bars, water.
-- Water = +1 stroke, respawn where you last shot from.
+- Pieces: ramps, **jumps** (kicker over a pit), **drops** (step down a level), **banked curves** (curved wall on a sloped corner), **tunnels** (narrow covered lane), gates, bumpers, sliding blocks, spinning bars and water.
+- Water or falling into a pit = +1 stroke, respawn where you last shot from.
+- **Par is set by test runs**: before each hole the host has a bot play it 3 times. Par is the bot's average. If the bot never finishes, the hole is regenerated.
+- **Power-ups** (yellow "?" boxes): roll through one to grab it, then press E to use it.
+  - BIG BALL: double size and 3× mass for 12 s, so you bulldoze other balls.
+  - STICKY: for 12 s you can't be pushed, stop quickly and don't roll back on slopes.
+  - SHOCKWAVE: blasts every ball within 5 m away from you.
 - 60 s per hole. Unfinished players, or anyone who reaches 8 strokes, score 8.
 - Fewest strokes wins. First to sink each hole gets a ★ (−1).
-- Scoreboard after each hole and at the end. The host clicks **Play Again** for a new match, no reload needed.
+- At match end the host can click **Play Again** (same players) or **Back to Lobby** (everyone returns to the lobby, new friends can join and bots can be changed).
+
+## How online play works
+- The host's browser runs the real simulation and sends snapshots 20×/s.
+- Each client also runs the same physics locally (**client-side prediction**). Your shot moves the instant you release, and other balls move smoothly between snapshots.
+- Each snapshot is fast-forwarded by half your ping and blended in, so small differences disappear quietly. Big differences, like a water respawn, snap into place.
 
 ## Known issues
-- Clients see other balls about one ping late (snapshots at 20 Hz with smoothing). There's no local prediction yet, so your own shot starts a little after you release.
+- When the prediction is wrong (for example, another player's ball hits yours on the host's screen but not on yours), your ball can visibly slide or snap into place.
 - If the host leaves, the match ends for everyone. There's no host migration.
-- Physics is custom 2.5D (no airborne balls or jumps). Ramps are simple slopes.
-- Bots ignore other balls and are fairly accurate. Each bot gets a random skill level.
-- Nobody can join a match in progress. They can join after it returns to the lobby, but Play Again currently restarts straight away, so new players must wait for a fresh room.
-- Balls can be knocked around on the tee before you take your first shot.
+- The host pauses for about 0.2–0.5 s while it generates and bot-tests a hole. This mostly happens behind the scoreboard, but you notice it after pressing Start.
+- Bots ignore other balls when planning, and only use Shockwave when someone is close.
+- Nobody can join a match in progress. Use **Back to Lobby** to let them in.
+- The tunnel roof is see-through so you don't lose your ball. The bank floor shows a little behind the curved wall.
 
 ## Top 3 next improvements
-1. Client-side prediction for your own ball, plus snapshot interpolation buffering, so online play feels as snappy as local.
-2. More piece variety and better hole design: jumps/drops between levels, curved banks, tunnels, a par based on bot test runs, and themed visuals.
-3. Battle flavour: power-ups (big ball, sticky ball, shockwave), a "back to lobby" option between matches (so players can join and change bots), and sounds.
+1. Host migration and rejoin: if the host drops, the next player takes over the game state, and a refreshed tab can rejoin its seat.
+2. Hole quality: hand-designed piece templates mixed with the random ones, plus themed holes (ice, sand, lava), a minimap and a "show path" preview at hole start.
+3. Progression and feel: cosmetic ball skins, a replay of the winning putt, a spectator camera after you sink, and more power-ups (magnet cup, ghost ball, freeze).

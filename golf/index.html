@@ -51,6 +51,10 @@ ul.plist li{padding:6px 10px;border-radius:8px;background:#0d2a1d;margin:4px 0;d
 #power{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);width:300px;height:22px;background:rgba(0,0,0,.45);border-radius:11px;overflow:hidden;border:2px solid rgba(255,255,255,.6)}
 #powerFill{height:100%;width:0;background:linear-gradient(90deg,#4ade80,#facc15,#ef4444)}
 #hint{position:absolute;left:50%;bottom:56px;transform:translateX(-50%);font-weight:700;text-shadow:0 1px 4px #000;white-space:nowrap}
+#itemSlot{position:absolute;right:14px;bottom:20px;background:rgba(0,0,0,.5);border:2px solid rgba(255,255,255,.4);border-radius:12px;padding:10px 14px;font-weight:700;pointer-events:auto;cursor:pointer;min-width:150px;text-align:center}
+#itemSlot.ready{border-color:#facc15;box-shadow:0 0 14px rgba(250,204,21,.6)}
+#itemSlot .eff{font-size:.85rem;color:#bef264}
+.keys{font-size:.8rem;opacity:.7;line-height:1.5}
 #debug{position:fixed;left:12px;bottom:12px;background:rgba(0,0,0,.7);font:12px/1.5 monospace;padding:8px 10px;border-radius:8px;z-index:30;white-space:pre;pointer-events:none}
 table.sb{border-collapse:collapse;font-size:.95rem;margin:6px 0 12px}
 table.sb th,table.sb td{padding:5px 8px;text-align:center;border-bottom:1px solid rgba(255,255,255,.15)}
@@ -72,6 +76,7 @@ table.sb .cur{background:rgba(250,204,21,.18)}
     <button id="createBtn" class="alt">Create Room</button>
     <div class="row"><input id="codeIn" maxlength="4" placeholder="CODE"><button id="joinBtn" class="alt" style="flex:1">Join</button></div>
     <div id="menuErr" class="err"></div>
+    <div class="keys">Drag back from ball = shoot · Right-drag = orbit · Wheel = zoom<br>E = use power-up · Space = recenter · Tab = scores · M = mute · ` = debug</div>
     <a class="back" href="../">← Back to menu</a>
   </div>
 </div>
@@ -98,6 +103,7 @@ table.sb .cur{background:rgba(250,204,21,.18)}
     <div id="boardMsg" class="sub"></div>
     <div id="endCtl" class="col hidden">
       <button id="againBtn">Play Again</button>
+      <button id="lobbyBtn" class="alt">Back to Lobby</button>
       <button id="leaveEnd" class="warn">Leave to Menu</button>
     </div>
   </div>
@@ -111,6 +117,7 @@ table.sb .cur{background:rgba(250,204,21,.18)}
   <div id="toasts"></div>
   <div id="hint">Click &amp; drag back from your ball to shoot</div>
   <div id="power"><div id="powerFill"></div></div>
+  <div id="itemSlot" class="hidden"></div>
 </div>
 <div id="debug" class="hidden"></div>
 <script type="module" src="./game.js"></script>
