@@ -4,11 +4,11 @@ One session = one game. Read `CLAUDE.md` first (contract, control map, HUD and s
 
 ## Steps
 1. **Copy the template:** `cp -r games/_template games/<id>` (lowercase id, e.g. `games/bumpercars`).
-2. **Manifest** (`games/<id>/manifest.js`, no imports): set `id`, remove `dir` (or set it to your folder), `name`,
+2. **Manifest** (`games/<id>/manifest.js`, no imports): delete the TEMPLATE comment, set `id`, remove `dir` (or set it to your folder), `name`,
    `tagline`, `minPlayers`/`maxPlayers` (party max is 8, bots count), `teams`, `supportsBots`, `roundLengthSec`
    (aim for 1–4 minutes), `controlsHelp`, `thumbnail` (draw `thumb.svg`, 320×160, bright cartoon style), and any
    `picks` (each player chooses, e.g. a character) / `options` (host chooses, e.g. map, rounds).
-3. **Register it:** one import + one entry in `games/registry.js`.
+3. **Register it:** one import + add it to `PLAYABLE` in `games/registry.js`.
 4. **Build the game in `start(ctx)`** (`games/<id>/index.js`). Keep the template's skeleton:
    - Scene: `ctx.three.createRenderer()`, a `THREE.Scene`, a camera; resize on `ctx.on('resize')`; read `ctx.quality()`.
    - Level: build it **only** from `ctx.rng()` / `ctx.seed` so every client gets the same world.

@@ -3,7 +3,7 @@
 import { startStatic, startPeer, launch, openPage, createParty, joinByCode, waitFor, sleep, check } from './harness.mjs';
 import { play } from './drivers.mjs';
 const games = process.argv.slice(2).length ? process.argv.slice(2) : ['golf', 'arena'];
-const BASE = 'http://127.0.0.1:8080/index.html?peer=127.0.0.1:9000&testfps=4';
+const BASE = 'http://127.0.0.1:8080/index.html?dev=1&peer=127.0.0.1:9000&testfps=4';
 const srv = await startStatic(8080); await startPeer(9000);
 const { browser, context } = await launch();
 const pages = [];

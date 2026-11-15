@@ -5,7 +5,7 @@ together without ever leaving the party. Host-authoritative peer-to-peer (PeerJS
 
 **Play:** https://footballer10.github.io/arcade-prototypes/
 
-Games: **Mini-Golf Battle**, **Downhill Rush**, **Arena Royale**, and **Coin Grab** (the template every new game copies).
+Games: **Mini-Golf Battle**, **Downhill Rush** and **Arena Royale**. (`games/_template`, "Coin Grab", is the developer template new games copy; players never see it.)
 Old links (`/golf/`, `/downhill/`, `/arena/`) redirect to the hub.
 
 - Run locally: `python3 -m http.server 8000` in this folder, then open http://localhost:8000 (add `?net=local` to play in two tabs without internet).

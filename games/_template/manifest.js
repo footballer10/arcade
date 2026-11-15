@@ -1,4 +1,5 @@
 // Read by the lobby without loading the game. Keep it tiny (no imports of three.js etc.).
+// TEMPLATE: hidden from players (see games/registry.js); visible in the lobby only with ?dev=1.
 export const manifest = {
   id: 'coingrab',               // unique, lowercase; also the key used for saved picks
   dir: '_template',             // folder name under /games (defaults to id)
