@@ -46,6 +46,12 @@ Test URL options: `?holes=2` for shorter matches, `?seed=65` to replay the same 
 - Fewest strokes wins. First to sink each hole gets a ★ (−1).
 - At match end the host can click **Play Again** (same players) or **Back to Lobby** (everyone returns to the lobby, new friends can join and bots can be changed).
 
+## Look & feel
+- Everything is drawn in code (no image or model files): striped putting-green turf, wooden rails, stone bases, stone tunnel arches, striped bumpers, hazard-striped obstacles, an animated water pool, a waving numbered flag and dimpled glossy balls.
+- Scenery is generated for each hole: low-poly trees, bushes along the rails, rocks, flower patches, hills, clouds and a sky gradient.
+- Effects: splash, confetti when you sink, dust when you land, sparkles on pickups, and a pulsing gold ring under your ball when it's your shot.
+- The menu and lobby show a slow fly-around of a demo course. The UI uses a scorecard-style board and the Fredoka font from Google Fonts (it falls back to the system font if that's blocked).
+
 ## How online play works
 - The host's browser runs the real simulation and sends snapshots 20×/s.
 - Each client also runs the same physics locally (**client-side prediction**). Your shot moves the instant you release, and other balls move smoothly between snapshots.
@@ -57,7 +63,8 @@ Test URL options: `?holes=2` for shorter matches, `?seed=65` to replay the same 
 - The host pauses for about 0.2–0.5 s while it generates and bot-tests a hole. This mostly happens behind the scoreboard, but you notice it after pressing Start.
 - Bots ignore other balls when planning, and only use Shockwave when someone is close.
 - Nobody can join a match in progress. Use **Back to Lobby** to let them in.
-- The tunnel roof is see-through so you don't lose your ball. The bank floor shows a little behind the curved wall.
+- The tunnel roof is glass so you don't lose your ball. Small stone corners show where a banked curve meets the straight rails.
+- On older laptops, shadows and scenery can lower the FPS (check with `` ` ``). Turning off shadows would be the first quality setting to add.
 
 ## Top 3 next improvements
 1. Host migration and rejoin: if the host drops, the next player takes over the game state, and a refreshed tab can rejoin its seat.
