@@ -805,8 +805,8 @@ function buildCourse(hole) {
     g.add(body, light); g.visible = false; course.add(g); mineMeshes.push(g);
   }
   const cup = hole.cup, cr = hole.P.cupR;
-  const hole3 = new THREE.Mesh(new THREE.CircleGeometry(cr, 32), M.cup); hole3.rotation.x = -Math.PI / 2; add(hole3, cup.x, cup.y + 0.006, cup.z);
-  const rimC = new THREE.Mesh(new THREE.TorusGeometry(cr + 0.012, 0.016, 8, 40), M.white); rimC.rotation.x = Math.PI / 2; add(rimC, cup.x, cup.y + 0.009, cup.z);
+  const hole3 = new THREE.Mesh(new THREE.CircleGeometry(cr, 32), M.cup); hole3.rotation.x = -Math.PI / 2; add(hole3, cup.x, cup.y + 0.022, cup.z);
+  const rimC = new THREE.Mesh(new THREE.TorusGeometry(cr + 0.012, 0.016, 8, 40), M.white); rimC.rotation.x = Math.PI / 2; add(rimC, cup.x, cup.y + 0.026, cup.z);
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 1.75, 10), M.white); pole.castShadow = true; add(pole, cup.x, cup.y + 0.875, cup.z);
   add(new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 8), M.red), cup.x, cup.y + 1.77, cup.z);
   flagMesh = add(G.makeFlag((hole.idx ?? 0) + 1), cup.x + 0.02, cup.y + 1.72, cup.z);
