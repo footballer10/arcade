@@ -124,12 +124,17 @@ export const M = {
   white: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.4 }),
   red: new THREE.MeshStandardMaterial({ color: '#e23b3b', roughness: 0.5 }),
 };
+export const SHARED = new Set([...Object.values(M)]);
 // stone/wood get world-scaled UVs per mesh, so one shared material works everywhere
 
 let envTex = null;
+// Called once per game load (each load has a fresh renderer); frees the previous load's environment map.
 export function initEnv(renderer) {
+  if (envTex) envTex.dispose();
   const pm = new THREE.PMREMGenerator(renderer);
-  envTex = pm.fromScene(new RoomEnvironment(), 0.04).texture;
+  const room = new RoomEnvironment();
+  envTex = pm.fromScene(room, 0.04).texture;
+  pm.dispose(); room.traverse((o) => { o.geometry?.dispose(); if (o.material) [].concat(o.material).forEach((m) => m.dispose()); });
   M.water.envMap = envTex; M.water.envMapIntensity = 0.6;
   M.glass.envMap = envTex;
 }
@@ -268,7 +273,7 @@ export const glowSprite = () => { const s = new THREE.Sprite(new THREE.SpriteMat
 export function makeLabel(text, color) {
   const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64;
   const g = cv.getContext('2d');
-  g.font = '600 30px Fredoka, system-ui, sans-serif';
+  g.font = "30px 'Lilita One', system-ui, sans-serif";
   const tw = Math.min(220, g.measureText(text).width), w = tw + 52, x0 = (256 - w) / 2;
   g.fillStyle = 'rgba(15,30,20,.72)'; g.beginPath(); g.roundRect(x0, 10, w, 44, 22); g.fill();
   g.fillStyle = color; g.beginPath(); g.arc(x0 + 22, 32, 10, 0, 7); g.fill();

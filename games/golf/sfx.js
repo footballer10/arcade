@@ -1,25 +1,7 @@
-// Tiny synthesized sound effects (WebAudio, no asset files)
-let ctx = null, master = null, noiseBuf = null, muted = false;
-try { muted = localStorage.getItem('mgb-muted') === '1'; } catch { }
-
-export function initAudio() {
-  try {
-    if (!ctx) {
-      ctx = new (window.AudioContext || window.webkitAudioContext)();
-      master = ctx.createGain(); master.gain.value = muted ? 0 : 0.5; master.connect(ctx.destination);
-      noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-      const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    }
-    if (ctx.state === 'suspended') ctx.resume();
-  } catch { ctx = null; }
-}
-export const isMuted = () => muted;
-export function toggleMute() {
-  muted = !muted;
-  try { localStorage.setItem('mgb-muted', muted ? '1' : '0'); } catch { }
-  if (master) master.gain.value = muted ? 0 : 0.5;
-  return muted;
-}
+// Mini-Golf sounds: synthesized (no files), played through the hub's shared audio engine (sfx volume bus).
+import { audio } from '../../core/audio.js';
+let ctx = null, master = null, noiseBuf = null;
+function initAudio() { ctx = audio.ctx; master = audio.sfx; noiseBuf = audio.noise; return !!ctx; }
 
 function tone(f, dur, type = 'sine', vol = 0.3, f2 = null, at = 0) {
   const t = ctx.currentTime + at;
@@ -40,7 +22,7 @@ function noise(dur, freq, vol = 0.3, at = 0, q = 1) {
 
 const last = new Map();
 export function play(kind, vol = 1, tag = '') {
-  if (!ctx || muted || vol < 0.02) return;
+  if (!initAudio() || vol < 0.02) return;
   const k = kind + tag, now = performance.now();
   if (now - (last.get(k) || 0) < 70) return; last.set(k, now);
   vol = Math.min(1, vol);
