@@ -44,7 +44,7 @@ kbd { background: #2e3670; padding: 1px 6px; border-radius: 4px; }
 
 #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
 #hud .hudback { pointer-events: auto; top: 10px; left: 14px; }
-#topbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 18px; background: rgba(10,12,30,.7); padding: 8px 18px; border-radius: 10px; font-weight: 700; }
+#topbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; white-space: nowrap; gap: 18px; background: rgba(10,12,30,.7); padding: 8px 18px; border-radius: 10px; font-weight: 700; }
 #zoneInfo.warn { color: #ff5a5f; }
 #killfeed { position: absolute; top: 12px; right: 14px; text-align: right; font-size: .9rem; }
 #killfeed div { background: rgba(10,12,30,.7); padding: 4px 10px; border-radius: 6px; margin-bottom: 4px; }
@@ -74,3 +74,13 @@ kbd { background: #2e3670; padding: 1px 6px; border-radius: 4px; }
 #board.round { background: rgba(8,10,22,.45); }
 
 #debug { position: fixed; bottom: 10px; left: 10px; z-index: 20; background: rgba(0,0,0,.75); color: #7CFC00; font: 12px/1.45 ui-monospace, monospace; padding: 8px 12px; border-radius: 6px; white-space: pre; pointer-events: none; }
+
+select { background: #0e1126; border: 1px solid #39407a; color: #fff; padding: 8px 10px; border-radius: 8px; font-size: .95rem; margin-bottom: 10px; }
+.charpick button { padding: 10px 4px; font-size: .9rem; }
+#muteBtn { position: absolute; top: 6px; left: 96px; pointer-events: auto; background: rgba(10,12,30,.7); padding: 4px 10px; font-size: 1rem; }
+#banner.small { font-size: 2.2rem; }
+.pop { position: absolute; left: 0; top: 0; font-weight: 900; font-size: 15px; text-shadow: 0 2px 3px #000, 0 0 2px #000; white-space: nowrap; color: #fff; }
+.pop.dealt { color: #ffd84d; font-size: 20px; }
+.pop.hurt { color: #ff5a5f; font-size: 20px; }
+.pop.other { opacity: .75; font-size: 12px; }
+.pop.buff { color: #7cf7ff; font-size: 18px; }

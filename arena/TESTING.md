@@ -4,41 +4,51 @@ Top-down 3D arena brawler. Last player standing wins the round; first to 3 round
 
 ## 1. Where to play
 - **Live:** https://footballer10.github.io/arcade-prototypes/arena/ (once GitHub Pages is enabled: repo Settings → Pages → Deploy from branch → `main` / root).
-- **Locally:** from the repo root run `python3 -m http.server 8000` (or `npx serve .`) and open http://localhost:8000/arena/ in Chrome. You need a local server because ES modules don't load from `file://`. Three.js and PeerJS come from the jsDelivr CDN, so you need an internet connection.
+- **Locally:** from the repo root run `python3 -m http.server 8000` and open http://localhost:8000/arena/ in Chrome. Three.js and PeerJS come from the jsDelivr CDN, so you need internet.
 
-## 2. Testing multiplayer by yourself (two tabs)
-1. Open the game in **two separate Chrome windows** placed side by side. Tabs also work, but you can only see one at a time. The host keeps simulating while its tab is in the background.
-2. Window A: type a name, pick a class, click **Create Room**. A 4-letter code appears.
-3. Window B: use a different name, type the code, click **Join**. Both lobbies should list both players.
-4. In A (the host), add a couple of bots and click **Start**.
-5. Press `` ` `` in B to open the debug overlay and check Ping, Snaps/s (should be about 20) and Pred err (should stay near 0).
+## 2. Testing multiplayer by yourself
+1. Open the game in two or three Chrome windows side by side. The host keeps simulating even when its tab is in the background.
+2. Window A: **Create Room**. Pick the arena and bot difficulty in the lobby.
+3. Window B (and C): different name, type the code, **Join**.
+4. A: add bots, **Start**. Press `` ` `` in B to see ping, snapshot size (~200–400 bytes), channel (should say `unreliable`), and rewind (lag compensation) in ms.
+5. **Host migration test:** with 3 windows in a match, close window A. Within about 3–8 s, B becomes host ("You are now the host") and C reconnects to it. The match carries on from where it was. The room code keeps working for new players.
+6. **Mid-match join:** join a running match with the code. You spectate until the next round starts.
 
 ## 3. Playing with a friend
-Send your friend the live link. You click **Create Room** and send them the code; they click **Join**. Your browser runs the game (host-authoritative), so keep your tab open. Up to 8 players: fill the empty slots with bots. It's peer-to-peer over the free public PeerJS server, so no accounts are needed. Very strict networks (some corporate or school Wi-Fi, symmetric NAT) may block the connection because there is no TURN relay.
+Send the live link. You **Create Room** and send the code; they **Join**. 2–8 players, with bots filling the empty slots. If you (the host) drop out, the next player in the lobby takes over. There's no relay (TURN) server, so some strict networks (school/corporate Wi-Fi) may not connect.
 
 ## 4. Controls
 | Key | Action |
 |---|---|
 | WASD / arrows | Move |
 | Mouse | Aim |
-| Left click (hold) | Basic attack (Blaster bolts / Brawler punch / Trickster slash) |
-| Right click | Special: Blaster = knockback blast, Brawler = leaping ground slam, Trickster = teleport to cursor (max 7 m; a purple ring shows where you'll land) |
-| Space | Dash (1.4 s cooldown, brief invulnerability) |
+| Left click (hold) | Attack |
+| Right click | Special |
+| Space | Dash (1.4 s cooldown, brief invulnerability – use it to slip through the Sweeper beam) |
 | Mouse wheel | Zoom |
-| Left click while dead | Switch which player you spectate |
-| `` ` `` | Debug overlay (FPS, ping, player count) |
+| Click while dead | Switch which player you spectate |
+| M | Mute / unmute |
+| `` ` `` | Debug overlay |
 
-Rules: damage raises your knockback, so beaten-up players fly further. Falling off the edge or hitting 0 HP eliminates you. The red danger zone shrinks every 30 s and hurts more each stage. After 2:30 it collapses completely (sudden death). Power-ups: yellow = speed, cyan = shield, red = damage boost.
+**Characters**
+- **Blaster:** rapid bolts. Special = Knockback Blast (short charge-up, then a big push).
+- **Brawler:** heavy punches, most HP. Special = leaping Ground Slam (orange ring shows where it lands).
+- **Trickster:** fastest, quick slashes. Special = Teleport to cursor (purple ring shows where you'll land).
+- **Bomber (new):** lobs bombs at the cursor (a red ring marks the blast area). Special = Gravity Well that pulls enemies in. Drop it past someone near the edge to drag them off.
+
+**Arenas:** Pillars (cover), Sweeper (a rotating beam knocks you around), Pits & Bumpers (holes in the floor and pink bumpers that fling you). Pick one, or Random, in the menu or lobby.
+
+**Rules:** damage raises your knockback. Falling off the edge or into a pit, or hitting 0 HP, eliminates you. The red zone shrinks every 30 s; after 2:30, sudden death. Power-ups: yellow = speed, cyan = shield, red = damage.
 
 ## 5. Known issues and what to improve next
 **Known issues**
-- Rounds with 6 bots last about 1–2 minutes, a bit under the 2–3 minute target. Raise or lower `TUNE.dmg` in `js/sim.js` to make rounds longer or shorter.
-- Other players are drawn about 100 ms in the past (interpolation), so with a high ping, melee hits on fast Tricksters can look like they connected when they didn't. Your own movement is predicted locally. Teleports and specials wait one round trip.
-- If the host closes their tab, the match ends for everyone (no host migration). Players who join mid-match are turned away until the host goes back to the lobby.
-- There is no TURN server, so a few network setups can't connect.
-- Bots are simple: no real use of cover, and they sometimes dash into the zone.
+- With 6 bots, rounds last about 1.5–2 min on Pillars and about 1.5 min on the hazard maps. Lower `TUNE.dmg` in `js/sim.js` for longer rounds.
+- Blaster bots win most bot-only matches. The melee bots still walk straight into fire. Human players may balance differently.
+- Host migration needs at least one other human. With only bots left the game ends. While switching hosts the game pauses about 3–8 s, and anything in the last fraction of a second before the host dropped is lost.
+- Lag compensation is capped at 300 ms, so very laggy players will miss more.
+- No TURN relay server, so some networks can't connect.
 
-**Top 3 next improvements**
-1. Game feel: hit-stop, screen shake, sound effects, and clearer telegraphs for specials (Brawler slam radius, Blaster blast).
-2. Netcode: smaller binary snapshots, an unreliable channel for snapshots, lag-compensated hit detection, and host migration.
-3. Content and balance: more arenas or hazards, a 4th character, smarter bots (cover, flanking, difficulty levels), and a tuning pass on the 2–3 min round length.
+**Next ideas**
+1. A short tutorial or practice mode, and character select previews.
+2. A TURN fallback (e.g. a free Open Relay tier) and per-player ping on the scoreboard.
+3. Balance pass with real players, plus more arena hazards (lava floor tiles, moving platforms).
