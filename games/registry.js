@@ -4,7 +4,8 @@ import { manifest as golf } from './golf/manifest.js';
 import { manifest as downhill } from './downhill/manifest.js';
 import { manifest as arena } from './arena/manifest.js';
 import { manifest as coingrab } from './_template/manifest.js';
+import { manifest as snake } from './snake/manifest.js';
 
-export const GAMES = [golf, downhill, arena, coingrab];
+export const GAMES = [golf, downhill, arena, snake, coingrab];
 export const GAME_MAP = Object.fromEntries(GAMES.map((g) => [g.id, g]));
 export const loadGame = (id) => import(`./${GAME_MAP[id].dir || id}/index.js`);

@@ -27,6 +27,8 @@ export const DRIVERS = {
       await sleep(700);
     }
   },
+  // Snake: steer with keys + boost bursts (wiggle). Rounds end when one snake is left or the clock runs out.
+  async snake(page, until) { while (!(await until())) await wiggle(page, 1500); },
   async coingrab(page, until) { while (!(await until())) await wiggle(page, 1200); },
 };
 export async function play(page, gameId, until) { const d = DRIVERS[gameId] || DRIVERS.coingrab; await d(page, until); }
