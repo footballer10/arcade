@@ -27,7 +27,8 @@
     <p class="sub">Last one standing. Knock them off the edge.</p>
     <label>Your name <input id="nameIn" maxlength="12" placeholder="Player"></label>
     <div class="charpick" id="charPickMenu"></div>
-    <div class="row"><select id="mapSelMenu"></select><select id="lvlSelMenu"></select></div>
+    <div class="charinfo"></div>
+    <div class="row"><select id="mapSelMenu"></select><select id="lvlSelMenu"></select><select id="mutSelMenu"></select></div>
     <button id="quickBtn" class="big">Quick Play vs Bots</button>
     <div class="row">
       <button id="createBtn">Create Room</button>
@@ -35,7 +36,7 @@
       <button id="joinBtn">Join</button>
     </div>
     <div id="menuMsg" class="msg"></div>
-    <div class="controls">WASD move · Mouse aim · Left click attack · Right click special · Space dash · <kbd>M</kbd> mute · <kbd>`</kbd> debug</div>
+    <div class="controls">WASD move · Mouse aim · Left click attack · Right click special · Space dash · <kbd>1</kbd>–<kbd>4</kbd> emotes · <kbd>M</kbd> mute · <kbd>`</kbd> debug</div>
   </div>
 </div>
 
@@ -46,7 +47,8 @@
     <h2>Room <span id="roomCode" class="code">----</span></h2>
     <p class="sub" id="lobbyHint">Share this code with friends. 2–8 players.</p>
     <div class="charpick" id="charPickLobby"></div>
-    <div class="row" id="lobbySettings"><select id="mapSelLobby"></select><select id="lvlSelLobby"></select></div>
+    <div class="charinfo"></div>
+    <div class="row" id="lobbySettings"><select id="mapSelLobby"></select><select id="lvlSelLobby"></select><select id="mutSelLobby"></select></div>
     <div class="sub" id="lobbySettingsText"></div>
     <ul id="lobbyList"></ul>
     <div class="row" id="hostCtrls">
@@ -73,6 +75,7 @@
   </div>
   <a class="back hudback" href="../">&larr; Menu</a>
   <button id="muteBtn" title="Mute (M)">🔊</button>
+  <div id="emoteHint">1 😂  2 😡  3 👍  4 💀</div>
 </div>
 
 <!-- ROUND / MATCH OVERLAY -->

@@ -63,6 +63,14 @@ export function sfx(name, vol = 1) {
     case 'beep': tone('square', 600, 600, 0.09, 0.1 * v); break;
     case 'fight': tone('square', 900, 900, 0.25, 0.12 * v); tone('square', 1350, 1350, 0.25, 0.06 * v); break;
     case 'zone': tone('sawtooth', 110, 90, 0.9, 0.15 * v); tone('sawtooth', 116, 92, 0.9, 0.12 * v); break;
+    case 'splash': noise(0.7, 0.55 * v, 'lowpass', 5000, 300); noise(0.25, 0.35 * v, 'highpass', 2500, 6000); tone('sine', 420, 70, 0.35, 0.3 * v); break;
+    case 'boo': tone('sine', 520, 260, 0.45, 0.25 * v); tone('sine', 530, 250, 0.45, 0.2 * v, 0.03); break;
+    case 'hook': tone('square', 240, 620, 0.12, 0.12 * v); noise(0.1, 0.2 * v, 'bandpass', 2500, 900); break;
+    case 'bonk': tone('triangle', 330, 110, 0.2, 0.4 * v); tone('square', 660, 660, 0.05, 0.1 * v); break;
+    case 'ice': tone('triangle', 1800, 900, 0.1, 0.1 * v); noise(0.12, 0.12 * v, 'highpass', 5000, 3000); break;
+    case 'arrow': noise(0.12, 0.2 * v, 'bandpass', 3500, 1200); tone('sine', 700, 300, 0.1, 0.08 * v); break;
+    case 'stampede': noise(0.5, 0.35 * v, 'lowpass', 600, 150); tone('sawtooth', 90, 140, 0.4, 0.15 * v); break;
+    case 'emote': tone('sine', 880, 1320, 0.09, 0.12 * v); break;
     case 'win': [523, 659, 784, 1046].forEach((f, i) => tone('triangle', f, f, 0.18, 0.15 * v, i * 0.11)); break;
   }
 }

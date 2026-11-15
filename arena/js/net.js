@@ -8,7 +8,8 @@ const u8 = (v, s) => Math.max(0, Math.min(255, Math.round(v * s)));
 const angEnc = (a) => Math.round((((a % TAU) + TAU) % TAU) / TAU * 65535);
 const angDec = (v) => (v / 65535) * TAU;
 
-const P_BYTES = 44, PR_BYTES = 14, PU_BYTES = 7, W_BYTES = 8, HDR = 30;
+const P_BYTES = 48, PR_BYTES = 14, PU_BYTES = 7, W_BYTES = 8, HDR = 30;
+const VER = 3;
 
 // roster: Map id -> n ; we encode player ids as their small roster number `n`.
 export function encodeSnapshot(s) {
@@ -17,7 +18,7 @@ export function encodeSnapshot(s) {
   const v = new DataView(buf);
   let o = 0;
   const idToN = new Map(s.players.map((p) => [p.id, p.n]));
-  v.setUint8(o, 2); o += 1; // version
+  v.setUint8(o, VER); o += 1; // version
   v.setUint8(o, PHASES.indexOf(s.phase)); o += 1;
   v.setUint8(o, s.round); o += 1;
   v.setUint32(o, s.tick, true); o += 4;
@@ -30,10 +31,11 @@ export function encodeSnapshot(s) {
   v.setUint8(o, s.proj.length); o += 1;
   v.setUint8(o, s.pu.length); o += 1;
   v.setUint8(o, s.wells.length); o += 1;
+  v.setUint8(o, Math.max(0, s.mut || 0)); o += 1;
   o = HDR;
   for (const p of s.players) {
     v.setUint8(o, p.n);
-    v.setUint8(o + 1, (p.alive ? 1 : 0) | (p.falling ? 2 : 0));
+    v.setUint8(o + 1, (p.alive ? 1 : 0) | (p.falling ? 2 : 0) | (p.ghost ? 4 : 0));
     v.setInt16(o + 2, q16(p.x, 100), true); v.setInt16(o + 4, q16(p.z, 100), true); v.setInt16(o + 6, q16(p.y, 100), true);
     v.setUint16(o + 8, angEnc(p.aim), true);
     v.setUint8(o + 10, u8(p.hp, 1)); v.setUint8(o + 11, u8(p.maxHp, 1)); v.setUint8(o + 12, u8(p.shield, 1));
@@ -47,12 +49,14 @@ export function encodeSnapshot(s) {
     v.setUint8(o + 34, p.wins); v.setUint8(o + 35, Math.min(255, p.kills));
     v.setUint32(o + 36, p.ack >>> 0, true);
     v.setUint8(o + 40, p.placement);
+    v.setUint8(o + 41, u8(p.ammo, 80)); v.setUint8(o + 42, u8(p.slowT, 50)); v.setUint8(o + 43, u8(p.chargeT, 200)); v.setUint8(o + 44, u8(p.giantT, 10));
+    v.setUint16(o + 45, Math.min(65535, p.dmg || 0), true); v.setUint8(o + 47, Math.min(255, p.falls || 0));
     o += P_BYTES;
   }
   for (const b of s.proj) {
     v.setUint16(o, b.id & 0xffff, true); v.setUint8(o + 2, b.kind); v.setUint8(o + 3, b.color);
     v.setInt16(o + 4, q16(b.x, 100), true); v.setInt16(o + 6, q16(b.z, 100), true);
-    if (b.kind === 1) {
+    if (b.kind === 1 || b.kind === 5) {
       v.setInt16(o + 8, q16(b.tx, 100), true); v.setInt16(o + 10, q16(b.tz, 100), true);
       v.setUint8(o + 12, u8(b.f, 255)); v.setUint8(o + 13, u8(b.T, 100));
     } else { v.setInt16(o + 8, q16(b.vx, 100), true); v.setInt16(o + 10, q16(b.vz, 100), true); }
@@ -65,7 +69,7 @@ export function encodeSnapshot(s) {
   }
   for (const w of s.wells) {
     v.setInt16(o, q16(w.x, 100), true); v.setInt16(o + 2, q16(w.z, 100), true);
-    v.setUint8(o + 4, u8(w.t, 100)); v.setUint8(o + 5, u8(w.r, 10)); v.setUint8(o + 6, w.color);
+    v.setUint8(o + 4, u8(w.t, 100)); v.setUint8(o + 5, u8(w.r, 10)); v.setUint8(o + 6, w.color); v.setUint8(o + 7, w.kind || 0);
     o += W_BYTES;
   }
   return buf;
@@ -74,13 +78,13 @@ export function encodeSnapshot(s) {
 // rosterByN: Map n -> {id,name,char,color,isBot}
 export function decodeSnapshot(buf, rosterByN) {
   const v = new DataView(buf instanceof ArrayBuffer ? buf : buf.buffer, buf.byteOffset || 0, buf.byteLength);
-  if (v.getUint8(0) !== 2) return null;
+  if (v.getUint8(0) !== VER) return null;
   const idOf = (n) => (n === 255 ? null : rosterByN.get(n)?.id ?? null);
   const s = {
     phase: PHASES[v.getUint8(1)], round: v.getUint8(2), tick: v.getUint32(3, true),
     phaseT: v.getFloat32(7, true), t: v.getFloat32(11, true), zoneR: v.getUint16(15, true) / 100,
     roundWinner: idOf(v.getUint8(17)), matchWinner: idOf(v.getUint8(18)),
-    players: [], proj: [], pu: [], wells: [],
+    players: [], proj: [], pu: [], wells: [], mut: v.getUint8(23),
   };
   const np = v.getUint8(19), nb = v.getUint8(20), nu = v.getUint8(21), nw = v.getUint8(22);
   let o = HDR;
@@ -89,7 +93,7 @@ export function decodeSnapshot(buf, rosterByN) {
     const f = v.getUint8(o + 1);
     if (info) s.players.push({
       id: info.id, n, name: info.name, char: info.char, color: info.color, isBot: info.isBot,
-      alive: !!(f & 1), falling: !!(f & 2),
+      alive: !!(f & 1), falling: !!(f & 2), ghost: !!(f & 4),
       x: v.getInt16(o + 2, true) / 100, z: v.getInt16(o + 4, true) / 100, y: v.getInt16(o + 6, true) / 100,
       aim: angDec(v.getUint16(o + 8, true)),
       hp: v.getUint8(o + 10), maxHp: v.getUint8(o + 11), shield: v.getUint8(o + 12),
@@ -101,13 +105,15 @@ export function decodeSnapshot(buf, rosterByN) {
       invT: v.getUint8(o + 29) / 200, hitT: v.getUint8(o + 30) / 200, swingT: v.getUint8(o + 31) / 200,
       speedT: v.getUint8(o + 32) / 10, dmgT: v.getUint8(o + 33) / 10,
       wins: v.getUint8(o + 34), kills: v.getUint8(o + 35), ack: v.getUint32(o + 36, true), placement: v.getUint8(o + 40),
+      ammo: v.getUint8(o + 41) / 80, slowT: v.getUint8(o + 42) / 50, chargeT: v.getUint8(o + 43) / 200, giantT: v.getUint8(o + 44) / 10,
+      dmg: v.getUint16(o + 45, true), falls: v.getUint8(o + 47),
     });
     o += P_BYTES;
   }
   for (let i = 0; i < nb; i++) {
     const kind = v.getUint8(o + 2);
     const b = { id: v.getUint16(o, true), kind, color: v.getUint8(o + 3), x: v.getInt16(o + 4, true) / 100, z: v.getInt16(o + 6, true) / 100 };
-    if (kind === 1) { b.tx = v.getInt16(o + 8, true) / 100; b.tz = v.getInt16(o + 10, true) / 100; b.f = v.getUint8(o + 12) / 255; b.T = v.getUint8(o + 13) / 100; }
+    if (kind === 1 || kind === 5) { b.tx = v.getInt16(o + 8, true) / 100; b.tz = v.getInt16(o + 10, true) / 100; b.f = v.getUint8(o + 12) / 255; b.T = v.getUint8(o + 13) / 100; }
     else { b.vx = v.getInt16(o + 8, true) / 100; b.vz = v.getInt16(o + 10, true) / 100; }
     s.proj.push(b);
     o += PR_BYTES;
@@ -117,7 +123,7 @@ export function decodeSnapshot(buf, rosterByN) {
     o += PU_BYTES;
   }
   for (let i = 0; i < nw; i++) {
-    s.wells.push({ x: v.getInt16(o, true) / 100, z: v.getInt16(o + 2, true) / 100, t: v.getUint8(o + 4) / 100, r: v.getUint8(o + 5) / 10, color: v.getUint8(o + 6) });
+    s.wells.push({ x: v.getInt16(o, true) / 100, z: v.getInt16(o + 2, true) / 100, t: v.getUint8(o + 4) / 100, r: v.getUint8(o + 5) / 10, color: v.getUint8(o + 6), kind: v.getUint8(o + 7) });
     o += W_BYTES;
   }
   return s;

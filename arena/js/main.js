@@ -1,5 +1,5 @@
 // Arena Royale - UI, input, game loop and PeerJS networking.
-import { Sim, CHARS, CHAR_KEYS, MAX_PLAYERS, ARENA_R, WINS_TO_WIN, DASH_CD, MAPS, MAP_KEYS, MAP, setMap, integrate, applyDash, zoneNextIn, clampTo, TELEPORT_MAX, BOMB_RANGE, WELL_RANGE } from './sim.js';
+import { Sim, CHARS, CHAR_KEYS, MAX_PLAYERS, ARENA_R, WINS_TO_WIN, DASH_CD, MAPS, MAP_KEYS, MAP, setMap, integrate, applyDash, zoneNextIn, clampTo, TELEPORT_MAX, BOMB_RANGE, WELL_RANGE, MUTATORS, MUT_KEYS, MUT, BOO_CD, cdRate } from './sim.js';
 import { botInput, BOT_NAMES, BOT_LEVELS } from './bots.js';
 import { Renderer, cssColor } from './render.js';
 import { encodeSnapshot, decodeSnapshot, encodeInput, decodeInput, toB64, fromB64 } from './net.js';
@@ -31,6 +31,11 @@ let myChar = CHARS[store.get('arena.char', 'blaster')] ? store.get('arena.char',
 let mapSel = store.get('arena.map', 'random');
 if (mapSel !== 'random' && !MAPS[mapSel]) mapSel = 'random';
 let botLevel = BOT_LEVELS[store.get('arena.level', 'normal')] ? store.get('arena.level', 'normal') : 'normal';
+
+let mutSel = MUTATORS[store.get('arena.mut', 'none')] ? store.get('arena.mut', 'none') : 'none';
+const EMOTES = ['😂', '😡', '👍', '💀'];
+const streak = new Map();
+let lastEmote = 0;
 
 const renderer = new Renderer($('c'), $('labels'));
 
@@ -73,6 +78,7 @@ window.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') { if (e.key === 'Enter' && e.target.id === 'codeIn') $('joinBtn').click(); return; }
   if (e.code === 'Backquote') { $('debug').classList.toggle('hidden'); e.preventDefault(); return; }
   if (e.code === 'KeyM') { toggleMute(); return; }
+  if (/^Digit[1-4]$/.test(e.code) && mode === 'game') { sendEmote(+e.code.slice(5) - 1); return; }
   keys.add(e.code);
   if (e.code === 'Space') { e.preventDefault(); if (!e.repeat && mode === 'game') dashSeq++; }
 });
@@ -96,6 +102,13 @@ function toggleMute() { setMuted(!isMuted()); $('muteBtn').textContent = isMuted
 $('muteBtn').textContent = isMuted() ? '🔇' : '🔊';
 $('muteBtn').onclick = () => { unlockAudio(); toggleMute(); };
 
+function sendEmote(i) {
+  const now = performance.now();
+  if (now - lastEmote < 600) return;
+  lastEmote = now;
+  if (role === 'client') { if (hostCtrl?.open) hostCtrl.send({ t: 'emote', e: i }); }
+  else if (sim) sim.fx.push({ k: 'emote', id: myId, e: i });
+}
 function readInput(pos) {
   let mx = 0, mz = 0;
   if (keys.has('KeyW') || keys.has('ArrowUp')) mz -= 1;
@@ -131,6 +144,11 @@ function hostTick() {
     acc -= STEP; n++;
   }
   if (n >= 15) acc = 0;
+  if (sim.rosterDirty) { // Shuffle mutator changed everyone's character
+    sim.rosterDirty = false;
+    for (const p of lobby) { const sp = sim.players.get(p.id); if (sp) p.char = sp.char; }
+    if (role === 'host') broadcastRoster();
+  }
   const fx = sim.drainFx();
   for (const e of fx) handleFx(e);
   if (role === 'host') {
@@ -151,7 +169,7 @@ function hostTick() {
 
 // ---------------- client prediction & interpolation ----------------
 function replayStep(p, h) {
-  p.dashCd -= h.dt;
+  p.dashCd -= h.dt * cdRate();
   p.slamT = Math.max(0, p.slamT - h.dt);
   p.blastT = Math.max(0, p.blastT - h.dt);
   if (h.dash && p.dashCd <= 0) { p.aim = h.aim; applyDash(p, h); }
@@ -164,9 +182,11 @@ function onSnapshot(s) {
   if (snaps.length > 40) snaps.shift();
   latest = snaps[snaps.length - 1];
   snapCount++;
+  MUT.key = MUT_KEYS[s.mut] || 'none';
   const me = s.players.find((p) => p.id === myId);
-  if (!me || !me.alive || me.falling || s.phase !== 'play') { pred = null; history = []; visOff = { x: 0, z: 0 }; return; }
-  const base = { x: me.x, z: me.z, mvx: me.mvx, mvz: me.mvz, kbx: me.kbx, kbz: me.kbz, dvx: me.dvx, dvz: me.dvz, char: me.char, aim: me.aim, dashCd: me.dashCd, slamT: me.slamT, blastT: me.blastT, bumpT: 0.2, spMul: me.speedT > 0 ? 1.5 : 1 };
+  const canPredict = me && !me.falling && (me.alive ? s.phase === 'play' : me.ghost && (s.phase === 'play' || s.phase === 'roundEnd'));
+  if (!canPredict) { pred = null; history = []; visOff = { x: 0, z: 0 }; return; }
+  const base = { x: me.x, z: me.z, mvx: me.mvx, mvz: me.mvz, kbx: me.kbx, kbz: me.kbz, dvx: me.dvx, dvz: me.dvz, char: me.char, aim: me.aim, dashCd: me.dashCd, slamT: me.slamT, blastT: me.blastT, chargeT: me.chargeT, slowT: me.slowT, ghost: !me.alive && me.ghost, bumpT: 0.2, spMul: me.speedT > 0 ? 1.5 : 1 };
   history = history.filter((h) => h.seq > me.ack);
   if (history.length > 120) history = history.slice(-120);
   for (const h of history) replayStep(base, h);
@@ -208,7 +228,7 @@ function clientView(now) {
     else if (pa && pa.alive === lp.alive) { o.x = pa.x; o.z = pa.z; o.y = pa.y; o.aim = pa.aim; }
     if (lp.id === myId) {
       if (pred) { o.x = pred.x + visOff.x; o.z = pred.z + visOff.z; o.y = 0; }
-      if (lp.alive) o.aim = lastAim;
+      if (lp.alive || lp.ghost) o.aim = lastAim;
     }
     return o;
   });
@@ -238,7 +258,7 @@ function frame() {
   if (!view) { renderer.render(idleView, null, dt, { x: 0, z: 0 }); return; }
   lastView = view;
   const me = view.players.find((p) => p.id === myId);
-  let focus = me && me.alive ? me : null;
+  let focus = me && (me.alive || me.ghost) ? me : null;
   if (!focus) {
     let t = view.players.find((p) => p.id === spectateId && p.alive);
     if (!t) { t = view.players.find((p) => p.alive); spectateId = t ? t.id : null; }
@@ -269,7 +289,7 @@ function nameOf(id) {
   const p = playerById(id) || lobby.find((q) => q.id === id);
   return p ? p.name : '?';
 }
-function amSpectating() { const me = viewPlayers().find((p) => p.id === myId); return !me || !me.alive; }
+function amSpectating() { const me = viewPlayers().find((p) => p.id === myId); return !me || (!me.alive && !me.ghost); }
 function cycleSpectate() {
   const players = viewPlayers().filter((p) => p.alive);
   if (!players.length) return;
@@ -278,7 +298,8 @@ function cycleSpectate() {
 }
 function updateHud(v, me, dt) {
   const alive = v.players.filter((p) => p.alive).length;
-  setText('roundInfo', `${MAPS[MAP.key].name} · Round ${v.round} · First to ${WINS_TO_WIN}`);
+  const mk = MUT_KEYS[v.mut] || 'none';
+  setText('roundInfo', `${MAPS[MAP.key].name} · Round ${v.round} · First to ${WINS_TO_WIN}${mk !== 'none' ? ' · ' + MUTATORS[mk].name : ''}`);
   setText('aliveInfo', `Alive ${alive}/${v.players.length}`);
   const zn = zoneNextIn(v.t);
   setText('zoneInfo', v.phase !== 'play' ? 'Zone: —' : zn > 0 ? `Zone shrinks in ${Math.ceil(zn)}s` : 'SUDDEN DEATH');
@@ -288,7 +309,7 @@ function updateHud(v, me, dt) {
   let banner = '';
   if (v.phase === 'countdown') {
     const n = Math.max(1, Math.ceil(v.phaseT));
-    banner = v.round === 1 && v.phaseT > 2.4 ? `ROUND ${v.round}` : String(n);
+    banner = v.phaseT > 2 ? (mk !== 'none' ? MUTATORS[mk].name.toUpperCase() + '!' : `ROUND ${v.round}`) : String(n);
     if (n !== lastBeep) { lastBeep = n; sfx('beep'); }
   } else lastBeep = 0;
   if (v.phase !== 'countdown' && bannerT > 0) banner = bannerText;
@@ -297,20 +318,22 @@ function updateHud(v, me, dt) {
   $('banner').classList.toggle('small', migrating || banner.length > 12);
 
   if (me) {
-    const f = Math.max(0, me.hp / me.maxHp);
+    const f = me.alive ? Math.max(0, me.hp / me.maxHp) : 0;
     const hpEl = $('myHp');
     const w = (f * 100).toFixed(1) + '%';
     if (hpEl.style.width !== w) { hpEl.style.width = w; hpEl.style.background = f > 0.5 ? '#4cd964' : f > 0.25 ? '#ffcc00' : '#ff3b30'; }
     $('myShield').style.width = Math.min(100, me.shield / 40 * 100) + '%';
-    setHTML('myName', `<span style="color:${cssColor(me.color)}">${esc(me.name)}</span> · ${CHARS[me.char].name} · ${Math.ceil(me.hp * 10)} HP`);
+    setHTML('myName', `<span style="color:${cssColor(me.color)}">${esc(me.name)}</span> · ${me.alive ? CHARS[me.char].name + ' · ' + Math.ceil(me.hp * 10) + ' HP' : me.ghost ? '👻 Ghost' : 'Out'}`);
     const buffs = [];
     if (me.speedT > 0) buffs.push(`⚡ Speed ${Math.ceil(me.speedT)}s`);
     if (me.dmgT > 0) buffs.push(`🔥 Damage ${Math.ceil(me.dmgT)}s`);
     if (me.shield > 0) buffs.push(`🛡 Shield ${Math.ceil(me.shield * 10)}`);
     setText('myBuffs', buffs.join('  '));
-    setText('atkName', CHARS[me.char].attack);
-    setText('spName', CHARS[me.char].special);
-    const dashF = Math.max(0, me.dashCd / DASH_CD), spF = Math.max(0, me.spCd / CHARS[me.char].spCd);
+    const gh = !me.alive && me.ghost;
+    setText('atkName', gh ? 'Boo!' : CHARS[me.char].attack);
+    setText('spName', gh ? '—' : CHARS[me.char].special);
+    $('cdAtk').querySelector('.cdfill').style.height = (gh ? Math.max(0, me.spCd / BOO_CD) : 1 - Math.min(1, me.ammo)) * 100 + '%';
+    const dashF = Math.max(0, me.dashCd / DASH_CD), spF = gh ? 1 : Math.max(0, me.spCd / CHARS[me.char].spCd);
     $('cdDash').querySelector('.cdfill').style.height = (dashF * 100) + '%';
     $('cdSp').querySelector('.cdfill').style.height = (spF * 100) + '%';
     $('cdDash').classList.toggle('ready', dashF <= 0);
@@ -318,8 +341,8 @@ function updateHud(v, me, dt) {
   }
   const spect = (!me || !me.alive) && v.phase === 'play';
   $('spectate').classList.toggle('hidden', !spect);
-  $('bottom').style.opacity = me && me.alive ? 1 : 0.35;
-  if (spect) setHTML('spectate', `<span>${me ? 'You were eliminated' : 'You joined mid-round'} — spectating <b>${esc(nameOf(spectateId))}</b> (click to switch)</span>`);
+  $('bottom').style.opacity = me && (me.alive || me.ghost) ? 1 : 0.35;
+  if (spect) setHTML('spectate', me && me.ghost ? `<span>👻 You're a ghost! Fly next to someone and <b>left click to BOO</b> them off the edge</span>` : `<span>${me ? 'You were eliminated' : 'You joined mid-round'} — spectating <b>${esc(nameOf(spectateId))}</b> (click to switch)</span>`);
 
   const showBoard = (v.phase === 'roundEnd' && v.phaseT < 4.3) || v.phase === 'matchEnd';
   $('board').classList.toggle('hidden', !showBoard);
@@ -340,7 +363,17 @@ function renderBoard(v) {
   }).join('');
   setHTML('boardTbody', body);
   const isHost = role === 'host' || role === 'local';
-  setText('boardNote', isMatch ? (isHost ? '' : 'Waiting for host to start another match…') : `Next round in ${Math.max(0, Math.ceil(v.phaseT))}s`);
+  let note = `Next round in ${Math.max(0, Math.ceil(v.phaseT))}s`;
+  if (isMatch) {
+    const top = (key) => [...v.players].sort((a, b) => b[key] - a[key])[0];
+    const k = top('kills'), d = top('dmg'), f = top('falls');
+    const aw = [];
+    if (k && k.kills) aw.push(`💥 Most KOs: ${k.name} (${k.kills})`);
+    if (d && d.dmg) aw.push(`🥊 Heavy hitter: ${d.name} (${d.dmg * 10})`);
+    if (f && f.falls) aw.push(`🤿 Splash champ: ${f.name} (${f.falls} dunks)`);
+    note = aw.join('   ') + (isHost ? '' : '   ·   Waiting for host…');
+  }
+  setText('boardNote', note);
   $('boardBtns').classList.toggle('hidden', !isMatch);
   $('againBtn').classList.toggle('hidden', !isHost);
   $('toLobbyBtn').classList.toggle('hidden', role !== 'host');
@@ -366,7 +399,15 @@ function handleFx(e) {
   const mine = e.id === myId;
   const vol = mine ? 1 : nearVol(e);
   switch (e.k) {
-    case 'shot': sfx('shot', mine ? 1 : vol * 0.5); break;
+    case 'shot': sfx(e.c === 'ranger' ? 'arrow' : e.c === 'frost' ? 'ice' : 'shot', mine ? 1 : vol * 0.5); break;
+    case 'emote': renderer.emote(e.id, EMOTES[e.e] || '😂'); sfx('emote', 0.6); break;
+    case 'boo': sfx('boo', vol); renderer.popText(e.x, e.z, 'BOO!', 'buff'); break;
+    case 'hookshot': sfx('lob', vol); break;
+    case 'hooked': sfx('hook', vol); if (mine) renderer.shake(0.2); break;
+    case 'bonk': sfx('bonk', vol); if (mine) { renderer.shake(0.5); renderer.hitstop(60); } renderer.popText(e.x, e.z, 'BONK!', 'other'); break;
+    case 'blizzard': sfx('ice', vol); break;
+    case 'stampede': sfx('stampede', vol); break;
+    case 'volley': sfx('arrow', vol); break;
     case 'swing': sfx('swing', vol); break;
     case 'lob': sfx('lob', vol); break;
     case 'hit': {
@@ -384,13 +425,25 @@ function handleFx(e) {
     case 'dash': sfx('dash', mine ? 0.8 : vol * 0.4); break;
     case 'bump': sfx('bump', vol); if (mine) renderer.shake(0.25); break;
     case 'sweep': sfx('sweep', vol); if (mine) { renderer.shake(0.5); renderer.hitstop(60); } break;
-    case 'pickup': sfx('pickup', mine ? 1 : vol * 0.4); if (mine) renderer.popText(e.x, e.z, { speed: 'SPEED!', shield: 'SHIELD!', dmg: 'DAMAGE!' }[e.type], 'buff'); break;
+    case 'pickup': sfx('pickup', mine ? 1 : vol * 0.4); if (mine) renderer.popText(e.x, e.z, { speed: 'SPEED!', shield: 'SHIELD!', dmg: 'DAMAGE!', heal: '+HEAL', giant: 'GIANT!' }[e.type], 'buff'); break;
     case 'falling': sfx('fall', vol); break;
     case 'fight': sfx('fight'); bannerText = 'FIGHT!'; bannerT = 0.8; break;
     case 'zone': sfx('zone'); bannerText = 'The zone is closing!'; bannerT = 1.5; break;
-    case 'roundEnd': if (e.winner === myId) sfx('win'); break;
+    case 'roundEnd': {
+      if (e.winner === myId) sfx('win');
+      const w = e.winner && playerById(e.winner);
+      if (w) renderer.addFx({ k: 'confetti', x: w.x, z: w.z });
+      streak.clear();
+      break;
+    }
     case 'elim': {
-      sfx('elim', vol);
+      sfx(e.how === 'fall' ? 'splash' : 'elim', Math.max(vol, 0.4));
+      if (e.how === 'fall') renderer.popText(e.x, e.z, 'SPLASH!', 'buff');
+      if (e.by) {
+        const now = performance.now(), k = streak.get(e.by) || { n: 0, t: 0 };
+        k.n = now - k.t < 4500 ? k.n + 1 : 1; k.t = now; streak.set(e.by, k);
+        if (k.n >= 2) { bannerText = `${nameOf(e.by)}: ${k.n === 2 ? 'DOUBLE' : k.n === 3 ? 'TRIPLE' : 'MEGA'} KO!`; bannerT = 1.6; sfx('win', 0.7); }
+      }
       const v = nameOf(e.id);
       const txt = e.by ? `${nameOf(e.by)} ✖ ${v}${e.how === 'fall' ? ' (ring out)' : ''}` : `${v} ${e.how === 'fall' ? 'fell off' : e.how === 'zone' ? 'was eaten by the zone' : 'was KO\'d'}`;
       feed.push({ txt, t: performance.now() });
@@ -438,7 +491,7 @@ function show(screen) {
   if (screen !== 'game') $('board').classList.add('hidden');
 }
 function buildCharPick(el) {
-  el.innerHTML = CHAR_KEYS.map((k) => `<button data-c="${k}">${CHARS[k].name}<small>${CHARS[k].attack} · ${CHARS[k].special}</small></button>`).join('');
+  el.innerHTML = CHAR_KEYS.map((k) => `<button data-c="${k}" title="${CHARS[k].attack} / ${CHARS[k].special}">${CHARS[k].name}<small>${CHARS[k].role}</small></button>`).join('');
   el.addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
     setChar(b.dataset.c);
@@ -447,6 +500,8 @@ function buildCharPick(el) {
 function setChar(c) {
   myChar = c; store.set('arena.char', c);
   for (const b of document.querySelectorAll('.charpick button')) b.classList.toggle('sel', b.dataset.c === c);
+  const ch = CHARS[c];
+  for (const el of document.querySelectorAll('.charinfo')) el.textContent = `${ch.hp * 10} HP · Left click: ${ch.attack} · Right click: ${ch.special}`;
   if (mode === 'lobby') {
     if (role === 'host') { const me = lobby.find((p) => p.id === myId); if (me) me.char = c; broadcastRoster(); }
     else if (role === 'client' && hostCtrl?.open) hostCtrl.send({ t: 'char', char: c });
@@ -456,9 +511,11 @@ function buildSelects() {
   const mapOpts = `<option value="random">Random arena</option>` + MAP_KEYS.map((k) => `<option value="${k}">${MAPS[k].name}</option>`).join('');
   const lvlOpts = Object.keys(BOT_LEVELS).map((k) => `<option value="${k}">${BOT_LEVELS[k].label} bots</option>`).join('');
   for (const id of ['mapSelMenu', 'mapSelLobby']) { $(id).innerHTML = mapOpts; $(id).value = mapSel; $(id).onchange = (e) => { mapSel = e.target.value; store.set('arena.map', mapSel); syncSelects(); if (role === 'host') broadcastRoster(); }; }
+  const mutOpts = MUT_KEYS.map((k) => `<option value="${k}">${MUTATORS[k].name}</option>`).join('');
+  for (const id of ['mutSelMenu', 'mutSelLobby']) { $(id).innerHTML = mutOpts; $(id).value = mutSel; $(id).onchange = (e) => { mutSel = e.target.value; store.set('arena.mut', mutSel); syncSelects(); if (role === 'host') broadcastRoster(); }; }
   for (const id of ['lvlSelMenu', 'lvlSelLobby']) { $(id).innerHTML = lvlOpts; $(id).value = botLevel; $(id).onchange = (e) => { botLevel = e.target.value; store.set('arena.level', botLevel); syncSelects(); if (role === 'host') broadcastRoster(); }; }
 }
-function syncSelects() { for (const id of ['mapSelMenu', 'mapSelLobby']) $(id).value = mapSel; for (const id of ['lvlSelMenu', 'lvlSelLobby']) $(id).value = botLevel; }
+function syncSelects() { for (const id of ['mapSelMenu', 'mapSelLobby']) $(id).value = mapSel; for (const id of ['lvlSelMenu', 'lvlSelLobby']) $(id).value = botLevel; for (const id of ['mutSelMenu', 'mutSelLobby']) $(id).value = mutSel; }
 buildCharPick($('charPickMenu'));
 buildCharPick($('charPickLobby'));
 buildSelects();
@@ -481,7 +538,7 @@ function renderLobby() {
   $('hostCtrls').classList.toggle('hidden', !host);
   $('lobbySettings').classList.toggle('hidden', !host);
   $('lobbySettingsText').classList.toggle('hidden', host);
-  setText('lobbySettingsText', `${mapSel === 'random' ? 'Random arena' : MAPS[mapSel].name} · ${BOT_LEVELS[botLevel].label} bots`);
+  setText('lobbySettingsText', `${mapSel === 'random' ? 'Random arena' : MAPS[mapSel].name} · ${BOT_LEVELS[botLevel].label} bots · ${MUTATORS[mutSel].name}`);
   $('startBtn').disabled = lobby.length < 2;
   $('addBotBtn').disabled = lobby.length >= MAX_PLAYERS;
   $('remBotBtn').disabled = !lobby.some((p) => p.isBot);
@@ -493,13 +550,13 @@ function nextId(prefix) { let k = 1; while (lobby.some((p) => p.id === prefix + 
 function makeBot() {
   const used = new Set(lobby.map((p) => p.name));
   const name = BOT_NAMES.find((n) => !used.has('Bot ' + n)) || 'X' + lobby.length;
-  return { id: nextId('b'), n: freeN(), name: 'Bot ' + name, char: CHAR_KEYS[Math.floor(Math.random() * CHAR_KEYS.length)], isBot: true, color: freeColor() };
+  return { id: nextId('b'), n: freeN(), name: 'Bot ' + name, char: (() => { const free = CHAR_KEYS.filter((k) => !lobby.some((p) => p.char === k)); const pool = free.length ? free : CHAR_KEYS; return pool[Math.floor(Math.random() * pool.length)]; })(), isBot: true, color: freeColor() };
 }
 const pickMap = () => (mapSel === 'random' ? MAP_KEYS[Math.floor(Math.random() * MAP_KEYS.length)] : mapSel);
 
 function startMatchFromLobby() {
   sim = new Sim(pickMap());
-  sim.botLevel = botLevel;
+  sim.botLevel = botLevel; sim.mutSetting = mutSel;
   for (const p of lobby) sim.addPlayer(p);
   sim.startMatch();
   inputs.clear();
@@ -544,7 +601,7 @@ $('toMenuBtn').onclick = () => toMenu();
 $('againBtn').onclick = () => {
   if (!sim) return;
   if (mapSel === 'random') { const k = pickMap(); setMap(k); sim.map = k; }
-  sim.botLevel = botLevel;
+  sim.botLevel = botLevel; sim.mutSetting = mutSel;
   sim.startMatch();
   renderer.clearPlayers(); feed.length = 0; renderFeed();
   if (role === 'host') broadcast({ t: 'start', map: MAP.key });
@@ -690,6 +747,7 @@ function hostOnData(conn, msg) {
       break;
     }
     case 'ib': if (c) onInputPacket(conn.peer, fromB64(msg.d)); break;
+    case 'emote': if (c && sim) sim.fx.push({ k: 'emote', id: c.id, e: Math.max(0, Math.min(3, msg.e | 0)) }); break;
     case 'ping': conn.send({ t: 'pong', ts: msg.ts }); break;
   }
 }
@@ -707,7 +765,7 @@ function dropConn(conn) {
 }
 function broadcast(msg) { for (const c of conns.values()) if (c.ctrl.open) { try { c.ctrl.send(msg); } catch { /* */ } } }
 function broadcastRoster() {
-  broadcast({ t: 'roster', players: lobby, hostId, code: roomCode, map: mapSel, level: botLevel });
+  broadcast({ t: 'roster', players: lobby, hostId, code: roomCode, map: mapSel, level: botLevel, mut: mutSel });
   if (mode === 'lobby') renderLobby();
 }
 
@@ -771,7 +829,7 @@ function onSnapPacket(ab, via) {
 function clientOnCtrl(msg) {
   switch (msg.t) {
     case 'roster':
-      lobby = msg.players; hostId = msg.hostId; roomCode = msg.code; mapSel = msg.map; botLevel = msg.level;
+      lobby = msg.players; hostId = msg.hostId; roomCode = msg.code; mapSel = msg.map; botLevel = msg.level; mutSel = MUTATORS[msg.mut] ? msg.mut : 'none';
       rosterByN = new Map(lobby.map((p) => [p.n, p]));
       syncSelects();
       if (mode === 'lobby') renderLobby();
@@ -824,7 +882,7 @@ function becomeHost(oldHost) {
   hostId = myId;
   for (const p of lobby) if (!p.isBot && p.id !== myId) p.pending = true;
   if (mode === 'game' && latest) {
-    sim = Sim.fromSnapshot(latest.s, lobby, MAP.key, botLevel);
+    sim = Sim.fromSnapshot(latest.s, lobby, MAP.key, botLevel, mutSel);
     inputs.clear(); acc = 0; lastTick = performance.now();
     pred = null; history = [];
   } else { sim = null; mode = 'lobby'; show('lobby'); }

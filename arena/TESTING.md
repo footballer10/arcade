@@ -30,29 +30,45 @@ Send the live link. You **Create Room** and send the code; they **Join**. 2–8 
 | M | Mute / unmute |
 | `` ` `` | Debug overlay |
 
-**Characters**
-- **Blaster:** rapid bolts. Special = Knockback Blast (short charge-up, then a big push).
-- **Brawler:** heavy punches, most HP. Special = leaping Ground Slam (orange ring shows where it lands).
-- **Trickster:** fastest, quick slashes. Special = Teleport to cursor (purple ring shows where you'll land).
-- **Bomber (new):** lobs bombs at the cursor (a red ring marks the blast area). Special = Gravity Well that pulls enemies in. Drop it past someone near the edge to drag them off.
+**Extra keys:** `1`–`4` send emotes (😂 😡 👍 💀).
 
-**Arenas:** Crate Meadow (crates, stone walls, lots of cover), Sweeper Sands (a spinning spiked log knocks you around), Frosty Pits (icy water holes and pink bumper pads that fling you). Pick one, or Random, in the menu or lobby.
+**Ammo:** every attack uses 1 of 3 ammo bars (shown under your health bar). They refill on their own, so fire in bursts and back off to reload.
 
-**Bushes:** tall grass hides you from enemies more than 3.5 m away (bots too). Attacking or getting hit reveals you for a moment.
+**Characters (8)**
+| Character | Role | Left click | Right click |
+|---|---|---|---|
+| Blaster | Ranged | Bolts | Knockback Blast: short charge, then a big push |
+| Brawler | Tank | Wide punches | Ground Slam: leap and smash |
+| Trickster | Assassin | Fast slashes | Teleport to the cursor; you arrive with full ammo |
+| Bomber | Artillery | Lobs bombs over walls | Gravity Well: drags enemies in |
+| Ranger | Sniper | Long arrows that pierce through players | Backflip Volley: flips away and fires 3 arrows |
+| Frostbite | Control | 3 ice shards that slow | Blizzard: an area that slows and chips health |
+| Ram | Tank | Horn bash | Stampede: unstoppable charge; hitting a wall = BONK |
+| Angler | Grappler | Long harpoon jab | Hook Shot: yanks an enemy to you, or pulls you to a wall |
 
-**Look:** bright cartoon style with toon shading, outlined chunky characters, tiled floors, an island in the sea, a green poison-gas zone, and health shown at 10x scale (e.g. 1000 HP). All characters and art are original.
+**Arenas (5):** Crate Meadow, Sweeper Sands (spinning spiked log), Frosty Pits (water holes + bumpers), Donut Dunk (a giant hole in the middle), Slippy Rink (everyone slides).
 
-**Rules:** damage raises your knockback. Falling off the edge or into a pit, or hitting 0 HP, eliminates you. The red zone shrinks every 30 s; after 2:30, sudden death. Power-ups: yellow = speed, cyan = shield, red = damage.
+**Mutators** (menu or lobby): Super Knockback, Turbo, Bomb Rain, Power-up Party, Glass Cannon (triple damage), Shuffle (random character each round), or **Chaos**, which picks a random one every round.
+
+**Ghosts:** when you're eliminated you become a ghost. Fly next to a living player and left click to BOO: a shove with no damage, every 4 seconds. Bots don't become ghosts.
+
+**Power-ups:** yellow = speed, cyan = shield, red = damage, green = heal 40%, pink = giant (bigger, hits harder, harder to push).
+
+**Bushes:** tall grass hides you from enemies more than 3.5 m away (bots too). Attacking or getting hit reveals you.
+
+**Rules:** damage raises your knockback. Falling off the edge or into a pit, or hitting 0 HP, eliminates you. The gas zone shrinks every 30 s; after 2:30, sudden death. The match-end screen gives awards for most KOs, most damage and most dunks.
+
+**Balance notes:** melee characters deal roughly 1.8x the damage rate of ranged ones and have more health. Numbers were tuned with bot-vs-bot matches (1v1 win rates ended between about 33% and 64%; damage dealt per round in 8-player free-for-alls was within about ±20% across characters). All values are at the top of `js/sim.js` (`CHARS`, `MELEE`, `SHOTS`, `TUNE`).
 
 ## 5. Known issues and what to improve next
 **Known issues**
-- With 6 bots, rounds last about 1.5–2 min on Pillars and about 1.5 min on the hazard maps. Lower `TUNE.dmg` in `js/sim.js` for longer rounds.
-- Blaster bots win most bot-only matches. The melee bots still walk straight into fire. Human players may balance differently.
-- Host migration needs at least one other human. With only bots left the game ends. While switching hosts the game pauses about 3–8 s, and anything in the last fraction of a second before the host dropped is lost.
-- Lag compensation is capped at 300 ms, so very laggy players will miss more.
-- No TURN relay server, so some networks can't connect.
+- Balance has only been tested with bots, not people. In bot free-for-alls the ranged characters still win more rounds than melee (bots dive into crowds); expect to tweak after real games.
+- With 8 hard bots, rounds last about 70 s (range roughly 50–100 s), under the 2–3 minute target. Lower `TUNE.dmg` in `js/sim.js` for longer rounds.
+- Ghost BOOs can decide a close round. If your group finds that annoying, set `this.ghosts = false` in `js/sim.js`.
+- Host migration needs at least one other human. While switching hosts the game pauses about 4–11 s.
+- Lag compensation is capped at 300 ms. No TURN relay server, so some networks can't connect.
 
 **Next ideas**
 1. A short tutorial or practice mode, and character select previews.
 2. A TURN fallback (e.g. a free Open Relay tier) and per-player ping on the scoreboard.
-3. Balance pass with real players, plus more arena hazards (lava floor tiles, moving platforms).
+3. Team modes (2v2, 4v4) and a balance pass with real players.

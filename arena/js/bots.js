@@ -7,7 +7,8 @@ export const BOT_LEVELS = {
   normal: { label: 'Normal', think: [0.1, 0.18], aimErr: 0.3,  lead: 0.7, dashP: 0.05, spP: 0.5,  calm: 0.4,  cover: true,  flank: 0.5 },
   hard:   { label: 'Hard',   think: [0.05, 0.09], aimErr: 0.12, lead: 1.0, dashP: 0.1, spP: 0.85, calm: 0.2,  cover: true,  flank: 0.7 },
 };
-const RANGE = { blaster: 8, brawler: 1.7, trickster: 1.5, bomber: 7 };
+const RANGE = { blaster: 8, brawler: 1.7, trickster: 1.5, bomber: 7, ranger: 12, frost: 4.5, ram: 1.6, hook: 2.6 };
+const SHOT_SPEED = { blaster: 24, ranger: 30, frost: 20 };
 
 const norm = (x, z) => { const l = Math.hypot(x, z) || 1; return [x / l, z / l]; };
 function safeSpot(x, z, zr, margin = 1.5) {
@@ -49,7 +50,8 @@ export function botInput(sim, p, dt) {
   m.calm -= thinkDt;
   if (m.calm < -5) m.calm = (1 + Math.random() * 5) * L.calm * 2;
   const hurt = p.hp / p.maxHp < 0.35 && bd < 8;
-  const ranged = p.char === 'blaster' || p.char === 'bomber';
+  const ranged = p.char === 'blaster' || p.char === 'bomber' || p.char === 'ranger' || p.char === 'frost';
+  const shooter = !!SHOT_SPEED[p.char];
   let engage = best && (bd < 4 || (bd < 14 && m.calm <= 0));
 
   if (best && hurt && L.cover) {
@@ -74,13 +76,13 @@ export function botInput(sim, p, dt) {
     const sw = ranged ? 0.9 : (d < 4 ? 0.5 : 0.25);
     mx += -uz * m.strafe * sw; mz += ux * m.strafe * sw;
     // ranged bots that lack a shot slide sideways to find one
-    if (ranged && p.char === 'blaster' && !clearShot(p, best)) { mx += -uz * m.strafe; mz += ux * m.strafe; }
+    if (shooter && !clearShot(p, best)) { mx += -uz * m.strafe; mz += ux * m.strafe; }
 
     aimAt(p, best, inp, m, L);
-    if (p.char === 'blaster') inp.atk = d < 15 && clearShot(p, best);
+    if (shooter) inp.atk = d < { blaster: 13, ranger: 22, frost: 6.5 }[p.char] && clearShot(p, best);
     else if (p.char === 'bomber') {
       // lob at where the target will be
-      const T = 0.35 + Math.min(BOMB_RANGE, d) * 0.04;
+      const T = 0.3 + Math.min(BOMB_RANGE, d) * 0.035;
       inp.tx = best.x + (best.mvx + best.kbx) * T * L.lead; inp.tz = best.z + (best.mvz + best.kbz) * T * L.lead;
       inp.atk = d < BOMB_RANGE + 1;
     } else inp.atk = d < want + 1.3;
@@ -98,7 +100,10 @@ export function botInput(sim, p, dt) {
         // drop the well just beyond the target, toward the edge, to drag them off
         const [ox, oz] = tdc > 0.1 ? [best.x / tdc, best.z / tdc] : [ux, uz];
         inp.tx = best.x + ox * 3; inp.tz = best.z + oz * 3; inp.spSeq++;
-      }
+      } else if (p.char === 'ranger' && d < 4.5 && safeSpot(p.x - ux * 5, p.z - uz * 5, zr)) inp.spSeq++; // flip away from melee
+      else if (p.char === 'frost' && d < WELL_RANGE + 2) { inp.tx = best.x; inp.tz = best.z; inp.spSeq++; }
+      else if (p.char === 'ram' && d > 2.5 && d < 8 && safeSpot(p.x + ux * 11, p.z + uz * 11, zr, 1)) inp.spSeq++;
+      else if (p.char === 'hook' && d > 3.5 && d < 10 && clearShot(p, best)) inp.spSeq++;
     }
     if (p.dashCd <= 0 && d > 3.5 && d < 8 && !ranged && Math.random() < L.dashP * 3) wantDash = true;
   } else {
@@ -199,7 +204,7 @@ export function botInput(sim, p, dt) {
 
 function aimAt(p, q, inp, m, L) {
   let ax = q.x, az = q.z;
-  if (p.char === 'blaster') { const t = Math.hypot(q.x - p.x, q.z - p.z) / 24; ax += (q.mvx + q.kbx) * t * L.lead; az += (q.mvz + q.kbz) * t * L.lead; }
+  if (SHOT_SPEED[p.char]) { const t = Math.hypot(q.x - p.x, q.z - p.z) / SHOT_SPEED[p.char]; ax += (q.mvx + q.kbx) * t * L.lead; az += (q.mvz + q.kbz) * t * L.lead; }
   m.aimErr = Math.max(-L.aimErr, Math.min(L.aimErr, m.aimErr + (Math.random() - 0.5) * L.aimErr));
   inp.aim = Math.atan2(az - p.z, ax - p.x) + m.aimErr * 0.5;
   inp.tx = ax; inp.tz = az;

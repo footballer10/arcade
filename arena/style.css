@@ -57,7 +57,7 @@ kbd { font-family: var(--font); background: var(--ink); padding: 1px 7px; border
 .back:hover { color: var(--yellow); }
 
 /* character cards */
-.charpick { display: flex; gap: 8px; justify-content: center; margin: 8px 0 12px; }
+.charpick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 8px 0 8px; }
 .charpick button {
   flex: 1; padding: 52px 4px 8px; font-size: 1.05rem; border-radius: 14px;
   background: linear-gradient(180deg, #5a6bd8, #3a47a8); overflow: hidden;
@@ -156,3 +156,29 @@ kbd { font-family: var(--font); background: var(--ink); padding: 1px 7px; border
 .pip.on { background: var(--yellow); box-shadow: inset 0 -3px 0 #d99a00; }
 
 #debug { position: fixed; bottom: 120px; left: 18px; z-index: 20; background: rgba(0,0,0,.75); color: #7CFC00; font: 12px/1.45 ui-monospace, monospace; padding: 8px 12px; border-radius: 8px; white-space: pre; pointer-events: none; letter-spacing: 0; }
+
+/* ---------- v4: more characters, ammo, emotes, ghosts ---------- */
+.charpick button { padding: 46px 2px 6px; font-size: .95rem; }
+.charpick button[data-c=ranger]::before { background: #2f8f5b; border-radius: 50% 50% 50% 10%; }
+.charpick button[data-c=frost]::before { background: #7fd4ff; transform: translateX(-50%) rotate(45deg); border-radius: 22%; }
+.charpick button[data-c=ram]::before { background: #9a6b4f; border-radius: 45% 45% 50% 50%; }
+.charpick button[data-c=hook]::before { background: #ffd23f; border-radius: 50% 50% 30% 30%; }
+.charinfo { font-size: .95rem; text-shadow: var(--stroke); margin: 2px 0 12px; min-height: 1.2em; }
+.panel { width: min(640px, 94vw); }
+.ammo { display: none; gap: 3px; justify-content: center; margin-top: 2px; }
+.plabel.me .ammo { display: flex; }
+.plabel.ghost .hpbar, .plabel.ghost .ammo { display: none !important; }
+.ammo i { display: block; width: 22px; height: 8px; background: #3b2a1a; border: 2px solid var(--ink); border-radius: 4px; overflow: hidden; }
+.ammo i b { display: block; height: 100%; width: 0; background: #b98a3a; }
+.ammo i.full b { background: #ffa31a; }
+.emote { position: absolute; left: 50%; bottom: 100%; transform: translate(-50%, 0) scale(0); font-size: 30px; background: #fff; border: 3px solid var(--ink); border-radius: 16px 16px 16px 4px; padding: 0 8px; line-height: 1.35; opacity: 0; }
+.emote.show { animation: emote 2.2s ease-out forwards; }
+@keyframes emote { 0% { transform: translate(-50%, 0) scale(0); opacity: 1; } 10% { transform: translate(-50%, -6px) scale(1.25); opacity: 1; } 18%, 85% { transform: translate(-50%, -6px) scale(1); opacity: 1; } 100% { transform: translate(-50%, -16px) scale(.8); opacity: 0; } }
+#emoteHint { position: absolute; bottom: 132px; right: 22px; font-size: .95rem; opacity: .9; }
+#boardNote { font-size: 1rem; }
+.panel { max-height: 96vh; overflow-y: auto; padding: 18px 26px 16px; }
+.charpick button { padding: 40px 2px 5px; }
+.charpick button::before { width: 30px; height: 30px; top: 6px; }
+h1 { font-size: 3rem; margin-top: 8px; }
+#lobbyList li { padding: 5px 12px; margin: 4px 0; font-size: 1rem; }
+#lobbyList { margin: 4px 0 10px; }
