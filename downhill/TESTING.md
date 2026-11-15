@@ -22,10 +22,12 @@ If the friend can't connect, one of you is likely behind a strict/corporate netw
 ## 4. Controls
 | Key | Action |
 |---|---|
-| A / D or ← / → | Steer |
+| A / D or ← / → | Steer — a tap is a small correction, holding builds to a full carve in ~0.3 s |
+| Shift (while steering) | Precision steering (caps the turn at ~35%) |
 | W or ↑ | Tuck (faster, turns wider) |
 | S or ↓ | Brake |
-| Space | Jump (small ollie on flat snow; extra pop if you hit it at a kicker lip) |
+| Space | Jump (small ollie on flat snow; extra pop at a kicker lip; pops you off a rail) |
+| On a rail/box: A / D | Rotate into a boardslide / lipslide |
 | In the air: ← / → (or A/D) | Spin (counts in 180s: 180, 360, 540, 720…) |
 | In the air: ↑ / ↓ (or W/S) | Frontflip / backflip |
 | In the air: hold Q / E / R / F (or J / K / L / I) | Grab — Indy / Method / Melon / Tail (snowboard), Safety / Japan / Mute / Tail (ski) |
@@ -40,6 +42,15 @@ If the friend can't connect, one of you is likely behind a strict/corporate netw
 
 **Skier vs Snowboarder:** skiers turn sharper and are faster on the groomed (white, striped) main run. Snowboarders turn wider, launch higher off kickers, lose less speed in powder, and get a much bigger speed boost for landing tricks.
 
+**Mountains (pick on the menu or in the lobby, or Random):**
+- **Alpine Classic** — sunny groomers, two shortcuts, half-pipe, jump line.
+- **Night Park** — floodlit terrain park under the stars: jump lines (tabletops), rail gardens, superpipe.
+- **Powder Forest** — overcast and snowing: tree-glade runs, mogul fields, cliff drops, soft snow everywhere (snowboarders love it).
+- **Sunset Glacier** — wide, fast and open with huge kickers and cliffs, low golden sun.
+Every bend is banked (berms), and each mountain shuffles its sections differently on every new seed. The mountain name shows at the start; Rematch keeps the same mountain and seed.
+
+**Rails & boxes:** ride straight onto the start of one (lined up) or drop onto it from the air. A/D rotates into a slide, Space pops off, and the grind adds to whatever trick you do off the end.
+
 **Course features:** blue/orange kickers, cyan `>>>` boost pads, red/blue gates marking the route, rocks and trees (hit them fast = wipeout), **two** yellow-flagged narrow **SHORTCUTs** through the trees (worth ~3–4 s each), a **HALF-PIPE** section (side walls pull you back to the middle — carve wall to wall), **STEEP!** pitches, **ROLLERS** (little hops in a row), a big kicker at the pipe exit, checkered finish line. The minimap on the right shows the whole run: white = main run, yellow = shortcuts, cyan = half-pipe, orange = rollers. ~80–100 s per race.
 
 **Ghost:** your best run on a mountain is recorded. Pick **Rematch (same mountain + ghost)** on the results screen to race against it — a see-through rider plus a live "+/- metres" split under the timer.
@@ -53,6 +64,6 @@ If the friend can't connect, one of you is likely behind a strict/corporate netw
 - No mobile/touch controls. If the host closes their tab, the room ends.
 
 ## Top 3 next improvements
-1. More art: ski/board trails in the snow, animated crowd/flags at the finish, nicer menu screen.
+1. More park content: down-flat-down rails, wallrides, gap jumps, and a replay camera.
 2. Host migration + reconnect so a dropped host doesn't end the room; TURN fallback for strict networks.
 3. Progression: persistent ghosts/leaderboards per seed (shareable "mountain codes"), a style score for tricks shown in the results.

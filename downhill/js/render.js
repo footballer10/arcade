@@ -1,5 +1,21 @@
 import * as THREE from 'three';
-import { HW_MAIN } from './course.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+// Per-map look: sky, light, fog, bloom, weather, tree colours
+export const THEMES = {
+  alpine: { top: 0x4f8ad8, mid: 0xa5c8ec, bottom: 0xd6e6f5, fog: [0xd6e6f5, 120, 520], sun: [0xfff1dc, 2.4], sunDir: [-0.45, 0.55, 0.7],
+    hemi: [0xd8ecff, 0x8ea3bd, 1.25], exposure: 1.0, mtn: 0xffffff, bloom: [0.22, 0.4, 0.92], snow: 0, night: 0, tree: [0.36, 0.45, 0.2], sunGlow: 1 },
+  park: { top: 0x030716, mid: 0x0d1a3c, bottom: 0x22325a, fog: [0x1b2746, 90, 460], sun: [0xa9c0ff, 0.9], sunDir: [0.35, 0.75, -0.45],
+    hemi: [0x5a72b0, 0x151b2a, 1.0], exposure: 1.25, mtn: 0x2f4268, bloom: [0.45, 0.4, 0.88], snow: 900, night: 1, tree: [0.42, 0.35, 0.15], sunGlow: 0 },
+  powder: { top: 0x93a3b6, mid: 0xbcc7d4, bottom: 0xd6dde6, fog: [0xd1d8e1, 30, 290], sun: [0xffffff, 0.9], sunDir: [-0.3, 0.8, 0.4],
+    hemi: [0xe8eef6, 0x9aa6b6, 1.75], exposure: 1.0, mtn: 0xd0d8e4, bloom: [0.08, 0.3, 0.97], snow: 2600, night: 0, tree: [0.4, 0.3, 0.16], sunGlow: 0.2 },
+  glacier: { top: 0x23366e, mid: 0xd98a6c, bottom: 0xffc590, fog: [0xf2c3a4, 160, 680], sun: [0xffc08a, 2.4], sunDir: [-0.25, 0.2, 0.95],
+    hemi: [0xdfe4ff, 0x5d6d96, 1.2], exposure: 1.05, mtn: 0xffd9c4, bloom: [0.35, 0.5, 0.85], snow: 0, night: 0, tree: [0.33, 0.4, 0.18], sunGlow: 1.4 },
+};
+const HW_DEFAULT = 16;
 
 export const COLORS = [0xff4d4d, 0x3e9bff, 0x30c46c, 0xffb020, 0xb44dff, 0xff6fd0, 0x20d0d0, 0xf0f0f0];
 
@@ -23,17 +39,21 @@ export function createRenderer(canvas) {
   const sunDir = new THREE.Vector3(-0.45, 0.55, 0.7).normalize();
   const sky = new THREE.Mesh(new THREE.SphereGeometry(2000, 32, 16), new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
-    uniforms: { top: { value: new THREE.Color(0x4f8ad8) }, mid: { value: new THREE.Color(0xa5c8ec) }, bottom: { value: new THREE.Color(HORIZON) }, sun: { value: sunDir } },
+    uniforms: { top: { value: new THREE.Color(0x4f8ad8) }, mid: { value: new THREE.Color(0xa5c8ec) }, bottom: { value: new THREE.Color(HORIZON) }, sun: { value: sunDir }, night: { value: 0 }, glow: { value: 1 } },
     vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-    fragmentShader: `uniform vec3 top; uniform vec3 mid; uniform vec3 bottom; uniform vec3 sun; varying vec3 vDir;
+    fragmentShader: `uniform vec3 top; uniform vec3 mid; uniform vec3 bottom; uniform vec3 sun; uniform float night; uniform float glow; varying vec3 vDir;
+      float hash(vec3 p){ return fract(sin(dot(p, vec3(12.9898,78.233,45.164))) * 43758.5453); }
       void main(){ float h = vDir.y; vec3 c = mix(bottom, mid, smoothstep(-0.02, 0.18, h)); c = mix(c, top, smoothstep(0.18, 0.75, h));
-        float s = max(dot(normalize(vDir), sun), 0.0); c += vec3(1.0,0.95,0.8) * (pow(s, 600.0) * 1.5 + pow(s, 12.0) * 0.18);
+        float s = max(dot(normalize(vDir), sun), 0.0); c += vec3(1.0,0.92,0.78) * glow * (pow(s, 600.0) * 1.5 + pow(s, 10.0) * 0.22);
+        if (night > 0.5) { vec3 q = floor(normalize(vDir) * 420.0); float st = step(0.9975, hash(q)) * smoothstep(0.05, 0.3, h); c += vec3(st) * (0.6 + 0.4 * hash(q + 1.0));
+          c += vec3(0.85,0.9,1.0) * pow(s, 900.0) * 2.0; }
         gl_FragColor = vec4(c, 1.0); }`,
   }));
   sky.renderOrder = -10;
   scene.add(sky);
 
-  scene.add(new THREE.HemisphereLight(0xd8ecff, 0x8ea3bd, 1.25));
+  const hemi = new THREE.HemisphereLight(0xd8ecff, 0x8ea3bd, 1.25);
+  scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xfff1dc, 2.4);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -73,11 +93,23 @@ export function createRenderer(canvas) {
   }
   scene.add(backdrop);
 
+  // bloom post-processing (high quality only)
+  const composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.2, 0.4, 0.92);
+  composer.addPass(bloom);
+  composer.addPass(new OutputPass());
+  // a soft light that follows your rider (so you can read your pose at night)
+  const riderLight = new THREE.PointLight(0xfff0dd, 0, 18, 1.5);
+  scene.add(riderLight);
+  const snowfall = new Snowfall(scene);
+
   window.addEventListener('resize', () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
+    composer.setSize(window.innerWidth, window.innerHeight);
     camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
   });
-  let quality = 'high';
+  let quality = 'high', theme = THEMES.alpine;
   const env = {
     get quality() { return quality; },
     setQuality(qv) {
@@ -86,17 +118,102 @@ export function createRenderer(canvas) {
       renderer.shadowMap.enabled = hi; sun.castShadow = hi;
       renderer.setPixelRatio(hi ? Math.min(window.devicePixelRatio, 1.5) : 1);
       renderer.setSize(window.innerWidth, window.innerHeight);
+      composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(window.innerWidth, window.innerHeight);
       scene.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => { m.needsUpdate = true; }); });
     },
     // keep the sun's shadow box and the backdrop centred on what the camera is looking at
-    follow(x, y, z) {
+    follow(x, y, z, dt = 0.016) {
       sun.position.set(x + sunDir.x * 150, y + sunDir.y * 150, z + sunDir.z * 150);
       sun.target.position.set(x, y, z);
       backdrop.position.set(camera.position.x, camera.position.y - 160, camera.position.z);
       sky.position.copy(camera.position);
+      riderLight.position.set(x, y + 4, z - 12);
+      snowfall.update(dt, camera.position);
     },
+    get theme() { return theme; },
+    applyMap(mapId) {
+      theme = THEMES[mapId] || THEMES.alpine;
+      const t = theme, u = sky.material.uniforms;
+      u.top.value.set(t.top); u.mid.value.set(t.mid); u.bottom.value.set(t.bottom); u.night.value = t.night; u.glow.value = t.sunGlow;
+      sunDir.set(...t.sunDir).normalize(); u.sun.value.copy(sunDir);
+      scene.background.set(t.bottom); scene.fog.color.set(t.fog[0]); scene.fog.near = t.fog[1]; scene.fog.far = t.fog[2];
+      sun.color.set(t.sun[0]); sun.intensity = t.sun[1];
+      hemi.color.set(t.hemi[0]); hemi.groundColor.set(t.hemi[1]); hemi.intensity = t.hemi[2];
+      renderer.toneMappingExposure = t.exposure;
+      mtnMat.color.set(t.mtn);
+      bloom.strength = t.bloom[0]; bloom.radius = t.bloom[1]; bloom.threshold = t.bloom[2];
+      riderLight.intensity = t.night ? 6 : 0;
+      snowfall.setCount(t.snow);
+    },
+    render() { if (quality === 'high') composer.render(); else renderer.render(scene, camera); },
   };
   return { renderer, scene, camera, env };
+}
+
+// ---------------- Falling snow (follows the camera) ----------------
+class Snowfall {
+  constructor(scene) {
+    this.max = 2600; this.count = 0;
+    this.pos = new Float32Array(this.max * 3); this.vel = new Float32Array(this.max);
+    for (let i = 0; i < this.max; i++) { this.pos[i * 3] = (Math.random() - 0.5) * 120; this.pos[i * 3 + 1] = Math.random() * 60 - 20; this.pos[i * 3 + 2] = (Math.random() - 0.5) * 120; this.vel[i] = 2 + Math.random() * 3; }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3)); g.setDrawRange(0, 0);
+    this.geo = g;
+    this.points = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffffff, size: 0.18, map: dotTexture(), transparent: true, opacity: 0.9, depthWrite: false }));
+    this.points.frustumCulled = false; scene.add(this.points);
+    this.t = 0;
+  }
+  setCount(n) { this.count = Math.min(this.max, n); this.geo.setDrawRange(0, this.count); this.points.visible = n > 0; }
+  update(dt, cam) {
+    if (!this.count) return;
+    this.t += dt;
+    const wind = Math.sin(this.t * 0.3) * 1.5;
+    this.points.position.copy(cam);
+    for (let i = 0; i < this.count; i++) {
+      const k = i * 3;
+      this.pos[k] += (wind + Math.sin(this.t + i) * 0.4) * dt; this.pos[k + 1] -= this.vel[i] * dt;
+      if (this.pos[k + 1] < -25) { this.pos[k + 1] += 50; this.pos[k] = (Math.random() - 0.5) * 120; this.pos[k + 2] = (Math.random() - 0.5) * 120; }
+    }
+    this.geo.attributes.position.needsUpdate = true;
+  }
+}
+function dotTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 32;
+  const gg = c.getContext('2d'); const grd = gg.createRadialGradient(16, 16, 0, 16, 16, 16);
+  grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(0.5, 'rgba(255,255,255,0.6)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+  gg.fillStyle = grd; gg.fillRect(0, 0, 32, 32);
+  return new THREE.CanvasTexture(c);
+}
+
+// ---------------- Ski / board tracks in the snow ----------------
+export class Trails {
+  constructor(scene, max = 5000) {
+    this.max = max; this.i = 0;
+    this.pos = new Float32Array(max * 6 * 3);
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    this.geo = g;
+    this.mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x8fa6c4, transparent: true, opacity: 0.32, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    this.mesh.frustumCulled = false; this.mesh.renderOrder = 1;
+    scene.add(this.mesh);
+    this.last = new Map();
+  }
+  clear() { this.pos.fill(0); this.geo.attributes.position.needsUpdate = true; this.last.clear(); }
+  // offsets: lateral offsets of each track (two skis or one board), width of each
+  add(id, x, y, z, h, offsets, width, onGround) {
+    const L = this.last.get(id);
+    if (!onGround) { this.last.delete(id); return; }
+    if (L && (x - L.x) ** 2 + (z - L.z) ** 2 < 0.5) return;
+    if (L && (x - L.x) ** 2 + (z - L.z) ** 2 < 25) {
+      const sx = Math.cos(h), sz = -Math.sin(h), lsx = Math.cos(L.h), lsz = -Math.sin(L.h);
+      for (const o of offsets) {
+        const a = [L.x + lsx * (o - width), L.y + 0.03, L.z + lsz * (o - width)], b = [L.x + lsx * (o + width), L.y + 0.03, L.z + lsz * (o + width)];
+        const c = [x + sx * (o + width), y + 0.03, z + sz * (o + width)], d = [x + sx * (o - width), y + 0.03, z + sz * (o - width)];
+        this.pos.set([...a, ...b, ...c, ...a, ...c, ...d], this.i * 18);
+        this.i = (this.i + 1) % this.max;
+      }
+      this.geo.attributes.position.needsUpdate = true;
+    }
+    this.last.set(id, { x, y, z, h });
+  }
 }
 
 function textTexture(text, { w = 512, h = 128, bg = '#123', fg = '#fff', font = 'bold 72px system-ui' } = {}) {
@@ -142,6 +259,8 @@ const cone = (r, h, y, seg = 8) => { const g = new THREE.ConeGeometry(r, h, seg,
 export function buildCourse(course) {
   const group = new THREE.Group();
   const { groundH } = course;
+  const HW = course.hw || HW_DEFAULT;
+  const theme = THEMES[course.mapId] || THEMES.alpine;
 
   // ---- Terrain strip that follows the course
   const step = 3, W = 460, cols = 130;
@@ -162,9 +281,9 @@ export function buildCourse(course) {
       uv[q2] = x / 9; uv[q2 + 1] = z / 9; q2 += 2;
       const info = course.corridor(x, z);
       let cr, cg, cb;
-      if (info.pipe) { const k = Math.min(1, Math.abs(x - course.cxMain(z)) / HW_MAIN); cr = 0.9 - 0.12 * k; cg = 0.97 - 0.04 * k; cb = 1.0; }
+      if (info.pipe) { const k = Math.min(1, Math.abs(x - course.cxMain(z)) / HW); cr = 0.9 - 0.12 * k; cg = 0.97 - 0.04 * k; cb = 1.0; }
       else if (info.groomed) {
-        const edge = Math.max(0, 1 - Math.abs(Math.abs(x - course.cxMain(z)) - HW_MAIN) / 2.5); // darker edge line
+        const edge = Math.max(0, 1 - Math.abs(Math.abs(x - course.cxMain(z)) - HW) / 2.5); // darker edge line
         const cord = (Math.floor((x - course.cxMain(z)) / 1.6) % 2) ? 0.015 : 0;              // corduroy
         cr = 1 - cord - edge * 0.08; cg = 1 - cord - edge * 0.06; cb = 1;
       }
@@ -183,6 +302,16 @@ export function buildCourse(course) {
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   geo.setIndex(idx); geo.computeVertexNormals();
+  { // exposed rock on steep faces (cliffs), not in the pipe
+    const nrm = geo.attributes.normal, rock = new THREE.Color(0x5d6675);
+    for (let i = 0; i < nrm.count; i++) {
+      const ny = Math.abs(nrm.getY(i)); if (ny > 0.7) continue; // (terrain winding makes normals point down; DoubleSide hides it)
+      const x = pos[i * 3], z = pos[i * 3 + 2];
+      if (course.hpW(z) > 0.1 && Math.abs(x - course.cxMain(z)) < HW + 2) continue;
+      const k = Math.min(1, (0.7 - ny) / 0.2);
+      col[i * 3] += (rock.r - col[i * 3]) * k; col[i * 3 + 1] += (rock.g - col[i * 3 + 1]) * k; col[i * 3 + 2] += (rock.b - col[i * 3 + 2]) * k;
+    }
+  }
   const terrain = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, map: snowTexture(), roughness: 0.82, metalness: 0, side: THREE.DoubleSide }));
   terrain.receiveShadow = true;
   group.add(terrain);
@@ -203,7 +332,7 @@ export function buildCourse(course) {
     m.compose(v.set(t.x, groundH(t.x, t.z) - 0.3, t.z), q, s.set(sc, sc * (0.9 + ((t.x * 3.3) % 1 + 1) % 1 * 0.3), sc));
     fol.setMatrixAt(i, m); snw.setMatrixAt(i, m); trk.setMatrixAt(i, m);
     const k = ((t.z * 1.7 + t.x) % 1 + 1) % 1;
-    fol.setColorAt(i, cc.setHSL(0.36 + k * 0.06, 0.45 + k * 0.15, 0.2 + k * 0.08));
+    fol.setColorAt(i, cc.setHSL(theme.tree[0] + k * 0.06, theme.tree[1] + k * 0.15, theme.tree[2] + k * 0.08));
   });
   for (const im of [fol, snw, trk]) { im.castShadow = true; im.receiveShadow = true; }
   group.add(fol, snw, trk);
@@ -227,14 +356,16 @@ export function buildCourse(course) {
   rockM.castShadow = capM.castShadow = true;
   group.add(rockM, capM);
 
-  // ---- Kickers: packed-snow ramps with a coloured lip and side walls
-  const rampMat = new THREE.MeshStandardMaterial({ color: 0xe8f1ff, roughness: 0.7, side: THREE.DoubleSide });
-  const sideMat = new THREE.MeshStandardMaterial({ color: 0x3f7fd9, roughness: 0.8, side: THREE.DoubleSide });
-  const lipMat = new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.6, side: THREE.DoubleSide });
+  // ---- Kickers / tables: packed-snow ramps with a coloured lip and side walls
+  const rampMat = new THREE.MeshStandardMaterial({ color: 0xeef4ff, roughness: 0.7, side: THREE.DoubleSide });
+  const sideMat = new THREE.MeshStandardMaterial({ color: course.mapId === 'park' ? 0x6a4cff : 0x3f7fd9, roughness: 0.8, side: THREE.DoubleSide });
+  const lipMat = new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.6, emissive: course.mapId === 'park' ? 0x662200 : 0x000000, side: THREE.DoubleSide });
+  const base = (x, z) => course.groundH(x, z) - course.rampH(x, z) - 0.3;
   for (const r of course.ramps) {
-    const nx = 6, nz = 12, pp = [], ii = [];
+    const total = r.total || r.len;
+    const nx = 6, nz = Math.max(12, Math.round(total / 0.8)), pp = [], ii = [];
     for (let j = 0; j <= nz; j++) for (let i = 0; i <= nx; i++) {
-      const x = r.x - r.w / 2 + (r.w * i) / nx, z = r.z0 + (r.len * j) / nz - (j === nz ? 0.01 : 0);
+      const x = r.x - r.w / 2 + (r.w * i) / nx, z = r.z0 + (total * j) / nz - (j === nz ? 0.01 : 0);
       pp.push(x, groundH(x, z) + 0.05, z);
     }
     for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
@@ -243,28 +374,119 @@ export function buildCourse(course) {
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pp, 3));
     g.setIndex(ii); g.computeVertexNormals();
     const top = new THREE.Mesh(g, rampMat); top.receiveShadow = true; top.castShadow = true; group.add(top);
-    // side walls + lip face
-    const quads = [], qm = [];
-    const base = (x, z) => course.baseH(z) + 0.45 * Math.sin(x * 0.11 + z * 0.05) * Math.sin(z * 0.07 - x * 0.03) - 0.3;
+    const quads = [];
     for (const sx of [-r.w / 2, r.w / 2]) for (let j = 0; j < nz; j++) {
-      const x = r.x + sx, za = r.z0 + (r.len * j) / nz, zb = r.z0 + (r.len * (j + 1)) / nz - 0.01;
+      const x = r.x + sx, za = r.z0 + (total * j) / nz, zb = r.z0 + (total * (j + 1)) / nz - 0.01;
       quads.push([x, groundH(x - Math.sign(sx) * 0.01, za), za], [x, groundH(x - Math.sign(sx) * 0.01, zb), zb], [x, base(x, zb), zb], [x, base(x, za), za]);
     }
     const zl = r.z0 + r.len - 0.01;
-    for (let i = 0; i < nx; i++) {
+    if (r.type !== 'table') for (let i = 0; i < nx; i++) {
       const xa = r.x - r.w / 2 + (r.w * i) / nx, xb = r.x - r.w / 2 + (r.w * (i + 1)) / nx;
-      qm.push([xa, groundH(xa, zl), zl], [xb, groundH(xb, zl), zl], [xb, base(xb, zl), zl], [xa, base(xa, zl), zl]);
+      quads.push([xa, groundH(xa, zl), zl], [xb, groundH(xb, zl), zl], [xb, base(xb, zl), zl], [xa, base(xa, zl), zl]);
+    } else for (let i = 0; i < nx; i++) { // drop from lip to the table deck
+      const xa = r.x - r.w / 2 + (r.w * i) / nx, xb = r.x - r.w / 2 + (r.w * (i + 1)) / nx;
+      quads.push([xa, groundH(xa, zl), zl], [xb, groundH(xb, zl), zl], [xb, groundH(xb, zl + 0.02), zl + 0.02], [xa, groundH(xa, zl + 0.02), zl + 0.02]);
     }
-    const quadGeo = (list) => {
-      const arr = [];
-      for (let k = 0; k < list.length; k += 4) { const [a, b, c, d] = list.slice(k, k + 4); arr.push(...a, ...b, ...c, ...a, ...c, ...d); }
-      const gg = new THREE.BufferGeometry(); gg.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3)); gg.computeVertexNormals(); return gg;
-    };
-    group.add(new THREE.Mesh(quadGeo(quads), sideMat), new THREE.Mesh(quadGeo(qm), sideMat));
+    const arr = [];
+    for (let k = 0; k < quads.length; k += 4) { const [qa, qb, qc, qd] = quads.slice(k, k + 4); arr.push(...qa, ...qb, ...qc, ...qa, ...qc, ...qd); }
+    const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3)); sg.computeVertexNormals();
+    group.add(new THREE.Mesh(sg, sideMat));
     const edge = new THREE.Mesh(new THREE.BoxGeometry(r.w + 0.1, 0.18, 0.35), lipMat);
     edge.position.set(r.x, groundH(r.x, zl) + 0.06, zl - 0.15);
     edge.rotation.x = -Math.atan(1.25 * r.h / r.len);
     group.add(edge);
+    if (r.type === 'table') { // landing knuckle marker
+      const kz = r.z0 + r.len + r.gap;
+      const mk = new THREE.Mesh(new THREE.BoxGeometry(r.w, 0.05, 0.25), lipMat); mk.position.set(r.x, groundH(r.x, kz) + 0.06, kz); group.add(mk);
+    }
+  }
+
+  // ---- Rails and boxes
+  const railMat = new THREE.MeshStandardMaterial({ color: 0xffd23f, roughness: 0.25, metalness: 0.8, emissive: course.mapId === 'park' ? 0x332200 : 0 });
+  const boxMat = new THREE.MeshStandardMaterial({ color: 0xff3d7f, roughness: 0.4, metalness: 0.2 });
+  const boxTopMat = new THREE.MeshStandardMaterial({ color: 0xe8edf5, roughness: 0.25, metalness: 0.6 });
+  const legMat = new THREE.MeshStandardMaterial({ color: 0x2a313d, roughness: 0.7, metalness: 0.5 });
+  const seg = (a, b, mk) => { // place a unit-length mesh between two points
+    const d = new THREE.Vector3().subVectors(b, a), len = d.length();
+    const m = mk(len); m.position.copy(a).addScaledVector(d, 0.5);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), d.normalize()); m.castShadow = true; group.add(m); return m;
+  };
+  for (const r of course.rails) {
+    const pts = [];
+    for (let z = r.z0; z <= r.z0 + r.len + 0.01; z += r.len / 8) pts.push(new THREE.Vector3(r.x, course.railTop(r, z), z));
+    for (let k = 0; k < pts.length - 1; k++) {
+      if (r.type === 'rail') seg(pts[k], pts[k + 1], (len) => { const g = new THREE.CylinderGeometry(0.07, 0.07, len, 10); g.rotateX(Math.PI / 2); return new THREE.Mesh(g, railMat); });
+      else {
+        seg(pts[k], pts[k + 1], (len) => new THREE.Mesh(new THREE.BoxGeometry(r.w, 0.1, len + 0.02), boxTopMat)).position.y -= 0.05;
+        seg(pts[k].clone().setY(pts[k].y - 0.35), pts[k + 1].clone().setY(pts[k + 1].y - 0.35), (len) => new THREE.Mesh(new THREE.BoxGeometry(r.w * 0.96, 0.6, len + 0.02), boxMat));
+      }
+    }
+    if (r.type === 'rail') for (let z = r.z0 + 1.5; z < r.z0 + r.len; z += 4) {
+      const top = course.railTop(r, z), gy = groundH(r.x, z);
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, top - gy + 0.3, 6), legMat); leg.position.set(r.x, (top + gy) / 2 - 0.15, z); group.add(leg);
+    }
+  }
+
+  // ---- Chairlift: towers, cables and chairs
+  if (course.lifts.length > 1) {
+    const tw = new THREE.MeshStandardMaterial({ color: 0x59606c, roughness: 0.6, metalness: 0.6 });
+    const pts = [];
+    for (const l of course.lifts) {
+      const gy = groundH(l.x, l.z), H = 13;
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, H, 8), tw); pole.position.set(l.x, gy + H / 2, l.z); pole.castShadow = true; group.add(pole);
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(5, 0.35, 0.35), tw); bar.position.set(l.x, gy + H, l.z); group.add(bar);
+      pts.push(new THREE.Vector3(l.x, gy + H - 0.2, l.z));
+    }
+    const cableMat = new THREE.LineBasicMaterial({ color: 0x2a2f38 });
+    for (const off of [-2.2, 2.2]) group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map(p => p.clone().setX(p.x + off))), cableMat));
+    const chairM = new THREE.MeshStandardMaterial({ color: 0x2b5fd9, roughness: 0.6 });
+    for (let k = 0; k < pts.length - 1; k++) for (let t = 0.15; t < 1; t += 0.3) {
+      const p = pts[k].clone().lerp(pts[k + 1], t), off = (k + Math.round(t * 3)) % 2 ? -2.2 : 2.2;
+      const chair = new THREE.Group(); chair.position.set(p.x + off, p.y - 2.2, p.z);
+      const hang = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.2, 0.08), tw); hang.position.y = 1.1; chair.add(hang);
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.15, 0.7), chairM); chair.add(seat);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.8, 0.12), chairM); back.position.set(0, 0.4, -0.35); chair.add(back);
+      group.add(chair);
+    }
+  }
+
+  // ---- Floodlights (night map): pole, glowing head, light cone and a pool of light on the snow
+  if (course.lights.length) {
+    const poleM = new THREE.MeshStandardMaterial({ color: 0x30353f, roughness: 0.6, metalness: 0.5 });
+    const headM = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2d0, emissiveIntensity: 3 });
+    const coneM = new THREE.MeshBasicMaterial({ color: 0xfff1c8, transparent: true, opacity: 0.045, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    const poolTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g2 = c.getContext('2d'); const gr = g2.createRadialGradient(64, 64, 0, 64, 64, 64);
+      gr.addColorStop(0, 'rgba(255,240,205,0.4)'); gr.addColorStop(0.5, 'rgba(255,235,195,0.16)'); gr.addColorStop(1, 'rgba(255,235,195,0)'); g2.fillStyle = gr; g2.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c); })();
+    const poolM = new THREE.MeshBasicMaterial({ map: poolTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3 });
+    for (const l of course.lights) {
+      const gy = groundH(l.x, l.z), H = 16, inward = Math.sign(course.cxMain(l.z) - l.x);
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.3, H, 8), poleM); pole.position.set(l.x, gy + H / 2, l.z); group.add(pole);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.5, 1.2), headM); head.position.set(l.x + inward * 1.2, gy + H, l.z); head.rotation.z = inward * 0.4; group.add(head);
+      const tx = l.x + inward * 9;
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(11, H, 20, 1, true), coneM);
+      cone.position.set((head.position.x + tx) / 2, gy + H / 2, l.z); cone.rotation.z = -inward * 0.45; group.add(cone);
+      const pg = new THREE.PlaneGeometry(36, 36, 8, 8); const pa = pg.attributes.position;
+      for (let i = 0; i < pa.count; i++) { const lx = pa.getX(i), lz = -pa.getY(i); pa.setXYZ(i, tx + lx, groundH(tx + lx, l.z + lz) + 0.1, l.z + lz); }
+      group.add(new THREE.Mesh(pg, poolM));
+    }
+  }
+
+  // ---- Orange safety netting along park sections and cliffs
+  {
+    const netPts = [], postPts = [];
+    for (const sct of course.sections) {
+      if (!['jumpline', 'rails', 'cliff', 'halfpipe'].includes(sct.type)) continue;
+      for (const sgn of [-1, 1]) for (let z = sct.z0 - 10; z < sct.z0 + sct.len + 10; z += 5) {
+        const x0 = course.cxMain(z) + sgn * (HW + 1.5), x1 = course.cxMain(z + 5) + sgn * (HW + 1.5);
+        const y0 = groundH(x0, z), y1 = groundH(x1, z + 5);
+        netPts.push(x0, y0 + 1.1, z, x1, y1 + 1.1, z + 5, x0, y0 + 0.5, z, x1, y1 + 0.5, z + 5);
+        postPts.push(x0, y0, z, x0, y0 + 1.2, z);
+      }
+    }
+    if (netPts.length) {
+      const ng = new THREE.BufferGeometry(); ng.setAttribute('position', new THREE.Float32BufferAttribute([...netPts, ...postPts], 3));
+      group.add(new THREE.LineSegments(ng, new THREE.LineBasicMaterial({ color: 0xff6a00 })));
+    }
   }
 
   // ---- Boost pads
@@ -305,7 +527,7 @@ export function buildCourse(course) {
   for (const sg of course.signs) {
     const mat = new THREE.MeshBasicMaterial({ map: textTexture(sg.text, { bg: sg.bg, fg: sg.fg }), side: THREE.DoubleSide });
     if (sg.banner) {
-      const w = HW_MAIN * 2 + 2, y = groundH(sg.x, sg.z);
+      const w = HW * 2 + 2, y = groundH(sg.x, sg.z);
       const ban = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.6, 2.2), mat);
       ban.position.set(sg.x, y + 7, sg.z); ban.rotation.y = Math.PI; group.add(ban);
       for (const sgn of [-1, 1]) {
@@ -321,7 +543,7 @@ export function buildCourse(course) {
 
   // ---- Start + finish arches (inflatable-style)
   const arch = (z, text, bg, color) => {
-    const cx = course.cxMain(z), w = HW_MAIN * 2 + 2, y = groundH(cx, z);
+    const cx = course.cxMain(z), w = HW * 2 + 2, y = groundH(cx, z);
     const tubeM = new THREE.MeshStandardMaterial({ color, roughness: 0.45 });
     for (const sgn of [-1, 1]) {
       const post = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.1, 9, 12), tubeM);
@@ -342,7 +564,7 @@ export function buildCourse(course) {
     const g = c.getContext('2d');
     for (let i = 0; i < 32; i++) for (let j = 0; j < 4; j++) { g.fillStyle = (i + j) % 2 ? '#111' : '#fff'; g.fillRect(i * 8, j * 8, 8, 8); }
     const t = new THREE.CanvasTexture(c);
-    const pg = new THREE.PlaneGeometry(HW_MAIN * 2, 2, 16, 1);
+    const pg = new THREE.PlaneGeometry(HW * 2, 2, 16, 1);
     const a = pg.attributes.position; const cx = course.cxMain(course.L);
     for (let i = 0; i < a.count; i++) { const lx = a.getX(i), lz = -a.getY(i); a.setXYZ(i, cx + lx, groundH(cx + lx, course.L + lz) + 0.05, course.L + lz); }
     group.add(new THREE.Mesh(pg, new THREE.MeshBasicMaterial({ map: t })));
@@ -439,7 +661,7 @@ export function poseRider(r, e, groundY, t, slope = 0, dt = 0.016, off = null) {
   r.pitch += (targetPitch - r.pitch) * Math.min(1, dt * 10);
   const lean = (e.air ? 0 : (e.lean || 0)) * 0.55 * Math.min(1, (e.v || 0) / 18);
   r.tilt.rotation.set(r.pitch, 0, lean, 'YXZ');
-  r.spinG.rotation.set(0, (e.stance || 0) + (e.spin || 0), 0);
+  r.spinG.rotation.set(0, (e.stance || 0) + (e.spin || 0) + (e.slideAng || 0), 0);
   r.inner.rotation.set(e.flip || 0, 0, 0);
   const g = GRAB_POSE[e.grab || 0];
   const targetCrouch = g ? g.crouch : e.tuck ? 0.65 : e.air ? 0.35 : 0.15;
@@ -520,8 +742,8 @@ export function makeMinimap(course, w, h) {
   };
   path(course.cxMain, 0, course.L, '#e8f0ff', 5);
   for (const s of course.shortcuts) path(course.cxBase, s.z0, s.z0 + s.len, '#ffd400', 2.5);
-  path(course.cxMain, course.halfpipe.z0, course.halfpipe.z0 + course.halfpipe.len, '#20d0d0', 5);
-  for (const r of course.rollers) path(course.cxMain, r.z0, r.z0 + r.len, '#ff9a4a', 5);
+  const secCol = { halfpipe: '#20d0d0', rollers: '#ff9a4a', jumpline: '#ff3d7f', rails: '#a98bff', moguls: '#6fa8ff', cliff: '#222831', trees: '#3fbf6f', pitch: '#ff5b5b' };
+  for (const sct of course.sections) if (secCol[sct.type]) path(course.cxMain, sct.z0, sct.z0 + sct.len, secCol[sct.type], 5);
   g.fillStyle = '#ff4d6d'; g.fillRect(sx(course.cxMain(course.L)) - 8, sy(course.L) - 2, 16, 4);
   return {
     draw(ctx, dots) {

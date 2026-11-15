@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { makeCourse, mulberry32 } from './course.js';
+import { makeCourse, mulberry32, MAPS, MAP_IDS } from './course.js';
 import { CLASSES, newEntity, stepEntity, bump, botInput, newBrain, sanitizeInput, packInput, trickName } from './physics.js';
-import { createRenderer, buildCourse, disposeGroup, makeRider, poseRider, COLORS, Spray, makeMinimap } from './render.js';
+import { createRenderer, buildCourse, disposeGroup, makeRider, poseRider, COLORS, Spray, makeMinimap, Trails } from './render.js';
 import { unlock as unlockAudio, sfx, setRide, toggleMute, isMuted } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -10,6 +10,7 @@ const linesCv = $('lines'), lctx = linesCv.getContext('2d');
 const fitLines = () => { linesCv.width = innerWidth; linesCv.height = innerHeight; };
 fitLines(); addEventListener('resize', fitLines);
 const spray = new Spray(scene);
+const trails = new Trails(scene);
 const miniCv = $('mini'), mctx = miniCv.getContext('2d');
 
 const PREFIX = 'dhrush-v1-';
@@ -24,9 +25,26 @@ const S = {
   name: store.get('dh_name', ''), cls: store.get('dh_cls', 'ski'),
   players: [], peer: null, conns: new Map(), hostConn: null, code: null,
   ping: 0, race: null, debug: false, fps: 0, waiting: false,
-  ghosts: new Map(), lastSeed: null,
+  ghosts: new Map(), lastSeed: null, lastMap: null, map: store.get('dh_map', 'random'),
 };
 $('name').value = S.name;
+const resolveMap = (m) => MAP_IDS.includes(m) ? m : MAP_IDS[Math.floor(Math.random() * MAP_IDS.length)];
+function fillMapSelect(sel) {
+  sel.innerHTML = '<option value="random">Random mountain</option>' + MAP_IDS.map(id => `<option value="${id}">${MAPS[id].name}</option>`).join('');
+  sel.value = S.map;
+}
+function mapDesc(m) { return m === 'random' ? 'A different mountain style every race.' : MAPS[m].desc; }
+for (const id of ['mapSel', 'lobbyMap']) {
+  const sel = $(id); fillMapSelect(sel);
+  sel.onchange = () => {
+    S.map = sel.value; store.set('dh_map', S.map);
+    for (const o of ['mapSel', 'lobbyMap']) $(o).value = S.map;
+    $('mapDesc').textContent = mapDesc(S.map); $('lobbyMapDesc').textContent = mapDesc(S.map);
+    if (S.mode === 'host') broadcastLobby();
+    if (S.screen === 'menu') { dropMenuCourse(); ensureMenuCourse(); }
+  };
+}
+$('mapDesc').textContent = mapDesc(S.map); $('lobbyMapDesc').textContent = mapDesc(S.map);
 
 // ---------------- UI helpers ----------------
 function show(screen) {
@@ -76,6 +94,8 @@ function renderLobby() {
   $('hostctl').style.display = host ? '' : 'none';
   $('start').disabled = S.players.length < 2;
   $('code').textContent = S.code || '----';
+  $('lobbyMap').style.display = host ? '' : 'none';
+  $('lobbyMapDesc').textContent = host ? mapDesc(S.map) : `Mountain: ${S.hostMap === 'random' || !S.hostMap ? 'Random' : MAPS[S.hostMap].name} — ${mapDesc(S.hostMap || 'random')}`;
   $('lobbymsg').textContent = host ? (S.players.length < 2 ? 'Add a bot or wait for a friend to join (2–8 riders).' : `${S.players.length}/8 riders. Start when ready.`)
     : (S.waiting ? 'Race in progress — you will join the next one.' : 'Waiting for the host to start…');
 }
@@ -108,7 +128,7 @@ async function loadPeer() {
 }
 function send(conn, msg) { try { if (conn && conn.open) conn.send(msg); } catch (e) { console.warn('send failed', e); } }
 function broadcast(msg) { for (const c of S.conns.values()) send(c, msg); }
-function lobbyPayload() { return { t: 'lobby', code: S.code, players: S.players.map(({ id, name, cls, bot }) => ({ id, name, cls, bot })) }; }
+function lobbyPayload() { return { t: 'lobby', code: S.code, map: S.map, players: S.players.map(({ id, name, cls, bot }) => ({ id, name, cls, bot })) }; }
 function broadcastLobby() { if (S.mode === 'host') broadcast(lobbyPayload()); }
 
 function randomCode() { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; let s = ''; for (let i = 0; i < 4; i++) s += A[Math.floor(Math.random() * A.length)]; return s; }
@@ -204,9 +224,9 @@ function clientOnMsg(msg) {
   if (!msg || typeof msg !== 'object') return;
   switch (msg.t) {
     case 'welcome': S.myId = msg.id; S.waiting = !!msg.inRace; show('lobby'); renderLobby(); break;
-    case 'lobby': S.players = msg.players; S.code = msg.code; if (S.screen === 'lobby') renderLobby(); break;
+    case 'lobby': S.players = msg.players; S.code = msg.code; S.hostMap = msg.map; if (S.screen === 'lobby') renderLobby(); break;
     case 'tolobby': S.waiting = false; endRaceObjects(); show('lobby'); renderLobby(); break;
-    case 'start': S.waiting = false; startRace(msg.seed, msg.players, msg.cd - S.ping / 2); break;
+    case 'start': S.waiting = false; startRace(msg.seed, msg.players, msg.cd - S.ping / 2, MAP_IDS.includes(msg.map) ? msg.map : 'alpine'); break;
     case 'snap': if (S.race && !S.waiting) applySnap(msg); break;
     case 'results': if (S.race) showResults(msg.list); break;
     case 'kick': leaveToMenu(); setErr(msg.reason); break;
@@ -238,7 +258,9 @@ $('quick').onclick = () => {
 let menuCourse = null;
 function ensureMenuCourse() {
   if (menuCourse) return;
-  const c = makeCourse(Math.floor(Math.random() * 1e9));
+  const m = resolveMap(S.map);
+  const c = makeCourse(Math.floor(Math.random() * 1e9), m);
+  env.applyMap(m);
   menuCourse = { course: c, mesh: buildCourse(c), t: 0 };
   scene.add(menuCourse.mesh);
 }
@@ -246,22 +268,26 @@ function dropMenuCourse() { if (menuCourse) { scene.remove(menuCourse.mesh); dis
 
 function hostStartRace(sameSeed = false) {
   const me = S.players.find(p => p.id === S.myId); if (me) me.cls = S.cls;
-  const seed = sameSeed && S.lastSeed != null ? S.lastSeed : Math.floor(Math.random() * 1e9);
+  const same = sameSeed && S.lastSeed != null;
+  const seed = same ? S.lastSeed : Math.floor(Math.random() * 1e9);
+  const map = same ? S.lastMap : resolveMap(S.map);
   const cd = 3500;
   const list = S.players.map(({ id, name, cls, bot }) => ({ id, name, cls, bot }));
-  if (S.mode === 'host') broadcast({ t: 'start', seed, players: list, cd });
-  startRace(seed, list, cd);
+  if (S.mode === 'host') broadcast({ t: 'start', seed, map, players: list, cd });
+  startRace(seed, list, cd, map);
 }
 
-function startRace(seed, list, cd) {
+function startRace(seed, list, cd, map = 'alpine') {
   endRaceObjects(); dropMenuCourse();
-  const course = makeCourse(seed);
+  env.applyMap(map);
+  trails.clear();
+  const course = makeCourse(seed, map);
   const mesh = buildCourse(course); scene.add(mesh);
   const rnd = mulberry32(seed ^ 0x5bd1e995);
   const race = { seed, course, mesh, startAt: performance.now() + Math.max(500, cd), phase: 'countdown', ents: new Map(), firstFinish: null,
     over: false, sendT: 0, lastMsgId: 0, msgUntil: 0, endIn: null, list,
     seq: 0, history: [], outbox: [], ghostRec: [], ghostRecT: 0, lastCd: null };
-  S.lastSeed = seed;
+  S.lastSeed = seed; S.lastMap = map; race.map = map; race.ghostKey = map + ':' + seed;
   list.forEach((p, i) => {
     const row = Math.floor(i / 4), colI = i % 4;
     const z = 8 - row * 4, x = course.cxMain(z) + (colI - 1.5) * 4 + (row % 2) * 2;
@@ -277,7 +303,7 @@ function startRace(seed, list, cd) {
   });
   race.me = race.ents.get(S.myId) || null;
   // ghost of your best run on this exact mountain (Rematch keeps the seed)
-  const gh = S.ghosts.get(seed);
+  const gh = S.ghosts.get(race.ghostKey);
   if (gh && race.me) {
     race.ghost = { data: gh, rider: makeRider(gh.cls, 0xffffff, null, true), e: { x: 0, y: 0, z: 0, h: 0, spin: 0, flip: 0, v: 0, tuck: false, air: true } };
     scene.add(race.ghost.rider.root);
@@ -288,6 +314,8 @@ function startRace(seed, list, cd) {
   camState.init = false;
   buildProgressMarkers();
   $('fin').innerHTML = ''; $('msg').textContent = '';
+  $('mapname').innerHTML = `${MAPS[map].name}<small>${MAPS[map].desc}</small>`; $('mapname').style.opacity = 1;
+  setTimeout(() => { $('mapname').style.opacity = 0; }, 4200);
   $('hint').textContent = 'W tuck · S brake · Space jump · in the air: arrows spin/flip, Q/E/R/F grab';
   show('race');
 }
@@ -311,11 +339,11 @@ function endRaceObjects() {
 // ---------------- Network state sync ----------------
 const STATE_CODE = { ride: 0, wipe: 2 };
 function packEnt(e) {
-  const st = (e.state === 'wipe' ? 2 : e.air ? 1 : 0) | (e.tuck ? 4 : 0) | (e.finished ? 8 : 0) | (e.ghostT > 0 ? 16 : 0);
+  const st = (e.state === 'wipe' ? 2 : e.air ? 1 : 0) | (e.tuck ? 4 : 0) | (e.finished ? 8 : 0) | (e.ghostT > 0 ? 16 : 0) | (e.grind >= 0 ? 32 : 0);
   const r = (n, k = 100) => Math.round(n * k) / k;
-  return [r(e.x), r(e.y), r(e.z), r(e.h, 1000), r(e.spin, 100), r(e.flip, 100), r(e.v), st, e.finished ? r(e.finishTime, 1000) : 0, r(e.lean), e.stance ? 1 : 0, e.grab || 0];
+  return [r(e.x), r(e.y), r(e.z), r(e.h, 1000), r(e.spin, 100), r(e.flip, 100), r(e.v), st, e.finished ? r(e.finishTime, 1000) : 0, r(e.lean), e.stance ? 1 : 0, e.grab || 0, r(e.slideAng || 0)];
 }
-const FULL_KEYS = ['x', 'y', 'z', 'h', 'v', 'vy', 'airT', 'spin', 'flip', 'wipeT', 'ghostT', 'jumpCD', 'boostT', 'pushX', 'pushZ', 'finishTime', 'lean', 'stance', 'grab'];
+const FULL_KEYS = ['x', 'y', 'z', 'h', 'v', 'vy', 'airT', 'spin', 'flip', 'wipeT', 'ghostT', 'jumpCD', 'boostT', 'pushX', 'pushZ', 'finishTime', 'lean', 'stance', 'grab', 'grind', 'grindT', 'slideAng', 'gpts', 'gname'];
 function packFull(e) { return [...FULL_KEYS.map(k => e[k]), (e.air ? 1 : 0) | (e.state === 'wipe' ? 2 : 0) | (e.finished ? 4 : 0) | (e.tuck ? 8 : 0) | (e.airSwitch ? 16 : 0), e.gt]; }
 function applyFull(e, a) { FULL_KEYS.forEach((k, i) => { e[k] = a[i]; }); const f = a[FULL_KEYS.length]; e.air = !!(f & 1); e.state = (f & 2) ? 'wipe' : 'ride'; e.finished = !!(f & 4); e.tuck = !!(f & 8); e.airSwitch = !!(f & 16); e.gt = Array.isArray(a[FULL_KEYS.length + 1]) ? a[FULL_KEYS.length + 1].slice(0, 4) : [0, 0, 0, 0]; }
 
@@ -339,7 +367,7 @@ function applyRemoteState(id, s) {
   if (!ent || ent.local || !Array.isArray(s)) return;
   ent.remote = { x: s[0], y: s[1], z: s[2], h: s[3], spin: s[4], flip: s[5], v: s[6], st: s[7], finT: s[8], t: performance.now() };
   const e = ent.e;
-  e.h = s[3]; e.spin = s[4]; e.flip = s[5]; e.v = s[6]; e.lean = s[9] || 0; e.stance = s[10] ? Math.PI : 0; e.grab = s[11] || 0;
+  e.h = s[3]; e.spin = s[4]; e.flip = s[5]; e.v = s[6]; e.lean = s[9] || 0; e.stance = s[10] ? Math.PI : 0; e.grab = s[11] || 0; e.slideAng = s[12] || 0; e.grind = (s[7] & 32) ? 0 : -1;
   e.state = (s[7] & 3) === 2 ? 'wipe' : 'ride'; e.air = (s[7] & 3) === 1; e.tuck = !!(s[7] & 4); e.ghostT = (s[7] & 16) ? 1 : 0;
   if ((s[7] & 8) && !e.finished) { e.finished = true; e.finishTime = s[8]; onFinish(ent); }
 }
@@ -366,7 +394,7 @@ function smoothRemote(ent, dt) {
   const k = 1 - Math.exp(-14 * dt);
   e.x += dx * k; e.z += dz * k;
   const gy = S.race.course.groundH(e.x, e.z);
-  e.y = e.air ? e.y + (R.y - e.y) * k : gy;
+  e.y = e.air || e.grind >= 0 ? e.y + (R.y - e.y) * k : gy;
 }
 
 // ---------------- Input ----------------
@@ -383,9 +411,21 @@ addEventListener('keydown', (ev) => {
 addEventListener('keyup', (ev) => { K[ev.code] = false; stale.delete(ev.code); });
 addEventListener('blur', () => { for (const k in K) K[k] = false; });
 const fresh = (c) => K[c] && !stale.has(c);
-function localInput(e) {
+// Steering ramps in: a tap is a small correction, holding builds to a full carve (~0.3 s).
+// Shift = precision mode (max ~35%).
+let steerDir = 0, steerHeld = 0;
+function steerAmount() {
   const L = K.KeyA || K.ArrowLeft, Rr = K.KeyD || K.ArrowRight;
-  const inp = { steer: (Rr ? 1 : 0) - (L ? 1 : 0), tuck: !!(K.KeyW || K.ArrowUp), brake: !!(K.KeyS || K.ArrowDown), jump: jumpBuf > 0, spin: 0, flip: 0 };
+  const dir = (Rr ? 1 : 0) - (L ? 1 : 0);
+  if (dir !== steerDir) { steerDir = dir; steerHeld = 0; }
+  if (!dir) return 0;
+  steerHeld += FIXED;
+  let mag = Math.min(1, 0.14 + steerHeld * steerHeld * 9 + steerHeld * 0.6);
+  if (K.ShiftLeft || K.ShiftRight) mag = Math.min(mag, 0.35);
+  return dir * mag;
+}
+function localInput(e) {
+  const inp = { steer: steerAmount(), tuck: !!(K.KeyW || K.ArrowUp), brake: !!(K.KeyS || K.ArrowDown), jump: jumpBuf > 0, spin: 0, flip: 0 };
   if (e.air) {
     inp.grab = (K.KeyQ || K.KeyJ) ? 1 : (K.KeyE || K.KeyK) ? 2 : (K.KeyR || K.KeyL) ? 3 : (K.KeyF || K.KeyI) ? 4 : 0;
     inp.spin = ((fresh('ArrowRight') || fresh('KeyD')) ? 1 : 0) - ((fresh('ArrowLeft') || fresh('KeyA')) ? 1 : 0);
@@ -445,9 +485,9 @@ function onFinish(ent) {
   if (ent.local) {
     sfx.finish();
     // save ghost if this is my best on this mountain
-    const best = S.ghosts.get(r.seed);
+    const best = S.ghosts.get(r.ghostKey);
     if (r.ghostRec.length && (!best || ent.e.finishTime < best.time)) {
-      S.ghosts.set(r.seed, { time: ent.e.finishTime, frames: r.ghostRec, cls: ent.e.cls });
+      S.ghosts.set(r.ghostKey, { time: ent.e.finishTime, frames: r.ghostRec, cls: ent.e.cls });
       if (best) flash('NEW BEST ON THIS MOUNTAIN!', true, 2500);
     }
     const place = rankOf(ent);
@@ -490,6 +530,7 @@ function hostCheckEnd() {
 function showResults(list) {
   const t = $('rtable');
   t.innerHTML = '<tr><th>#</th><th>Rider</th><th>Class</th><th>Time</th></tr>';
+  $('resmap').textContent = S.race ? MAPS[S.race.map].name : '';
   const best = list.find(x => x.time != null)?.time;
   list.forEach((x, i) => {
     const tr = document.createElement('tr'); if (x.id === S.myId) tr.className = 'me';
@@ -576,7 +617,10 @@ function updateHud(dt) {
   if (msgTimer > 0) { msgTimer -= dt; if (msgTimer <= 0) $('msg').style.opacity = 0; }
   // live trick readout while airborne
   const live = $('live');
-  if (me && me.e.air && me.e.airT > 0.2 && me.e.state === 'ride') {
+  if (me && me.e.grind >= 0) {
+    const e = me.e;
+    live.innerHTML = `${Math.abs(e.slideAng) > 1 ? 'Boardslide' : '50-50'}<small>${e.grindT.toFixed(1)}s · Space to pop off</small>`; live.style.opacity = 1;
+  } else if (me && me.e.air && me.e.airT > 0.2 && me.e.state === 'ride') {
     const e = me.e, deg = Math.round(Math.abs(e.spin) * 180 / Math.PI / 10) * 10;
     const name = trickName(e);
     live.innerHTML = `${name || '&nbsp;'}<small>${deg ? deg + '°' : ''}${e.grab ? ' · grabbing' : ''}</small>`;
@@ -679,7 +723,7 @@ function tick(render) {
       // snow spray
       const near = Math.abs(e.z - camera.position.z) < 120;
       if (near && r2.phase === 'race') {
-        if (!e.air && e.state === 'ride' && e.v > 6) {
+        if (!e.air && e.grind < 0 && e.state === 'ride' && e.v > 6) {
           const carve = Math.abs(e.lean || 0);
           const rate = (e.v / 40) * 25 + carve * 70 * Math.min(1, e.v / 15);
           let n = Math.floor(rate * dt + Math.random());
@@ -692,6 +736,7 @@ function tick(render) {
         if (ent.prevState !== 'wipe' && e.state === 'wipe') spray.emit(e.x, gy, e.z, sh * e.v * 0.4, 4, ch * e.v * 0.4, 8, 70);
       }
       ent.prevAir = e.air; ent.prevState = e.state;
+      if (near) trails.add(ent.info.id, e.x, gy, e.z, e.h, e.cls === 'ski' ? [-0.15, 0.15] : [0], e.cls === 'ski' ? 0.05 : 0.14, !e.air && e.grind < 0 && e.state === 'ride' && e.y - gy < 0.15);
     }
     // ghost playback
     if (r2.ghost) {
@@ -710,9 +755,9 @@ function tick(render) {
     updateHud(dt);
   } else setRide(0, 0, false, false);
   updateCamera(dt);
-  { const fe = S.race && S.race.me ? S.race.me.e : null; if (fe) env.follow(fe.x, fe.y, fe.z + 10); else { const t = new THREE.Vector3(); camera.getWorldDirection(t); env.follow(camera.position.x + t.x * 40, camera.position.y + t.y * 40, camera.position.z + t.z * 40); } }
+  { const fe = S.race && S.race.me ? S.race.me.e : null; if (fe) env.follow(fe.x, fe.y, fe.z + 10, dt); else { const t = new THREE.Vector3(); camera.getWorldDirection(t); env.follow(camera.position.x + t.x * 40, camera.position.y + t.y * 40, camera.position.z + t.z * 40, dt); } }
   drawSpeedLines(S.race && S.race.me ? S.race.me.e.v : 0);
-  renderer.render(scene, camera);
+  env.render();
   fpsAcc += dt; fpsN++;
   if (fpsAcc >= 0.5) {
     S.fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0;
