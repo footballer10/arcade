@@ -1,1 +1,88 @@
-<!doctype html><meta charset="utf-8"><title>arena</title><p>Coming soon. <a href="../">Back</a></p>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Arena Royale</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "peerjs": "https://cdn.jsdelivr.net/npm/peerjs@1.5.4/+esm"
+} }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="labels"></div>
+
+<!-- MENU -->
+<div id="menu" class="screen">
+  <div class="panel">
+    <a class="back" href="../">&larr; Back to menu</a>
+    <h1>ARENA ROYALE</h1>
+    <p class="sub">Last one standing. Knock them off the edge.</p>
+    <label>Your name <input id="nameIn" maxlength="12" placeholder="Player"></label>
+    <div class="charpick" id="charPickMenu"></div>
+    <button id="quickBtn" class="big">Quick Play vs Bots</button>
+    <div class="row">
+      <button id="createBtn">Create Room</button>
+      <input id="codeIn" maxlength="4" placeholder="CODE" autocomplete="off">
+      <button id="joinBtn">Join</button>
+    </div>
+    <div id="menuMsg" class="msg"></div>
+    <div class="controls">WASD move · Mouse aim · Left click attack · Right click special · Space dash · <kbd>`</kbd> debug</div>
+  </div>
+</div>
+
+<!-- LOBBY -->
+<div id="lobby" class="screen hidden">
+  <div class="panel">
+    <a class="back" href="../">&larr; Back to menu</a>
+    <h2>Room <span id="roomCode" class="code">----</span></h2>
+    <p class="sub" id="lobbyHint">Share this code with friends. 2–8 players.</p>
+    <div class="charpick" id="charPickLobby"></div>
+    <ul id="lobbyList"></ul>
+    <div class="row" id="hostCtrls">
+      <button id="addBotBtn">+ Add Bot</button>
+      <button id="remBotBtn">− Remove Bot</button>
+      <button id="startBtn" class="big">Start</button>
+    </div>
+    <div id="lobbyMsg" class="msg"></div>
+    <button id="leaveBtn" class="ghost">Leave</button>
+  </div>
+</div>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div id="topbar"><span id="roundInfo"></span><span id="aliveInfo"></span><span id="zoneInfo"></span></div>
+  <div id="killfeed"></div>
+  <div id="banner"></div>
+  <div id="spectate" class="hidden"></div>
+  <div id="bottom">
+    <div class="hpwrap"><div id="myName"></div><div class="bighp"><div id="myHp"></div><div id="myShield"></div></div><div id="myBuffs"></div></div>
+    <div class="cd" id="cdAtk"><div class="cdfill"></div><span>LMB</span><b id="atkName">Attack</b></div>
+    <div class="cd" id="cdDash"><div class="cdfill"></div><span>SPACE</span><b>Dash</b></div>
+    <div class="cd" id="cdSp"><div class="cdfill"></div><span>RMB</span><b id="spName">Special</b></div>
+  </div>
+  <a class="back hudback" href="../">&larr; Menu</a>
+</div>
+
+<!-- ROUND / MATCH OVERLAY -->
+<div id="board" class="screen hidden">
+  <div class="panel">
+    <h2 id="boardTitle"></h2>
+    <table id="boardTable"><thead><tr><th></th><th>Player</th><th>Class</th><th>Rounds</th><th>KOs</th></tr></thead><tbody></tbody></table>
+    <div id="boardNote" class="sub"></div>
+    <div class="row" id="boardBtns">
+      <button id="againBtn" class="big">Play Again</button>
+      <button id="toLobbyBtn">Back to Lobby</button>
+      <button id="toMenuBtn" class="ghost">Main Menu</button>
+    </div>
+  </div>
+</div>
+
+<div id="debug" class="hidden"></div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
