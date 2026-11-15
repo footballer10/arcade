@@ -24,7 +24,7 @@ export function newEntity(id, cls, x, z, course) {
   return {
     id, cls, x, z, y: course.groundH(x, z), h: 0, v: 0, vy: 0, air: false, airT: 0,
     spin: 0, flip: 0, state: 'ride', wipeT: 0, ghostT: 0, jumpCD: 0, boostT: 0,
-    pushX: 0, pushZ: 0, finished: false, finishTime: 0, tuck: false, msg: null, msgId: 0,
+    pushX: 0, pushZ: 0, finished: false, finishTime: 0, tuck: false, lean: 0, msg: null, msgId: 0,
   };
 }
 
@@ -94,13 +94,18 @@ export function stepEntity(e, inp, dt, course) {
   if (!e.air) {
     const rate = P.turn * (1 - Math.min(e.v, 55) / 150) * (e.tuck ? 0.8 : 1);
     e.h -= inp.steer * rate * dt;
-    e.h = Math.max(-1.75, Math.min(1.75, e.h));
-    const sx = Math.sin(e.h), sz = Math.cos(e.h);
+    e.lean += (inp.steer - e.lean) * Math.min(1, dt * 8);
     const eps = 0.5;
     const gx = (course.groundH(e.x + eps, e.z) - course.groundH(e.x - eps, e.z)) / (2 * eps);
     const gz = (course.groundH(e.x, e.z + eps) - course.groundH(e.x, e.z - eps)) / (2 * eps);
+    // side-slopes (half-pipe walls, run edges) pull you back toward the fall line
+    const gLat = gx * Math.cos(e.h) - gz * Math.sin(e.h);
+    if (Math.abs(gLat) > 0.08) e.h -= gLat * 1.6 * dt;
+    e.h = Math.max(-1.75, Math.min(1.75, e.h));
+    const sx = Math.sin(e.h), sz = Math.cos(e.h);
     let a = -G * (gx * sx + gz * sz);
-    a -= drag * e.v * e.v + FRIC + (powder ? P.powderFric : 0) + (inp.brake ? BRAKE : 0)
+    if (!inp.brake && e.v < 5) a += 7 * (1 - e.v / 5); // skate / push off when nearly stopped
+    a -= drag * e.v * e.v + FRIC + (powder ? P.powderFric * (info.shortcut ? 0.4 : 1) : 0) + (inp.brake ? BRAKE : 0)
       + Math.abs(inp.steer) * e.v * P.carveLoss;
     e.v = Math.max(0, Math.min(VMAX, e.v + a * dt));
     // boost pads
@@ -115,6 +120,7 @@ export function stepEntity(e, inp, dt, course) {
       e.jumpCD = 0.9; e.y += 0.05;
     }
   } else {
+    e.lean *= Math.exp(-4 * dt);
     e.v = Math.max(0, e.v - drag * 0.8 * e.v * e.v * dt);
     e.spin += (inp.spin || 0) * P.spinRate * dt;
     e.flip += (inp.flip || 0) * P.flipRate * dt;
@@ -182,10 +188,20 @@ export function bump(a, b) {
   return true;
 }
 
+// Host-side validation of inputs received from clients.
+export function sanitizeInput(a) {
+  const c = (v) => { v = Number(v); return Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0; };
+  if (!Array.isArray(a)) return null;
+  return { steer: c(a[1]), tuck: !!(a[2] & 1), brake: !!(a[2] & 2), jump: !!(a[2] & 4), spin: Math.round(c(a[3])), flip: Math.round(c(a[4])) };
+}
+export function packInput(seq, inp) {
+  return [seq, Math.round(inp.steer * 100) / 100, (inp.tuck ? 1 : 0) | (inp.brake ? 2 : 0) | (inp.jump ? 4 : 0), inp.spin, inp.flip];
+}
+
 // ---- Bots ----
 export function newBrain(rnd, cls) {
   return {
-    shortcut: rnd() < 0.55, lane: (rnd() - 0.5) * 12, laneT: 2 + rnd() * 3,
+    shortcut: [rnd() < 0.55, rnd() < 0.55], lane: (rnd() - 0.5) * 12, laneT: 2 + rnd() * 3,
     skill: 0.9 + rnd() * 0.12, trickProb: cls === 'board' ? 0.75 : 0.4,
     trick: null, wasAir: false, rnd, avoid: 0, avoidT: 0,
   };
@@ -219,7 +235,8 @@ export function botInput(e, br, course, dt) {
 
   const look = 14 + e.v * 0.55;
   const tz = e.z + look;
-  const useSc = br.shortcut && course.scActive(tz) && course.scActive(e.z + 2) ||
+  const sc = course.scAt(tz), scI = course.shortcuts.indexOf(sc);
+  const useSc = sc && br.shortcut[scI] && course.scActive(e.z + 2) ||
     (course.scActive(e.z) && Math.abs(e.x - course.cxBase(e.z)) < Math.abs(e.x - course.cxMain(e.z)) && course.scActive(tz));
   let tx = useSc ? course.cxBase(tz) : course.cxMain(tz) + br.lane * Math.max(0, 1 - Math.abs(course.cxMain(tz + 20) - course.cxMain(tz)) / 12);
 

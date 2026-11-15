@@ -70,6 +70,9 @@ table{width:100%;border-collapse:collapse;margin-bottom:14px}
 td,th{padding:6px 8px;text-align:left}
 tr:nth-child(even) td{background:#1a2440}
 tr.me td{background:#1b4f9f}
+#mute{position:fixed;top:10px;left:150px;z-index:20;margin:0;padding:6px 10px;font-size:.85rem;font-weight:600;background:rgba(0,0,0,.35)}
+#mini{position:absolute;right:14px;top:50%;transform:translateY(-50%);border-radius:10px}
+#ghost{position:absolute;top:52px;right:18px;font-size:.95rem;font-weight:700;opacity:.85;text-shadow:0 1px 4px #000}
 #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.7);padding:10px 16px;border-radius:10px;display:none;z-index:30}
 </style>
 </head>
@@ -77,6 +80,7 @@ tr.me td{background:#1b4f9f}
 <canvas id="c"></canvas>
 <canvas id="lines"></canvas>
 <a id="back" href="../">&larr; Back to menu</a>
+<button id="mute"></button>
 <div id="debug"></div>
 <div id="toast"></div>
 
@@ -89,6 +93,8 @@ tr.me td{background:#1b4f9f}
   <div id="cd"></div>
   <div id="fin"></div>
   <div id="hint"></div>
+  <div id="ghost"></div>
+  <canvas id="mini" width="120" height="330"></canvas>
 </div>
 
 <div class="ui show" id="menu"><div class="panel">
@@ -105,7 +111,7 @@ tr.me td{background:#1b4f9f}
   <div class="row"><input id="joincode" maxlength="4" placeholder="CODE" style="text-transform:uppercase;letter-spacing:.2em"><button id="join" class="alt">Join</button></div>
   <div id="err"></div>
   <div class="keys"><kbd>A</kbd><kbd>D</kbd>/<kbd>&larr;</kbd><kbd>&rarr;</kbd> steer &middot; <kbd>W</kbd> tuck &middot; <kbd>S</kbd> brake &middot; <kbd>Space</kbd> jump<br>
-  In the air: <kbd>&larr;</kbd><kbd>&rarr;</kbd> spin, <kbd>&uarr;</kbd><kbd>&darr;</kbd> flip &mdash; land straight for a boost &middot; <kbd>`</kbd> debug</div>
+  In the air: <kbd>&larr;</kbd><kbd>&rarr;</kbd> spin, <kbd>&uarr;</kbd><kbd>&darr;</kbd> flip &mdash; land straight for a boost &middot; <kbd>M</kbd> mute &middot; <kbd>`</kbd> debug</div>
 </div></div>
 
 <div class="ui" id="lobby"><div class="panel">
@@ -134,7 +140,8 @@ tr.me td{background:#1b4f9f}
     <button data-c="board">SNOWBOARDER</button>
   </div>
   <div id="resctl" style="margin-top:10px">
-    <button class="big green" id="again">Play Again</button>
+    <button class="big green" id="again">Play Again (new mountain)</button>
+    <button class="big" id="rematch">Rematch (same mountain + ghost)</button>
     <button class="big alt" id="tolobby">Back to Lobby</button>
   </div>
   <p id="resmsg" class="sub" style="margin:8px 0 0"></p>

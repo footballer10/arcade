@@ -37,7 +37,7 @@ export function buildCourse(course) {
   const { groundH } = course;
 
   // Terrain strip that follows the course
-  const step = 3, W = 210, cols = 84;
+  const step = 3, W = 210, cols = 110;
   const z0 = -60, z1 = course.L + 260;
   const rows = Math.ceil((z1 - z0) / step) + 1;
   const pos = new Float32Array(rows * (cols + 1) * 3);
@@ -48,12 +48,13 @@ export function buildCourse(course) {
     const z = z0 + r * step;
     const cx = (course.cxBase(z) + course.cxMain(z)) / 2;
     for (let c = 0; c <= cols; c++) {
-      const x = cx - W + (2 * W * c) / cols;
+      const u = -1 + (2 * c) / cols, x = cx + W * (0.35 * u + 0.65 * u * u * u); // denser near the runs
       const y = groundH(x, z);
       pos[p] = x; pos[p + 1] = y; pos[p + 2] = z;
       const info = course.corridor(x, z);
       let cr, cg, cb;
-      if (info.groomed) { const stripe = (Math.floor(z / 6) % 2) ? 0.0 : 0.02; cr = 0.94 - stripe; cg = 0.96 - stripe; cb = 1.0; }
+      if (info.pipe) { const k = Math.min(1, Math.abs(x - course.cxMain(z)) / HW_MAIN); cr = 0.86 - 0.1 * k; cg = 0.96; cb = 1.0; }
+      else if (info.groomed) { const stripe = (Math.floor(z / 6) % 2) ? 0.0 : 0.02; cr = 0.94 - stripe; cg = 0.96 - stripe; cb = 1.0; }
       else if (info.shortcut) { cr = 0.98; cg = 0.95; cb = 0.85; }
       else { const k = Math.min(1, info.d / 40); cr = 0.86 - 0.25 * k; cg = 0.9 - 0.2 * k; cb = 0.98 - 0.1 * k; }
       col[p] = cr; col[p + 1] = cg; col[p + 2] = cb;
@@ -151,17 +152,27 @@ export function buildCourse(course) {
       flag.position.set(x - sgn * 0.75, y + 2.8, gt.z); group.add(flag);
     }
   }
-  // Shortcut flags + sign
+  // Shortcut flags + section signs
   const yMat = new THREE.MeshLambertMaterial({ color: 0xffd400, side: THREE.DoubleSide });
   for (const f of course.flags) {
     const pole = new THREE.Mesh(poleG, yMat); pole.position.set(f.x, groundH(f.x, f.z), f.z); group.add(pole);
   }
-  {
-    const z = course.scZ0 + 40, sx = course.cxBase(z) + Math.sign(course.scB) * 9;
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(7, 1.8),
-      new THREE.MeshBasicMaterial({ map: textTexture('SHORTCUT', { bg: '#ffd400', fg: '#111' }), side: THREE.DoubleSide }));
-    sign.position.set(sx, groundH(sx, z) + 3.2, z); sign.rotation.y = Math.PI; group.add(sign);
-    const sp = new THREE.Mesh(poleG, yMat); sp.position.set(sx, groundH(sx, z), z); group.add(sp);
+  const postM = new THREE.MeshLambertMaterial({ color: 0x222831 });
+  for (const sg of course.signs) {
+    const mat = new THREE.MeshBasicMaterial({ map: textTexture(sg.text, { bg: sg.bg, fg: sg.fg }), side: THREE.DoubleSide });
+    if (sg.banner) {
+      const w = HW_MAIN * 2 + 2, y = groundH(sg.x, sg.z);
+      const ban = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.6, 2.2), mat);
+      ban.position.set(sg.x, y + 7, sg.z); ban.rotation.y = Math.PI; group.add(ban);
+      for (const sgn of [-1, 1]) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.6, 8, 0.6), postM);
+        post.position.set(sg.x + sgn * w * 0.3, groundH(sg.x + sgn * w * 0.3, sg.z) + 4, sg.z); group.add(post);
+      }
+    } else {
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(6, 1.6), mat);
+      sign.position.set(sg.x, groundH(sg.x, sg.z) + 3.2, sg.z); sign.rotation.y = Math.PI; group.add(sign);
+      const sp = new THREE.Mesh(poleG, postM); sp.position.set(sg.x, groundH(sg.x, sg.z), sg.z); group.add(sp);
+    }
   }
 
   // Start + finish arches
@@ -199,9 +210,11 @@ export function disposeGroup(g) {
   });
 }
 
-export function makeRider(cls, color, name) {
+export function makeRider(cls, color, name, ghost = false) {
   const root = new THREE.Group();
-  const inner = new THREE.Group(); root.add(inner);
+  const tilt = new THREE.Group(); root.add(tilt);
+  const spinG = new THREE.Group(); tilt.add(spinG);
+  const inner = new THREE.Group(); spinG.add(inner);
   const body = new THREE.Group(); inner.add(body);
   const suit = new THREE.MeshLambertMaterial({ color });
   const dark = new THREE.MeshLambertMaterial({ color: 0x1c2230 });
@@ -224,22 +237,105 @@ export function makeRider(cls, color, name) {
   }
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.6, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25, depthWrite: false }));
   shadow.rotation.x = -Math.PI / 2;
+  if (ghost) {
+    root.traverse(o => { if (o.material) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.35; o.material.depthWrite = false; } });
+    shadow.visible = false;
+  }
   if (name) {
     const tex = textTexture(name.slice(0, 12), { w: 256, h: 64, bg: null, fg: '#fff', font: 'bold 40px system-ui' });
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
     sp.scale.set(2.2, 0.55, 1); sp.position.y = 2.5; root.add(sp);
   }
-  return { root, inner, body, shadow, cls };
+  return { root, tilt, spinG, inner, body, shadow, cls, pitch: 0 };
 }
 
 // Place a rider mesh from an entity-like state
-export function poseRider(r, e, groundY, t) {
-  r.root.position.set(e.x, e.y, e.z);
-  r.root.rotation.set(0, e.h + (e.spin || 0), 0);
+// slope = terrain drop per metre along the heading (positive = downhill)
+export function poseRider(r, e, groundY, t, slope = 0, dt = 0.016, off = null) {
+  r.root.position.set(e.x + (off ? off.x : 0), e.y + (off ? off.y : 0), e.z + (off ? off.z : 0));
+  r.root.rotation.set(0, e.h, 0);
+  const targetPitch = e.air || e.state === 'wipe' ? 0 : Math.atan(slope);
+  r.pitch += (targetPitch - r.pitch) * Math.min(1, dt * 10);
+  const lean = (e.air ? 0 : (e.lean || 0)) * 0.5 * Math.min(1, (e.v || 0) / 18);
+  r.tilt.rotation.set(r.pitch, 0, lean, 'YXZ');
+  r.spinG.rotation.set(0, e.spin || 0, 0);
   r.inner.rotation.set(e.flip || 0, 0, 0);
   r.body.scale.y = e.tuck ? 0.72 : 1;
   r.shadow.position.set(e.x, groundY + 0.06, e.z);
   const hgt = Math.max(0, e.y - groundY);
   r.shadow.scale.setScalar(Math.max(0.3, 1 - hgt * 0.08));
   r.root.visible = !(e.ghostT > 0 && Math.floor(t * 10) % 2 === 0);
+}
+
+// ---------------- Snow spray particles ----------------
+export class Spray {
+  constructor(scene, max = 900) {
+    this.max = max; this.n = 0;
+    this.pos = new Float32Array(max * 3); this.vel = new Float32Array(max * 3); this.life = new Float32Array(max);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    this.geo = g;
+    const c = document.createElement('canvas'); c.width = c.height = 32;
+    const gg = c.getContext('2d'); const grd = gg.createRadialGradient(16, 16, 0, 16, 16, 16);
+    grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(0.5, 'rgba(255,255,255,0.6)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+    gg.fillStyle = grd; gg.fillRect(0, 0, 32, 32);
+    this.points = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffffff, size: 0.3, map: new THREE.CanvasTexture(c), transparent: true, opacity: 0.9, depthWrite: false }));
+    this.points.frustumCulled = false;
+    scene.add(this.points);
+    this.cursor = 0;
+  }
+  emit(x, y, z, vx, vy, vz, spread, count) {
+    for (let i = 0; i < count; i++) {
+      const k = this.cursor; this.cursor = (this.cursor + 1) % this.max;
+      this.pos[k * 3] = x + (Math.random() - 0.5) * 0.6; this.pos[k * 3 + 1] = y + 0.1; this.pos[k * 3 + 2] = z + (Math.random() - 0.5) * 0.6;
+      this.vel[k * 3] = vx + (Math.random() - 0.5) * spread; this.vel[k * 3 + 1] = vy + Math.random() * spread * 0.6; this.vel[k * 3 + 2] = vz + (Math.random() - 0.5) * spread;
+      this.life[k] = 0.5 + Math.random() * 0.5;
+    }
+  }
+  update(dt) {
+    for (let k = 0; k < this.max; k++) {
+      if (this.life[k] <= 0) { this.pos[k * 3 + 1] = -1e5; continue; }
+      this.life[k] -= dt;
+      const d = Math.exp(-2.5 * dt);
+      this.vel[k * 3] *= d; this.vel[k * 3 + 2] *= d; this.vel[k * 3 + 1] -= 9 * dt;
+      this.pos[k * 3] += this.vel[k * 3] * dt; this.pos[k * 3 + 1] += this.vel[k * 3 + 1] * dt; this.pos[k * 3 + 2] += this.vel[k * 3 + 2] * dt;
+    }
+    this.geo.attributes.position.needsUpdate = true;
+  }
+  clear() { this.life.fill(0); }
+}
+
+// ---------------- Minimap (2D canvas) ----------------
+export function makeMinimap(course, w, h) {
+  const bg = document.createElement('canvas'); bg.width = w; bg.height = h;
+  const g = bg.getContext('2d');
+  const pad = 10, zMin = -20, zMax = course.L + 30;
+  let xMin = 1e9, xMax = -1e9;
+  for (let z = zMin; z < zMax; z += 10) { for (const x of [course.cxMain(z), course.cxBase(z)]) { xMin = Math.min(xMin, x); xMax = Math.max(xMax, x); } }
+  xMin -= 25; xMax += 25;
+  const sx = (x) => pad + (x - xMin) / (xMax - xMin) * (w - 2 * pad);
+  const sy = (z) => pad + (z - zMin) / (zMax - zMin) * (h - 2 * pad);
+  g.fillStyle = 'rgba(10,20,40,0.55)'; g.fillRect(0, 0, w, h);
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  const path = (fx, z0, z1, color, width) => {
+    g.strokeStyle = color; g.lineWidth = width; g.beginPath();
+    for (let z = z0; z <= z1; z += 8) { const X = sx(fx(z)), Y = sy(z); z === z0 ? g.moveTo(X, Y) : g.lineTo(X, Y); }
+    g.stroke();
+  };
+  path(course.cxMain, 0, course.L, '#e8f0ff', 5);
+  for (const s of course.shortcuts) path(course.cxBase, s.z0, s.z0 + s.len, '#ffd400', 2.5);
+  path(course.cxMain, course.halfpipe.z0, course.halfpipe.z0 + course.halfpipe.len, '#20d0d0', 5);
+  for (const r of course.rollers) path(course.cxMain, r.z0, r.z0 + r.len, '#ff9a4a', 5);
+  g.fillStyle = '#ff4d6d'; g.fillRect(sx(course.cxMain(course.L)) - 8, sy(course.L) - 2, 16, 4);
+  return {
+    draw(ctx, dots) {
+      ctx.clearRect(0, 0, w, h); ctx.drawImage(bg, 0, 0);
+      for (const d of dots) {
+        ctx.fillStyle = d.color; ctx.globalAlpha = d.alpha ?? 1;
+        ctx.beginPath(); ctx.arc(sx(d.x), sy(d.z), d.me ? 5 : 3.5, 0, Math.PI * 2); ctx.fill();
+        if (d.me) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); }
+      }
+      ctx.globalAlpha = 1;
+    },
+  };
 }

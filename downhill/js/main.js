@@ -1,13 +1,16 @@
 import * as THREE from 'three';
 import { makeCourse, mulberry32 } from './course.js';
-import { CLASSES, newEntity, stepEntity, bump, botInput, newBrain } from './physics.js';
-import { createRenderer, buildCourse, disposeGroup, makeRider, poseRider, COLORS } from './render.js';
+import { CLASSES, newEntity, stepEntity, bump, botInput, newBrain, sanitizeInput, packInput } from './physics.js';
+import { createRenderer, buildCourse, disposeGroup, makeRider, poseRider, COLORS, Spray, makeMinimap } from './render.js';
+import { unlock as unlockAudio, sfx, setRide, toggleMute, isMuted } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 const { renderer, scene, camera } = createRenderer($('c'));
 const linesCv = $('lines'), lctx = linesCv.getContext('2d');
 const fitLines = () => { linesCv.width = innerWidth; linesCv.height = innerHeight; };
 fitLines(); addEventListener('resize', fitLines);
+const spray = new Spray(scene);
+const miniCv = $('mini'), mctx = miniCv.getContext('2d');
 
 const PREFIX = 'dhrush-v1-';
 const BOT_NAMES = ['Avalanche', 'Yeti', 'Flurry', 'Moguls', 'Icicle', 'Powder', 'Slush', 'Blizzard', 'Frosty', 'Shred'];
@@ -21,6 +24,7 @@ const S = {
   name: store.get('dh_name', ''), cls: store.get('dh_cls', 'ski'),
   players: [], peer: null, conns: new Map(), hostConn: null, code: null,
   ping: 0, race: null, debug: false, fps: 0, waiting: false,
+  ghosts: new Map(), lastSeed: null,
 };
 $('name').value = S.name;
 
@@ -80,7 +84,13 @@ $('rmbot').onclick = () => { const i = S.players.map(p => p.bot).lastIndexOf(tru
 $('start').onclick = () => hostStartRace();
 $('leave').onclick = () => leaveToMenu();
 $('quit').onclick = () => leaveToMenu();
-$('again').onclick = () => { if (S.mode !== 'client') hostStartRace(); };
+$('again').onclick = () => { if (S.mode !== 'client') hostStartRace(false); };
+$('rematch').onclick = () => { if (S.mode !== 'client') hostStartRace(true); };
+const muteLabel = () => { $('mute').textContent = isMuted() ? '🔇 Sound off (M)' : '🔊 Sound on (M)'; };
+muteLabel();
+$('mute').onclick = (ev) => { ev.currentTarget.blur(); unlockAudio(); toggleMute(); muteLabel(); };
+addEventListener('pointerdown', () => unlockAudio());
+addEventListener('keydown', (ev) => { unlockAudio(); if (ev.code === 'KeyM' && ev.target.tagName !== 'INPUT') { toggleMute(); muteLabel(); } });
 $('tolobby').onclick = () => { if (S.mode === 'host') { endRaceObjects(); show('lobby'); renderLobby(); broadcast({ t: 'tolobby' }); broadcastLobby(); } };
 
 // ---------------- Networking (PeerJS) ----------------
@@ -145,7 +155,17 @@ function hostOnMsg(conn, msg) {
     }
     case 'cls': { const p = S.players.find(q => q.id === conn.peer); if (p) { p.cls = msg.cls === 'board' ? 'board' : 'ski'; broadcastLobby(); if (S.screen === 'lobby') renderLobby(); } break; }
     case 'ping': send(conn, { t: 'pong', ts: msg.ts }); break;
-    case 'st': if (S.race) applyRemoteState(conn.peer, msg.s); break;
+    case 'in': {
+      // client inputs: the host simulates every rider, so positions can't be faked
+      const ent = S.race && S.race.ents.get(conn.peer);
+      if (!ent || !ent.hostSim || !Array.isArray(msg.i)) break;
+      for (const a of msg.i.slice(0, 40)) {
+        const inp = sanitizeInput(a);
+        if (inp && Number.isInteger(a[0]) && a[0] > (ent.inQ.length ? ent.inQ[ent.inQ.length - 1].seq : ent.ack)) ent.inQ.push({ seq: a[0], inp });
+      }
+      if (ent.inQ.length > 45) ent.inQ.splice(0, ent.inQ.length - 45); // speed-hack / lag guard
+      break;
+    }
   }
 }
 
@@ -217,9 +237,9 @@ function ensureMenuCourse() {
 }
 function dropMenuCourse() { if (menuCourse) { scene.remove(menuCourse.mesh); disposeGroup(menuCourse.mesh); menuCourse = null; } }
 
-function hostStartRace() {
+function hostStartRace(sameSeed = false) {
   const me = S.players.find(p => p.id === S.myId); if (me) me.cls = S.cls;
-  const seed = Math.floor(Math.random() * 1e9);
+  const seed = sameSeed && S.lastSeed != null ? S.lastSeed : Math.floor(Math.random() * 1e9);
   const cd = 3500;
   const list = S.players.map(({ id, name, cls, bot }) => ({ id, name, cls, bot }));
   if (S.mode === 'host') broadcast({ t: 'start', seed, players: list, cd });
@@ -232,18 +252,31 @@ function startRace(seed, list, cd) {
   const mesh = buildCourse(course); scene.add(mesh);
   const rnd = mulberry32(seed ^ 0x5bd1e995);
   const race = { seed, course, mesh, startAt: performance.now() + Math.max(500, cd), phase: 'countdown', ents: new Map(), firstFinish: null,
-    over: false, sendT: 0, lastMsgId: 0, msgUntil: 0, endIn: null, list };
+    over: false, sendT: 0, lastMsgId: 0, msgUntil: 0, endIn: null, list,
+    seq: 0, history: [], outbox: [], ghostRec: [], ghostRecT: 0, lastCd: null };
+  S.lastSeed = seed;
   list.forEach((p, i) => {
     const row = Math.floor(i / 4), colI = i % 4;
     const z = 8 - row * 4, x = course.cxMain(z) + (colI - 1.5) * 4 + (row % 2) * 2;
     const e = newEntity(p.id, p.cls, x, z, course);
     const rider = makeRider(p.cls, COLORS[i % 8], p.id === S.myId ? null : p.name);
     scene.add(rider.root, rider.shadow);
-    const ent = { e, rider, info: { ...p, color: COLORS[i % 8] }, local: p.id === S.myId, bot: p.bot && S.mode !== 'client', remote: null };
+    const local = p.id === S.myId, bot = p.bot && S.mode !== 'client';
+    const ent = { e, rider, info: { ...p, color: COLORS[i % 8] }, local, bot, remote: null,
+      hostSim: S.mode === 'host' && !local && !bot, inQ: [], ack: 0, lastInp: null,
+      off: new THREE.Vector3(), prevAir: false, prevState: 'ride', prevMsg: 0 };
     if (ent.bot) ent.brain = newBrain(mulberry32(Math.floor(rnd() * 1e9)), p.cls);
     race.ents.set(p.id, ent);
   });
   race.me = race.ents.get(S.myId) || null;
+  // ghost of your best run on this exact mountain (Rematch keeps the seed)
+  const gh = S.ghosts.get(seed);
+  if (gh && race.me) {
+    race.ghost = { data: gh, rider: makeRider(gh.cls, 0xffffff, null, true), e: { x: 0, y: 0, z: 0, h: 0, spin: 0, flip: 0, v: 0, tuck: false, air: true } };
+    scene.add(race.ghost.rider.root);
+  }
+  race.mini = makeMinimap(course, miniCv.width, miniCv.height);
+  spray.clear();
   S.race = race;
   camState.init = false;
   buildProgressMarkers();
@@ -262,7 +295,9 @@ function removeEnt(id) {
 function endRaceObjects() {
   const r = S.race; if (!r) return;
   for (const id of [...r.ents.keys()]) removeEnt(id);
+  if (r.ghost) { scene.remove(r.ghost.rider.root); disposeGroup(r.ghost.rider.root); }
   scene.remove(r.mesh); disposeGroup(r.mesh);
+  spray.clear();
   S.race = null;
 }
 
@@ -271,14 +306,33 @@ const STATE_CODE = { ride: 0, wipe: 2 };
 function packEnt(e) {
   const st = (e.state === 'wipe' ? 2 : e.air ? 1 : 0) | (e.tuck ? 4 : 0) | (e.finished ? 8 : 0) | (e.ghostT > 0 ? 16 : 0);
   const r = (n, k = 100) => Math.round(n * k) / k;
-  return [r(e.x), r(e.y), r(e.z), r(e.h, 1000), r(e.spin, 100), r(e.flip, 100), r(e.v), st, e.finished ? r(e.finishTime, 1000) : 0];
+  return [r(e.x), r(e.y), r(e.z), r(e.h, 1000), r(e.spin, 100), r(e.flip, 100), r(e.v), st, e.finished ? r(e.finishTime, 1000) : 0, r(e.lean)];
+}
+const FULL_KEYS = ['x', 'y', 'z', 'h', 'v', 'vy', 'airT', 'spin', 'flip', 'wipeT', 'ghostT', 'jumpCD', 'boostT', 'pushX', 'pushZ', 'finishTime', 'lean'];
+function packFull(e) { return [...FULL_KEYS.map(k => e[k]), (e.air ? 1 : 0) | (e.state === 'wipe' ? 2 : 0) | (e.finished ? 4 : 0) | (e.tuck ? 8 : 0)]; }
+function applyFull(e, a) { FULL_KEYS.forEach((k, i) => { e[k] = a[i]; }); const f = a[FULL_KEYS.length]; e.air = !!(f & 1); e.state = (f & 2) ? 'wipe' : 'ride'; e.finished = !!(f & 4); e.tuck = !!(f & 8); }
+
+// Client-side prediction: rewind to the host's state for my rider, replay unacknowledged inputs,
+// and hide the correction with a decaying visual offset.
+function reconcile(me, full, ack) {
+  const r = S.race, e = me.e;
+  const ox = e.x, oy = e.y, oz = e.z, oPush = Math.hypot(e.pushX, e.pushZ), wasFinished = e.finished, oFin = e.finishTime;
+  const msgId = e.msgId, msg = e.msg;
+  applyFull(e, full);
+  r.history = r.history.filter(h => h.seq > ack);
+  for (const h of r.history) stepEntity(e, h.inp, FIXED, r.course);
+  e.msgId = msgId; e.msg = msg;
+  if (wasFinished && !e.finished) { e.finished = true; e.finishTime = oFin; } // never un-finish locally
+  const dx = ox - e.x, dy = oy - e.y, dz = oz - e.z;
+  if (dx * dx + dy * dy + dz * dz < 64) me.off.add(new THREE.Vector3(dx, dy, dz)); else me.off.set(0, 0, 0);
+  if (Math.hypot(e.pushX, e.pushZ) > oPush + 2.5) { flash('BUMP!', null, 500); sfx.bump(); }
 }
 function applyRemoteState(id, s) {
   const ent = S.race && S.race.ents.get(id);
   if (!ent || ent.local || !Array.isArray(s)) return;
   ent.remote = { x: s[0], y: s[1], z: s[2], h: s[3], spin: s[4], flip: s[5], v: s[6], st: s[7], finT: s[8], t: performance.now() };
   const e = ent.e;
-  e.h = s[3]; e.spin = s[4]; e.flip = s[5]; e.v = s[6];
+  e.h = s[3]; e.spin = s[4]; e.flip = s[5]; e.v = s[6]; e.lean = s[9] || 0;
   e.state = (s[7] & 3) === 2 ? 'wipe' : 'ride'; e.air = (s[7] & 3) === 1; e.tuck = !!(s[7] & 4); e.ghostT = (s[7] & 16) ? 1 : 0;
   if ((s[7] & 8) && !e.finished) { e.finished = true; e.finishTime = s[8]; onFinish(ent); }
 }
@@ -291,6 +345,7 @@ function applySnap(msg) {
     if (id === S.myId) continue;
     applyRemoteState(id, row.slice(1));
   }
+  if (msg.me && r.me && r.phase === 'race') reconcile(r.me, msg.me, msg.ack);
   for (const id of [...r.ents.keys()]) if (id !== S.myId && !msg.e.some(row => row[0] === id)) removeEnt(id);
 }
 function smoothRemote(ent, dt) {
@@ -339,23 +394,40 @@ function raceTime() { return S.race ? (performance.now() - S.race.startAt) / 100
 function simStep(dt) {
   const r = S.race; const rt = raceTime();
   for (const ent of r.ents.values()) {
-    if (!ent.local && !ent.bot) continue;
+    if (!ent.local && !ent.bot && !ent.hostSim) continue;
     const e = ent.e;
-    const wasAir = e.air;
-    const inp = ent.local ? localInput(e) : botInput(e, ent.brain, r.course, dt);
-    const m = e.msgId;
-    stepEntity(e, inp, dt, r.course);
+    const wasAir = e.air, wasState = e.state, airT0 = e.airT;
+    let steps = 1, inp;
     if (ent.local) {
-      if (!wasAir && e.air) { stale.clear(); for (const k in K) if (K[k]) stale.add(k); jumpBuf = 0; }
-      if (e.msgId !== m && e.msg) flash(e.msg.text, e.msg.good);
+      inp = localInput(e);
+      if (S.mode === 'client') { const seq = ++r.seq; r.history.push({ seq, inp }); r.outbox.push(packInput(seq, inp)); if (r.history.length > 300) r.history.shift(); }
+    } else if (ent.bot) inp = botInput(e, ent.brain, r.course, dt);
+    for (let k = 0; k < steps; k++) {
+      if (ent.hostSim) {
+        // consume one queued input per tick (two if the client is ahead); repeat the last if starved
+        const q = ent.inQ.shift();
+        if (q) { inp = q.inp; ent.ack = q.seq; ent.lastInp = { ...q.inp, jump: false }; if (ent.inQ.length > 6 && k === 0) steps = 2; }
+        else inp = ent.lastInp || { steer: 0 };
+      }
+      const m = e.msgId;
+      stepEntity(e, inp, dt, r.course);
+      if (ent.local) {
+        if (!wasAir && e.air) { stale.clear(); for (const kk in K) if (K[kk]) stale.add(kk); jumpBuf = 0; if (inp.jump) sfx.jump(); }
+        if (wasAir && !e.air && e.state === 'ride' && airT0 > 0.35) sfx.land(e.msg && e.msgId !== m && e.msg.good);
+        if (e.msgId !== m && e.msg) {
+          flash(e.msg.text, e.msg.good);
+          if (e.msg.text.includes('CLEAN!')) sfx.trick(); else if (e.msg.text === 'BOOST!') sfx.boost();
+        }
+        if (wasState !== 'wipe' && e.state === 'wipe') sfx.wipe();
+      }
     }
     if (e.finished && !e.finishTime) { e.finishTime = rt; onFinish(ent); }
   }
-  // bumps: each side resolves itself (local player; host also resolves bots)
+  // bumps: host (or solo) resolves every pair; clients get the result through reconciliation
+  if (S.mode === 'client') return;
   const list = [...r.ents.values()];
-  for (const a of list) {
-    if (!a.local && !a.bot) continue;
-    for (const b of list) if (a !== b && bump(a.e, b.e) && a.local) flash('BUMP!', null, 500);
+  for (const a of list) for (const b of list) {
+    if (a !== b && bump(a.e, b.e) && a.local) { flash('BUMP!', null, 500); sfx.bump(); }
   }
 }
 
@@ -363,6 +435,13 @@ function onFinish(ent) {
   const r = S.race;
   if (r.firstFinish == null) r.firstFinish = raceTime();
   if (ent.local) {
+    sfx.finish();
+    // save ghost if this is my best on this mountain
+    const best = S.ghosts.get(r.seed);
+    if (r.ghostRec.length && (!best || ent.e.finishTime < best.time)) {
+      S.ghosts.set(r.seed, { time: ent.e.finishTime, frames: r.ghostRec, cls: ent.e.cls });
+      if (best) flash('NEW BEST ON THIS MOUNTAIN!', true, 2500);
+    }
     const place = rankOf(ent);
     $('fin').innerHTML = `FINISHED ${ordinal(place)}!<small>${fmtTime(ent.e.finishTime)}</small>`;
   }
@@ -424,11 +503,15 @@ function netTick(dt) {
   r.sendT -= dt;
   if (r.sendT > 0) return;
   r.sendT = 1 / SEND_HZ;
-  if (S.mode === 'client' && r.me) send(S.hostConn, { t: 'st', s: packEnt(r.me.e) });
+  if (S.mode === 'client' && r.outbox.length) { send(S.hostConn, { t: 'in', i: r.outbox }); r.outbox = []; }
   if (S.mode === 'host') {
     const e = [];
     for (const [id, ent] of r.ents) e.push([id, ...packEnt(ent.e)]);
-    broadcast({ t: 'snap', rt: Math.round(raceTime() * 1000) / 1000, e, endIn: r.endIn });
+    const rt = Math.round(raceTime() * 1000) / 1000;
+    for (const [pid, conn] of S.conns) {
+      const ent = r.ents.get(pid);
+      send(conn, { t: 'snap', rt, e, endIn: r.endIn, me: ent ? packFull(ent.e) : null, ack: ent ? ent.ack : 0 });
+    }
   }
 }
 
@@ -452,8 +535,11 @@ function updateHud(dt) {
   const r = S.race; if (!r) return;
   const rt = raceTime();
   const cdEl = $('cd');
-  if (r.phase === 'countdown') cdEl.textContent = Math.ceil(-rt) > 0 ? Math.ceil(-rt) : 'GO!';
-  else if (rt < 1) cdEl.textContent = 'GO!'; else cdEl.textContent = '';
+  let cdTxt = '';
+  if (r.phase === 'countdown') cdTxt = Math.ceil(-rt) > 0 && Math.ceil(-rt) <= 3 ? String(Math.ceil(-rt)) : (Math.ceil(-rt) > 3 ? '' : 'GO!');
+  else if (rt < 1) cdTxt = 'GO!';
+  if (cdTxt !== r.lastCd) { if (cdTxt) sfx.beep(cdTxt === 'GO!'); r.lastCd = cdTxt; }
+  cdEl.textContent = cdTxt;
   const me = r.me;
   if (me) {
     const e = me.e;
@@ -467,6 +553,17 @@ function updateHud(dt) {
       $('fin').innerHTML = `<small>Race closes in ${Math.ceil(r.endIn)}s</small>`;
     }
   }
+  // ghost split + minimap
+  const dots = [];
+  if (r.ghost && me) {
+    const g = r.ghost.e;
+    const d = me.e.z - g.z;
+    $('ghost').textContent = `Ghost best ${fmtTime(r.ghost.data.time)}  ·  ${me.e.finished ? '' : (d >= 0 ? '+' : '') + Math.round(d) + ' m'}`;
+    dots.push({ x: g.x, z: g.z, color: '#ffffff', alpha: 0.5 });
+  } else $('ghost').textContent = '';
+  for (const ent of r.ents.values()) if (!ent.local) dots.push({ x: ent.e.x, z: ent.e.z, color: '#' + ent.info.color.toString(16).padStart(6, '0') });
+  if (me) dots.push({ x: me.e.x, z: me.e.z, color: '#' + me.info.color.toString(16).padStart(6, '0'), me: true });
+  r.mini.draw(mctx, dots);
   for (const ent of r.ents.values()) if (ent.marker) ent.marker.style.left = (Math.max(0, Math.min(1, ent.e.z / r.course.L)) * 100) + '%';
   if (msgTimer > 0) { msgTimer -= dt; if (msgTimer <= 0) $('msg').style.opacity = 0; }
   if (rt > 8) $('hint').textContent = '';
@@ -508,7 +605,8 @@ function updateCamera(dt) {
     }
     return;
   }
-  const e = r.me.e;
+  const e0 = r.me.e, o = r.me.off;
+  const e = { x: e0.x + o.x, y: e0.y + o.y, z: e0.z + o.z, h: e0.h, v: e0.v };
   if (!camState.init) { camState.h = e.h; camState.init = true; camState.pos.set(e.x - Math.sin(e.h) * 9, e.y + 4, e.z - Math.cos(e.h) * 9); }
   camState.h += (e.h - camState.h) * (1 - Math.exp(-5 * dt));
   const sx = Math.sin(camState.h), sz = Math.cos(camState.h);
@@ -539,19 +637,62 @@ function tick(render) {
       let n = 0;
       while (acc >= FIXED && n < 8) { simStep(FIXED); acc -= FIXED; n++; }
       if (n === 8) acc = 0;
-      for (const ent of r.ents.values()) if (!ent.local && !ent.bot) smoothRemote(ent, dt);
+      for (const ent of r.ents.values()) if (!ent.local && !ent.bot && !ent.hostSim) smoothRemote(ent, dt);
+      // record my run for the ghost (10 Hz)
+      if (r.me && !r.me.e.finished) {
+        r.ghostRecT -= dt;
+        if (r.ghostRecT <= 0) { r.ghostRecT += 0.1; const e = r.me.e; r.ghostRec.push([e.x, e.y, e.z, e.h, e.spin, e.flip, raceTime()]); }
+      }
       if (S.mode !== 'client') hostCheckEnd();
     } else if (r.phase === 'race' && r.over) {
       // keep riders sliding to a stop on the results screen
-      for (const ent of r.ents.values()) if (ent.local || ent.bot) stepEntity(ent.e, { steer: 0, brake: true }, dt, r.course);
+      for (const ent of r.ents.values()) if (ent.local || ent.bot || ent.hostSim) stepEntity(ent.e, { steer: 0, brake: true }, dt, r.course);
     }
     if (S.mode !== 'solo') netTick(dt);
   }
   if (!render) return;
   if (S.race) {
-    for (const ent of S.race.ents.values()) poseRider(ent.rider, ent.e, S.race.course.groundH(ent.e.x, ent.e.z), now / 1000);
+    const r2 = S.race, c = r2.course;
+    for (const ent of r2.ents.values()) {
+      const e = ent.e;
+      ent.off.multiplyScalar(Math.exp(-8 * dt));
+      const gy = c.groundH(e.x, e.z);
+      const sh = Math.sin(e.h), ch = Math.cos(e.h);
+      const slope = (c.groundH(e.x - sh, e.z - ch) - c.groundH(e.x + sh, e.z + ch)) / 2;
+      poseRider(ent.rider, e, gy, now / 1000, slope, dt, ent.off);
+      // snow spray
+      const near = Math.abs(e.z - camera.position.z) < 120;
+      if (near && r2.phase === 'race') {
+        if (!e.air && e.state === 'ride' && e.v > 6) {
+          const carve = Math.abs(e.lean || 0);
+          const rate = (e.v / 40) * 25 + carve * 70 * Math.min(1, e.v / 15);
+          let n = Math.floor(rate * dt + Math.random());
+          if (n > 0) {
+            const sideX = Math.cos(e.h), sideZ = -Math.sin(e.h), sgn = (e.lean || 0) >= 0 ? 1 : -1;
+            spray.emit(e.x - sh * 0.7, gy, e.z - ch * 0.7, sh * e.v * 0.35 + sideX * sgn * carve * 7, 2 + carve * 2, ch * e.v * 0.35 + sideZ * sgn * carve * 7, 2.2, n);
+          }
+        }
+        if (ent.prevAir && !e.air && e.state === 'ride') spray.emit(e.x, gy, e.z, sh * e.v * 0.3, 3, ch * e.v * 0.3, 6, 35);
+        if (ent.prevState !== 'wipe' && e.state === 'wipe') spray.emit(e.x, gy, e.z, sh * e.v * 0.4, 4, ch * e.v * 0.4, 8, 70);
+      }
+      ent.prevAir = e.air; ent.prevState = e.state;
+    }
+    // ghost playback
+    if (r2.ghost) {
+      const fr = r2.ghost.data.frames, t = raceTime();
+      let i = Math.max(0, Math.min(fr.length - 2, Math.floor(t / 0.1)));
+      while (i < fr.length - 2 && fr[i + 1][6] < t) i++;
+      const a = fr[i], b = fr[i + 1], k = Math.max(0, Math.min(1, (t - a[6]) / ((b[6] - a[6]) || 1)));
+      const g = r2.ghost.e;
+      g.x = a[0] + (b[0] - a[0]) * k; g.y = a[1] + (b[1] - a[1]) * k; g.z = a[2] + (b[2] - a[2]) * k; g.h = a[3]; g.spin = a[4]; g.flip = a[5];
+      if (t < 0) { g.x = fr[0][0]; g.y = fr[0][1]; g.z = fr[0][2]; }
+      poseRider(r2.ghost.rider, g, c.groundH(g.x, g.z), now / 1000, 0, dt);
+    }
+    spray.update(dt);
+    const me = r2.me?.e;
+    setRide(me ? me.v : 0, me ? Math.abs(me.lean || 0) : 0, me ? !me.air : false, !!me && r2.phase === 'race' && !r2.over && me.state === 'ride' && !me.finished);
     updateHud(dt);
-  }
+  } else setRide(0, 0, false, false);
   updateCamera(dt);
   drawSpeedLines(S.race && S.race.me ? S.race.me.e.v : 0);
   renderer.render(scene, camera);
@@ -571,6 +712,7 @@ function tick(render) {
       `Mode     ${S.mode}${S.code ? ' · room ' + S.code : ''}`,
       S.race ? `Seed     ${S.race.seed}` : '',
       me ? `Speed    ${(me.v * 3.6).toFixed(0)} km/h  z ${me.z.toFixed(0)}/${S.race.course.L}` : '',
+      S.mode === 'client' && S.race ? `Predict  ${S.race.history.length} unacked inputs, corr ${S.race.me ? S.race.me.off.length().toFixed(2) : 0} m` : '',
       me ? `State    ${me.state}${me.air ? ' air' : ''} spin ${me.spin.toFixed(1)} flip ${me.flip.toFixed(1)}` : '',
     ].filter(Boolean).join('\n');
   }
