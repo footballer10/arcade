@@ -220,8 +220,12 @@ export async function start(ctx) {
     const inp = { steer: steerAmount(), tuck: !!(K('KeyW') || K('ArrowUp') || input.down('boost')), brake: !!(K('KeyS') || K('ArrowDown')), jump: jumpBuf > 0, spin: 0, flip: 0, grab: 0, use: useBuf > 0, butter: butterBuf > 0 };
     if (e.air) {
       inp.grab = GRAB_CODES.findIndex(([a, b]) => K(a) || K(b)) + 1;
-      inp.spin = ((fresh('ArrowRight') || fresh('KeyD')) ? 1 : 0) - ((fresh('ArrowLeft') || fresh('KeyA')) ? 1 : 0);
-      inp.flip = ((fresh('ArrowUp') || fresh('KeyW')) ? 1 : 0) - ((fresh('ArrowDown') || fresh('KeyS')) ? 1 : 0);
+      // ignore steer taps for a beat after liftoff: a mogul bump shouldn't turn a steering
+      // correction into a trick spin — only a real jump stays airborne long enough for this to matter
+      if (e.airT > 0.12) {
+        inp.spin = ((fresh('ArrowRight') || fresh('KeyD')) ? 1 : 0) - ((fresh('ArrowLeft') || fresh('KeyA')) ? 1 : 0);
+        inp.flip = ((fresh('ArrowUp') || fresh('KeyW')) ? 1 : 0) - ((fresh('ArrowDown') || fresh('KeyS')) ? 1 : 0);
+      }
     }
     return inp;
   }
@@ -464,13 +468,13 @@ export async function start(ctx) {
     camState.h += (e.h - camState.h) * (1 - Math.exp(-5 * dt));
     const sx = Math.sin(camState.h), sz = Math.cos(camState.h);
     camState.air = (camState.air || 0) + ((inAir ? 1 : 0) - (camState.air || 0)) * (1 - Math.exp(-4 * dt));
-    const dist = 7.4 + Math.min(e.v, 50) * 0.035 + camState.air * 1.8;
+    const dist = 7.9 + Math.min(e.v, 50) * 0.035 + camState.air * 1.8;
     tmpV.set(e.x - sx * dist, 0, e.z - sz * dist);
     const gy = r.course.groundH(tmpV.x, tmpV.z);
-    tmpV.y = Math.max(e.y + 5.1 + camState.air * 1.2, gy + 3.4);
+    tmpV.y = Math.max(e.y + 7.2 + camState.air * 1.2, gy + 5.2);
     camState.pos.lerp(tmpV, 1 - Math.exp(-9 * dt));
     camera.position.copy(camState.pos);
-    lookV.set(e.x + sx * 6, e.y + 0.8, e.z + sz * 6);
+    lookV.set(e.x + sx * 6, e.y + 0.4, e.z + sz * 6);
     camera.lookAt(lookV);
     const fov = 70 + Math.max(0, Math.min(1, (e.v - 18) / 32)) * 20;
     if (Math.abs(camera.fov - fov) > 0.1) { camera.fov += (fov - camera.fov) * (1 - Math.exp(-4 * dt)); camera.updateProjectionMatrix(); }

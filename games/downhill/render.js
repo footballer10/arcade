@@ -319,6 +319,20 @@ export function buildCourse(course) {
       col[i * 3] += (rock.r - col[i * 3]) * k; col[i * 3 + 1] += (rock.g - col[i * 3 + 1]) * k; col[i * 3 + 2] += (rock.b - col[i * 3 + 2]) * k;
     }
   }
+  { // baked-in contact shading on moguls: real shadows are too coarse/low-res (and off at low quality)
+    // to read bumps this small, so darken troughs and lighten crests from the terrain's own curvature.
+    const nrm = geo.attributes.normal, eps = 1.1;
+    for (let i = 0; i < nrm.count; i++) {
+      const x = pos[i * 3], z = pos[i * 3 + 2];
+      const mw = course.mogulW(z); if (mw < 0.1) continue;
+      const c = pos[i * 3 + 1];
+      const lap = groundH(x + eps, z) + groundH(x - eps, z) + groundH(x, z + eps) + groundH(x, z - eps) - 4 * c;
+      const shade = Math.max(-0.5, Math.min(0.5, lap * 1.4)) * mw;
+      col[i * 3] = Math.max(0, Math.min(1, col[i * 3] - shade * 0.55));
+      col[i * 3 + 1] = Math.max(0, Math.min(1, col[i * 3 + 1] - shade * 0.5));
+      col[i * 3 + 2] = Math.max(0, Math.min(1, col[i * 3 + 2] - shade * 0.42));
+    }
+  }
   const terrain = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, map: snowTexture(), roughness: 0.82, metalness: 0, side: THREE.DoubleSide }));
   terrain.receiveShadow = true;
   group.add(terrain);
