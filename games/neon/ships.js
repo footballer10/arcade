@@ -51,7 +51,8 @@ export class ShipKit {
     this.glass = new THREE.MeshPhongMaterial({ color: 0x9fe8ff, transparent: true, opacity: 0.35, shininess: 90, specular: 0xffffff, depthWrite: false });
     this.dark = new THREE.MeshLambertMaterial({ color: 0x1b1630 });
     this.mats = [this.ink, this.glass, this.dark];
-    this.geos = [this.hull, this.pod, this.fin, this.canopy, this.flame, this.glowPlane];
+    this.edges = new THREE.EdgesGeometry(this.hull, 20);
+    this.geos = [this.hull, this.pod, this.fin, this.canopy, this.flame, this.glowPlane, this.edges];
   }
   build(player) {
     const col = new THREE.Color(player.colorHex);
@@ -63,6 +64,8 @@ export class ShipKit {
     const glowMat = new THREE.MeshBasicMaterial({ map: this.glow, color: col.clone().multiplyScalar(0.8), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.7 });
     const hull = new THREE.Mesh(this.hull, hullMat); hull.castShadow = true; body.add(hull);
     const out = new THREE.Mesh(this.hull, this.ink); out.scale.setScalar(1.07); body.add(out);
+    const lineMat = new THREE.LineBasicMaterial({ color: col.clone().lerp(new THREE.Color(0xffffff), 0.45).multiplyScalar(1.3) });
+    const lines = new THREE.LineSegments(this.edges, lineMat); lines.scale.setScalar(1.01); body.add(lines);
     const pods = [];
     for (const sx of [-1, 1]) {
       const p = new THREE.Mesh(this.pod, this.dark); p.position.set(sx * 1.05, 0.08, 1.0); p.castShadow = true; body.add(p);
@@ -78,11 +81,11 @@ export class ShipKit {
     // under-glow
     const glow = new THREE.Mesh(this.glowPlane, glowMat); glow.scale.set(3.6, 1, 5.5); glow.position.y = -0.55; glow.renderOrder = 2; root.add(glow);
     this.scene.add(root);
-    return { root, body, pods, pilot, glow, hullMat, stripeMat, flameMat, glowMat, color: col };
+    return { root, body, pods, pilot, glow, hullMat, stripeMat, flameMat, glowMat, lineMat, color: col };
   }
   disposeShip(s) {
     this.ctx.avatar.dispose(s.pilot);
-    for (const m of [s.hullMat, s.stripeMat, s.flameMat, s.glowMat]) m.dispose();
+    for (const m of [s.hullMat, s.stripeMat, s.flameMat, s.glowMat, s.lineMat]) m.dispose();
     s.root.removeFromParent();
   }
   dispose() { for (const g of this.geos) g.dispose(); for (const m of this.mats) m.dispose(); this.glow.dispose(); }

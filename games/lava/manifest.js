@@ -2,7 +2,7 @@
 export const manifest = {
   id: 'lava',
   name: 'Rising Lava',
-  tagline: 'The floor is lava, and it\'s rising. Last one standing!',
+  tagline: 'The lava never stops. Climb the rising rocks. Last one standing!',
   minPlayers: 1,
   maxPlayers: 8,
   teams: false,
@@ -12,7 +12,7 @@ export const manifest = {
   controlsHelp: [
     ['WASD / Arrows', 'Run (camera-relative)'], ['Space', 'Jump (hold = higher)'], ['Shift', 'Dash (works once in the air)'],
     ['Left click / E', 'Shove'], ['Mouse', 'Look (click to lock the mouse) · wheel = zoom'],
-    ['Glowing rock', 'Hot! It crumbles if you stay on it'],
+    ['Glowing rock', 'Hot! It crumbles if you stay on it'], ['Bubbling lava', 'New rock is about to rise there: keep climbing!'],
     ['When you\'re out', 'Click = lob a lava bomb (you\'re a volcano spirit) · Space = switch view'],
   ],
   picks: [],

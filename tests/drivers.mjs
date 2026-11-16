@@ -43,6 +43,13 @@ export const DRIVERS = {
       await sleep(1000);
     }
   },
+  // Ultimate Obstacle Course: the game's own bot AI plays for us (test-only autopilot); the show runs 3x faster.
+  async obstacle(page, until) {
+    while (!(await until())) {
+      await page.evaluate(() => { if (window.__obstacle) { window.__obstacle.autopilot = true; window.__obstacle.turbo = 3; } }).catch(() => {});
+      await sleep(1000);
+    }
+  },
   // Floor Is Falling: the game's own bot AI plays for us (test-only autopilot) and the collapse comes 3x sooner.
   async floorfall(page, until) {
     while (!(await until())) {

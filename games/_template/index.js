@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 export { manifest } from './manifest.js';
 
-const ROUND = 45, SIZE = 13, SPEED = 7, DASH_SPEED = 17, DASH_CD = 2, R = 0.55, SNAP_HZ = 15;
+const ROUND = 45, SIZE = 13, SPEED = 7, R = 0.55, SNAP_HZ = 15;
 
 // ---------------------------------------------------------------- shared rules (host AND clients run this)
 function stepPlayer(p, inp, dt, level) {
@@ -13,11 +13,8 @@ function stepPlayer(p, inp, dt, level) {
   const k = Math.min(1, Math.hypot(inp.mx, inp.mz));
   let tx = (inp.mx / len) * SPEED * k, tz = (inp.mz / len) * SPEED * k;
   p.vx += (tx - p.vx) * Math.min(1, dt * 12); p.vz += (tz - p.vz) * Math.min(1, dt * 12);
-  if (inp.dash !== p.lastDash) { p.lastDash = inp.dash; if (p.dashCd <= 0 && k > 0) { p.dashT = 0.18; p.dashCd = DASH_CD; p.dx = inp.mx / len; p.dz = inp.mz / len; } }
   if (inp.jump !== p.lastJump) { p.lastJump = inp.jump; if (p.y <= 0) p.vy = 7; }
-  p.dashCd = Math.max(0, p.dashCd - dt);
   let vx = p.vx, vz = p.vz;
-  if (p.dashT > 0) { p.dashT -= dt; vx = p.dx * DASH_SPEED; vz = p.dz * DASH_SPEED; }
   p.x += vx * dt; p.z += vz * dt;
   p.vy -= 22 * dt; p.y = Math.max(0, p.y + p.vy * dt); if (p.y === 0) p.vy = Math.max(0, p.vy);
   // arena walls + pillars (from the seeded level)
@@ -28,7 +25,7 @@ function stepPlayer(p, inp, dt, level) {
   }
   if (Math.hypot(vx, vz) > 0.5) p.face = Math.atan2(vx, vz);
 }
-const newPlayer = (id, i, n) => { const a = (i / Math.max(1, n)) * Math.PI * 2; return { id, x: Math.sin(a) * 6, z: Math.cos(a) * 6, y: 0, vx: 0, vz: 0, vy: 0, face: a + Math.PI, score: 0, dashCd: 0, dashT: 0, dx: 0, dz: 0, lastDash: 0, lastJump: 0 }; };
+const newPlayer = (id, i, n) => { const a = (i / Math.max(1, n)) * Math.PI * 2; return { id, x: Math.sin(a) * 6, z: Math.cos(a) * 6, y: 0, vx: 0, vz: 0, vy: 0, face: a + Math.PI, score: 0, lastJump: 0 }; };
 
 // Seeded level: every client builds the same pillars and the same coin spawn sequence.
 function makeLevel(rng) {
@@ -84,18 +81,18 @@ export async function start(ctx) {
   // HOST: authoritative `sim`. CLIENTS: `view` = latest host snapshot (+ local prediction for my own player).
   let sim = null, view = null, prevView = null, viewAt = 0, prevAt = 0, me = null, timeLeft = ROUND, ended = false;
   const inputs = new Map();
-  const myInput = { mx: 0, mz: 0, dash: 0, jump: 0 };
+  const myInput = { mx: 0, mz: 0, jump: 0 };
 
   function createSim(fromView) {
     const s = { players: new Map(), coins: [], nextCoin: 1, t: 0, bots: new Map() };
     ctx.players.forEach((p, i) => s.players.set(p.id, newPlayer(p.id, i, ctx.players.length)));
     if (fromView) { // host migration: continue from the last snapshot we saw
       s.t = ROUND - fromView.left;
-      for (const [id, x, z, y, score, cd] of fromView.p) { const q = s.players.get(id); if (q) Object.assign(q, { x, z, y, score, dashCd: cd }); }
+      for (const [id, x, z, y, score] of fromView.p) { const q = s.players.get(id); if (q) Object.assign(q, { x, z, y, score }); }
       s.coins = fromView.c.map(([id, x, z, kind]) => ({ id, x, z, kind }));
       s.nextCoin = Math.max(1, ...s.coins.map((c) => c.id + 1));
     }
-    for (const p of ctx.players) if (p.isBot) s.bots.set(p.id, { brain: new ctx.bots.Brain(ctx.bots.level), inp: { mx: 0, mz: 0, dash: 0, jump: 0 } });
+    for (const p of ctx.players) if (p.isBot) s.bots.set(p.id, { brain: new ctx.bots.Brain(ctx.bots.level), inp: { mx: 0, mz: 0, jump: 0 } });
     return s;
   }
   function spawnCoin() {
@@ -112,7 +109,6 @@ export async function start(ctx) {
     if (!best) { b.inp.mx = b.inp.mz = 0; return; }
     const a = b.brain.jitter(Math.atan2(best.x - p.x, best.z - p.z));
     b.inp.mx = Math.sin(a); b.inp.mz = Math.cos(a);
-    if (bd > 6 && p.dashCd <= 0 && !b.brain.mistake()) b.inp.dash++;
     if (b.brain.mistake()) b.inp.jump++;
   }
   function hostStep(dt) {
@@ -122,7 +118,7 @@ export async function start(ctx) {
     for (const [id, b] of sim.bots) botThink(sim.players.get(id), b, dt);
     for (const p of sim.players.values()) {
       if (!ctx.connected(p.id) && !ctx.player(p.id).isBot) continue;   // left: freeze
-      const inp = p.id === ctx.myId ? myInput : sim.bots.get(p.id)?.inp || inputs.get(p.id) || { mx: 0, mz: 0, dash: p.lastDash, jump: p.lastJump };
+      const inp = p.id === ctx.myId ? myInput : sim.bots.get(p.id)?.inp || inputs.get(p.id) || { mx: 0, mz: 0, jump: p.lastJump };
       stepPlayer(p, inp, dt, level);
       for (let i = sim.coins.length - 1; i >= 0; i--) {
         const c = sim.coins[i];
@@ -132,7 +128,7 @@ export async function start(ctx) {
     if (sim.t >= ROUND) finish();
   }
   function snapshot() {
-    return { t: 's', left: Math.max(0, ROUND - sim.t), p: [...sim.players.values()].map((p) => [p.id, +p.x.toFixed(2), +p.z.toFixed(2), +p.y.toFixed(2), p.score, +p.dashCd.toFixed(2)]), c: sim.coins.map((c) => [c.id, +c.x.toFixed(2), +c.z.toFixed(2), c.kind]) };
+    return { t: 's', left: Math.max(0, ROUND - sim.t), p: [...sim.players.values()].map((p) => [p.id, +p.x.toFixed(2), +p.z.toFixed(2), +p.y.toFixed(2), p.score]), c: sim.coins.map((c) => [c.id, +c.x.toFixed(2), +c.z.toFixed(2), c.kind]) };
   }
   function standings() {
     const src = sim ? [...sim.players.values()].map((p) => [p.id, p.score]) : (view?.p || []).map((r) => [r[0], r[4]]);
@@ -153,7 +149,7 @@ export async function start(ctx) {
     else if (m.t === 's' && !net.isHost) {                               // host -> clients: snapshots
       prevView = view; prevAt = viewAt; view = m; viewAt = performance.now(); timeLeft = m.left;
       const mine = m.p.find((r) => r[0] === ctx.myId);
-      if (mine && me) { me.score = mine[4]; me.dashCd = mine[5]; const ex = mine[1] - me.x, ez = mine[2] - me.z; if (Math.hypot(ex, ez) > 3) { me.x = mine[1]; me.z = mine[2]; } else { me.x += ex * 0.15; me.z += ez * 0.15; } }
+      if (mine && me) { me.score = mine[4]; const ex = mine[1] - me.x, ez = mine[2] - me.z; if (Math.hypot(ex, ez) > 3) { me.x = mine[1]; me.z = mine[2]; } else { me.x += ex * 0.15; me.z += ez * 0.15; } }
     } else if (m.t === 'got') {
       if (m.id === ctx.myId) { ctx.audio.play('coin'); ui.toast(m.kind ? '💎 +3' : '🪙 +1', 'gold', 900); } else ctx.audio.tone('triangle', 900, 1200, 0.06, 0.04);
     }
@@ -177,7 +173,7 @@ export async function start(ctx) {
   let sendAcc = 0, camYaw = 0;
   ctx.frame((dt, now) => {
     const ax = input.axis();
-    myInput.mx = ax.x; myInput.mz = ax.y; myInput.dash = input.presses('boost'); myInput.jump = input.presses('jump');
+    myInput.mx = ax.x; myInput.mz = ax.y; myInput.jump = input.presses('jump');
     if (!ctx.started) { myInput.mx = myInput.mz = 0; }
     if (!net.isHost && me && ctx.started && !ended) {
       stepPlayer(me, myInput, dt, level);                                // client prediction (host corrects softly)
@@ -226,8 +222,7 @@ export async function start(ctx) {
     ui.status(ctx.spectator ? '👀 Spectating' : `🪙 ${myScore} coin${myScore === 1 ? '' : 's'}`);
     ui.timer(ctx.started ? timeLeft : ROUND, { warn: 10 });
     ui.mini(scores.map(({ id, s }) => { const pl = ctx.player(id); return { id, name: pl?.name || '?', color: pl?.color ?? 0, value: s, me: id === ctx.myId }; }));
-    const cd = (net.isHost ? sim?.players.get(ctx.myId)?.dashCd : me?.dashCd) || 0;
-    ui.abilities([{ key: 'Space', label: 'Jump', ready: true }, { key: 'Shift', label: 'Dash', cd: cd / DASH_CD, ready: cd <= 0 }]);
+    ui.abilities([{ key: 'Space', label: 'Jump', ready: true }]);   // only show the actions your game really has
   });
 
   // Tab scoreboard rows (the hub adds party standings and pings below).

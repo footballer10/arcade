@@ -52,3 +52,23 @@ snapshot it saw. Other ships are interpolated 100 ms in the past.
 
 ## Test hooks
 `window.__neon.autopilot = true` lets the bot AI drive your ship (used by `tests/drivers.mjs`).
+
+## Look and sound (phase 3)
+- Countdown flyover: the camera races backwards down the track to the grid, then blends into the chase cam at GO.
+- Chase camera lives in track space, so it rides through loops and corkscrews; FOV widens with speed and boost.
+- Track edge lights, energy walls and the ground grid pulse on the music's beat. Holographic word signs on towers.
+- Ships: party-colour hull with a bright neon outline, the player's avatar and hat as pilot, under-glow,
+  engine flames, twin light trails, drift sparks in tier colour, boost exhaust.
+- Finish: fireworks over the gate and a slow victory orbit around your ship.
+- Sound: synthwave loop (gets hats on lap 2 and a lead plus faster tempo on the final lap), engine with speed,
+  drift hiss that rises with tier, tier chimes, release whoosh, chain arpeggio, close-pass whooshes, wall crunches.
+- Graphics presets: High = bloom + shadows + stars + denser city; Medium = shadows, no bloom; Low = no shadows,
+  no bloom, pixel ratio 1, sparser city, smaller spark pool.
+
+## Considered and cut (phase 2)
+- **Weapons / items** (shells, mines): the brief is pure speed and skill, and items would dilute the drift economy.
+- **Rocket start** at the countdown: the hub owns the countdown, so a fair timing window would need a /core change.
+- **Ghost replays / time trial**: good for solo, but adds storage and UI the hub doesn't have; low value in a party.
+- **Weather / track hazards that move**: gimmicky next to the drift system; tracks already carry the variety.
+- **More ship classes**: three (balanced, top speed, drift charger) already cover the real trade-off.
+- **Perfect-release bonus**: overlapped with overheat; overheat alone gives the timing skill with less UI.
