@@ -103,7 +103,7 @@ export async function start(ctx) {
   const prev = ships.map((s) => ({ ...s }));
   let raceT = 0, phase = 0, endIn = -1, firstFin = 0, ended = false;   // phase 0 = grid, 1 = racing, 2 = over
   let acc = 0;
-  const evAcc = new Array(N).fill(0);       // host: events since the last snapshot (sent to clients)
+  const evAcc = new Array(N).fill(0), hostShown = new Array(N).fill(0);       // host: events since the last snapshot (sent to clients)
   let myEv = 0;                             // events of my own ship (local)
   // host
   let isHostSim = false;
@@ -118,7 +118,7 @@ export async function start(ctx) {
   const corr = new THREE.Vector3();          // visual error offset after reconciliation
   const env = { track, laps: KO ? 99 : laps, t: 0, others: ships };
   let koDone = 0;
-  window.__neon = { autopilot: false, track: trackId, get ships() { return ships; }, get phase() { return phase; }, get raceT() { return raceT; }, get corr() { return corr.length(); }, get me() { return me; }, get hist() { return hist.length; } };
+  window.__neon = { autopilot: false, track: trackId, trackL: L, get ships() { return ships; }, get phase() { return phase; }, get raceT() { return raceT; }, get corr() { return corr.length(); }, get me() { return me; }, get hist() { return hist.length; } };
   let autoBrain = null;
 
   function makeBrains() {
@@ -176,8 +176,9 @@ export async function start(ctx) {
     }
     collide(ships);
     for (let i = 0; i < N; i++) { if (ships[i].ev) { evAcc[i] |= ships[i].ev; if (i === myIdx) myEv |= ships[i].ev; ships[i].ev = 0; } }
+    for (let i = 0; i < N; i++) if (i !== myIdx && evAcc[i] & ~hostShown[i]) { remoteEvents(i, evAcc[i] & ~hostShown[i]); hostShown[i] |= evAcc[i]; }
     raceLogic();
-    if (++snapCount >= SNAP_EVERY) { snapCount = 0; net.rawToAll(snapshot()); evAcc.fill(0); }
+    if (++snapCount >= SNAP_EVERY) { snapCount = 0; net.rawToAll(snapshot()); evAcc.fill(0); hostShown.fill(0); }
   }
   function rubberBand(sh) {
     // bots ease off when far ahead of every human, and get a little help when far behind
@@ -208,7 +209,7 @@ export async function start(ctx) {
     const humans = P.map((p, i) => i).filter((i) => !P[i].isBot && ctx.connected(P[i].id));
     const allHumansDone = humans.length > 0 && humans.every((i) => ships[i].fin);
     const allDone = ships.every((s) => s.fin || s.ghost);
-    if (allDone || allHumansDone) endIn = endIn < 0 ? 2.5 : endIn;
+    if (allDone || allHumansDone) endIn = endIn < 0 ? 4.5 : endIn;
     else if (firstFin) endIn = Math.max(0, firstFin + AFTER_FIRST - raceT);
     if (raceT > HARD_CAP) endIn = 0;
     if (endIn >= 0) { endIn -= endIn > 0 && (allDone || allHumansDone) ? FIXED : 0; if (endIn <= 0.0001) finish(); }
@@ -408,7 +409,7 @@ export async function start(ctx) {
       else { sfx.sfx('lap'); ui.banner(`LAP ${lap}/${laps}`, 1300); sfx.setIntensity(1); }
       if (sh.lastLap) ui.toast(`Lap ${sh.lastLap.toFixed(2)}s${sh.best === sh.lastLap ? ' · best!' : ''}`, 'good', 2200);
     }
-    if (ev & EV.FINISH) { sfx.sfx('finish'); }
+    if (ev & EV.FINISH) { sfx.sfx('finish'); fireworks(P[myIdx]?.colorHex ?? 0xffffff); const r = order(ships.map((s, i) => (i === myIdx ? me : s))).indexOf(me) + 1; ui.banner(r === 1 ? '🏆 YOU WIN!' : `FINISHED ${ord(r).toUpperCase()}!`, 2600); }
   }
   function remoteEvents(i, ev) {
     const v = views[i];
@@ -416,6 +417,23 @@ export async function start(ctx) {
     if (ev & EV.RELEASE) burst(v, 0xffffff, 10, 8);
     if (ev & (EV.WALL | EV.BUMP)) wallSparks(v);
     if (ev & EV.LAND) burst(v, 0xffffff, 8, 6);
+    if (ev & EV.FINISH) fireworks(P[i].colorHex);
+  }
+  // fireworks over the start/finish gate (queued bursts, drawn from the shared spark pool)
+  const fwQ = [];
+  const gatePos = new THREE.Vector3(), gateUp = new THREE.Vector3();
+  { const f = { t: [0, 0, 0], u: [0, 0, 0], r: [0, 0, 0] }; const p = worldPos(track.main, 4, 0, 0, [0, 0, 0], f); gatePos.set(...p); gateUp.set(...f.u); }
+  function fireworks(color) { for (let k = 0; k < 5; k++) fwQ.push({ at: k * 0.32 + Math.random() * 0.15, color: k % 2 ? color : [0xffd23f, 0x2ef6ff, 0xff3ea5][k % 3] }); }
+  function runFireworks(dt) {
+    for (let j = fwQ.length - 1; j >= 0; j--) {
+      const fw = fwQ[j]; fw.at -= dt; if (fw.at > 0) continue; fwQ.splice(j, 1);
+      _p.copy(gatePos).addScaledVector(gateUp, 26 + Math.random() * 14).add(new THREE.Vector3((Math.random() - 0.5) * 30, 0, (Math.random() - 0.5) * 30));
+      for (let k = 0; k < 70; k++) {
+        const a = Math.random() * Math.PI * 2, b = Math.acos(Math.random() * 2 - 1), sp = 14 + Math.random() * 6;
+        sparks.emit([_p.x, _p.y, _p.z], [Math.sin(b) * Math.cos(a) * sp, Math.cos(b) * sp, Math.sin(b) * Math.sin(a) * sp], fw.color, 1.3, 1);
+      }
+      if (_p.distanceTo(camera.position) < 400) sfx.sfx('firework');
+    }
   }
   const _p = new THREE.Vector3();
   function burst(v, color, n, sp) { if (!v) return; for (let k = 0; k < n; k++) { _p.copy(v.wpos).addScaledVector(v.fwd, 1.5); sparks.emit([_p.x, _p.y, _p.z], [v.up.x * 3, v.up.y * 3, v.up.z * 3], color, 0.5, sp); } }
@@ -423,7 +441,9 @@ export async function start(ctx) {
   function wallSparks(v) { if (!v) return; for (let k = 0; k < 16; k++) sparks.emit([v.wpos.x, v.wpos.y, v.wpos.z], [v.up.x * 6, v.up.y * 6, v.up.z * 6], 0xffc04d, 0.45, 12); }
 
   // ---------------------------------------------------------------- camera
-  const cam = { pos: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0), look: new THREE.Vector3(), yaw: 0, init: false, intro: 0, target: myIdx, fov: 70 };
+  const cam = { pos: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0), look: new THREE.Vector3(), yaw: 0, init: false, intro: 0, fly: 0, orbit: 0, target: myIdx, fov: 70 };
+  const _m4v = new THREE.Vector3();
+  const raceClockNow = () => (isHostSim ? raceT : lastSnapT + (phase === 1 ? (performance.now() - lastSnapAt) / 1000 : 0));
   const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _u = new THREE.Vector3(), _m = new THREE.Matrix4(), _q = new THREE.Quaternion();
   input.on('press', (a) => {
     if (!(ctx.spectator || myIdx < 0 || ships[myIdx]?.out || ships[myIdx]?.fin)) return;
@@ -446,18 +466,30 @@ export async function start(ctx) {
     worldPos(path, cs, cd, st.y * 0.6 + 4.3, tmp, frm);
     _a.set(tmp[0], tmp[1], tmp[2]);
     _u.set(frm.u[0], frm.u[1], frm.u[2]);
-    // intro: start high and in front of the grid, swoop in behind your ship during the countdown
+    // intro: a flyover that races backwards down the track to the starting grid during the countdown,
+    // then blends into the chase camera at GO
+    let introLook = null;
     if (!ctx.started || cam.intro < 1) {
-      if (ctx.started) cam.intro = Math.min(1, cam.intro + dt * 1.6);
-      const k = ctx.started ? cam.intro : 0, tt = now / 1000;
-      const orbit = _b.copy(v.wpos).addScaledVector(v.fwd, 26 - k * 26).addScaledVector(v.up, 9 - k * 5).addScaledVector(v.right, Math.sin(tt * 0.4) * 14 * (1 - k));
-      _a.lerp(orbit, 1 - k);
+      cam.fly += dt;
+      if (ctx.started) cam.intro = Math.min(1, cam.intro + dt * 1.4);
+      const u = Math.min(1, cam.fly / 5.5), e = 1 - Math.pow(1 - u, 3);
+      const sCam = 320 * (1 - e) + 6 * e, side = Math.sin(cam.fly * 0.7) * 7 * (1 - e);
+      worldPos(track.main, sCam, side, 16 - 9 * e, tmp, frm); _b.set(tmp[0], tmp[1], tmp[2]);
+      worldPos(track.main, sCam - 40, 0, 1.5, tmp); introLook = new THREE.Vector3(tmp[0], tmp[1], tmp[2]);
+      const k = ctx.started ? cam.intro * cam.intro * (3 - 2 * cam.intro) : 0;
+      _a.lerp(_b, 1 - k);
+      if (k < 1) { _u.lerp(_b.set(frm.u[0], frm.u[1], frm.u[2]), 1 - k).normalize(); introLook.lerp(_m4v.copy(v.wpos).addScaledVector(v.up, 1.4).addScaledVector(v.fwd, 7), k); }
     }
+    // victory lap: once the followed ship has finished, slowly orbit it
+    const fin = st.fin && (raceClockNow() - st.fin) > 1.2;
+    if (fin) { cam.orbit += dt * 0.45; _a.copy(v.wpos).addScaledVector(v.up, 4.5).addScaledVector(v.fwd, Math.cos(cam.orbit) * 13).addScaledVector(v.right, Math.sin(cam.orbit) * 13); }
     if (!cam.init) { cam.pos.copy(_a); cam.up.copy(_u); cam.init = true; }
-    const sm = 1 - Math.exp(-dt * (st.resp > 0 ? 3 : 12));
+    const sm = introLook && cam.intro < 1 ? 1 : 1 - Math.exp(-dt * (st.resp > 0 ? 3 : fin ? 4 : 12));
     cam.pos.lerp(_a, sm);
     cam.up.lerp(_u, 1 - Math.exp(-dt * 6)).normalize();
-    cam.look.copy(v.wpos).addScaledVector(v.up, 1.4).addScaledVector(v.fwd, look ? -6 : 7);
+    if (introLook && cam.intro < 1) cam.look.copy(introLook);
+    else if (fin) cam.look.copy(v.wpos).addScaledVector(v.up, 1);
+    else cam.look.copy(v.wpos).addScaledVector(v.up, 1.4).addScaledVector(v.fwd, look ? -6 : 7);
     // shake
     if (shake > 0) { cam.pos.x += (Math.random() - 0.5) * shake; cam.pos.y += (Math.random() - 0.5) * shake; cam.pos.z += (Math.random() - 0.5) * shake; shake = Math.max(0, shake - dt * 2.2); }
     camera.position.copy(cam.pos); camera.up.copy(cam.up); camera.lookAt(cam.look);
@@ -510,6 +542,8 @@ export async function start(ctx) {
         _e1.set(-1.05, 0.08, 2.3).applyMatrix4(v.root.matrixWorld); _e2.set(1.05, 0.08, 2.3).applyMatrix4(v.root.matrixWorld);
         const tw = 0.16 + vis.boost * 0.1;
         [_e1, _e2].forEach((e, k) => { v.trails[k].push([e.x - v.right.x * tw, e.y - v.right.y * tw, e.z - v.right.z * tw], [e.x + v.right.x * tw, e.y + v.right.y * tw, e.z + v.right.z * tw]); v.trails[k].mat.uniforms.boost.value = vis.boost; });
+        // boost exhaust
+        if (st.boosting) for (const e of [_e1, _e2]) sparks.emit([e.x, e.y, e.z], [-_f.x * 18, -_f.y * 18, -_f.z * 18], st.boosting === 2 ? v.color.getHex() : 0xffd23f, 0.25, 2.5);
         // drift sparks
         if (st.drift && !st.air) {
           const tier = tierOf(st.dch || 0), c = TIER_COLORS[tier];
@@ -521,10 +555,21 @@ export async function start(ctx) {
         }
       } else v.trails.forEach((tr) => tr.reset());
     }
+    runFireworks(dt);
     sparks.update(dt);
     // camera + world
     const cst = updateCamera(dt, now);
-    world.update(dt, views[cam.target]?.wpos);
+    const beat = sfx.beat();
+    world.update(dt, views[cam.target]?.wpos, beat);
+    // close passes: a whoosh when another ship flashes by
+    if (myIdx >= 0 && me && ctx.started && !me.fin) {
+      for (let i = 0; i < N; i++) {
+        if (i === myIdx) continue; const o = drawSt[i], v = views[i];
+        const near = o.path === me.path && Math.abs(o.prog - me.prog) < 5 && Math.abs(o.d - me.d) < 4.5 && !o.out && !o.resp;
+        if (near && !v.near && Math.abs((o.vf || 0) - (me.vf || 0)) > 4) sfx.sfx('whoosh', Math.min(1.5, Math.abs((o.vf || 0) - (me.vf || 0)) / 15));
+        v.near = near;
+      }
+    }
     world.setBloom?.(0.6 + (cst.boosting ? 0.2 : 0));
     world.render();
     // own events (sounds, popups)

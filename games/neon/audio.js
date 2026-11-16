@@ -78,6 +78,8 @@ export class NeonAudio {
       case 'overheat': A.burst(0.5, 0.18 * k, 'highpass', 800, 6000); T('sawtooth', 500, 90, 0.45, 0.08 * k); break;
       case 'derez': [880, 660, 440, 220].forEach((f, i) => T('square', f, f * 0.7, 0.14, 0.08 * k, i * 0.08)); A.burst(0.8, 0.16 * k, 'bandpass', 3000, 200); break;
       case 'derezOther': A.burst(0.5, 0.08 * k, 'bandpass', 2500, 300); T('square', 500, 200, 0.3, 0.04 * k); break;
+      case 'whoosh': A.burst(0.35, 0.09 * k, 'bandpass', 900, 3500); break;
+      case 'firework': A.burst(0.5, 0.06 * k, 'lowpass', 3000, 200, Math.random() * 0.1); break;
       case 'shortcut': T('sine', 300, 1600, 0.3, 0.05 * k); break;
     }
   }
@@ -111,6 +113,14 @@ export class NeonAudio {
         m.next += s16; m.step++;
       }
     }, 60);
+  }
+  // 0..1 pulse on every beat of the music (1 right on the beat, decaying), for lights that breathe with it
+  beat() {
+    const m = this.music, ac = this.a.ctx;
+    if (!m.timer || !ac) return 0;
+    const s16 = 60 / m.bpm / 4, stepNow = m.step - (m.next - ac.currentTime) / s16;
+    const ph = ((stepNow / 4) % 1 + 1) % 1;
+    return Math.exp(-ph * 5);
   }
   setIntensity(i) { this.music.intensity = i; if (i >= 2) this.music.bpm = 124; }
   stop() {
