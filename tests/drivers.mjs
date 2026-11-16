@@ -27,6 +27,13 @@ export const DRIVERS = {
       await sleep(700);
     }
   },
+  // Neon Rush: the game's own bot driver races for us (test-only autopilot hook), holding W as a fallback.
+  async neon(page, until) {
+    while (!(await until())) {
+      await page.evaluate(() => { if (window.__neon) window.__neon.autopilot = true; }).catch(() => {});
+      await sleep(1500);
+    }
+  },
   // Snake: steer with keys + boost bursts (wiggle). Rounds end when one snake is left or the clock runs out.
   async snake(page, until) { while (!(await until())) await wiggle(page, 1500); },
   // Rising Lava: the game's own bot AI plays for us (test-only autopilot) and the lava clock runs 3x faster.
