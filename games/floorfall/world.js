@@ -99,7 +99,9 @@ export function makeLevel(rng, opts, round = 0) {
     if (best < 0) best = 0;
     used.add(best); spawns.push(best);
   }
-  return { L, layers, spawns, delay: C.DELAYS[opts.delay] || C.DELAYS.normal, round, N0, hue: rng() };
+  // later rounds of a match get a little faster (round 1: 100 %, round 2: 90 %, round 3+: 80 %, never below 70 %)
+  const delay = (C.DELAYS[opts.delay] || C.DELAYS.normal) * Math.max(0.7, 1 - 0.1 * round);
+  return { L, layers, spawns, delay, round, N0, hue: rng() };
 }
 export function resetLevel(lv) { for (const L of lv.layers) { L.at.fill(Infinity); L.who.fill(255); } }
 

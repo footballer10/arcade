@@ -2,6 +2,11 @@
 // the tiles people touch, erodes the rims, decides knockouts, rounds and the match. Only the host runs this; a
 // new host after migration rebuilds it from the last snapshot it saw (resume) and the tile states it already has.
 import { C, newPlayer, stepPlayer, collide, tileAt, edgeTiles, syncCounters } from './world.js';
+
+function underdogSpawn(lv, p) {
+  const T = lv.layers[lv.L - 1], i = tileAt(T, p.x * 0.45, p.z * 0.45);
+  if (i >= 0) { p.x = T.xs[i]; p.z = T.zs[i]; p.underdog = true; }
+}
 import { makeBot, botThink } from './bots.js';
 
 export const INTRO_T = 3.2, END_T = 3.6;
@@ -13,6 +18,7 @@ export class HostSim {
     this.wins = Object.fromEntries(cfg.ids.map((id) => [id, 0]));
     this.pts = Object.fromEntries(cfg.ids.map((id) => [id, 0]));
     this.bumps = Object.fromEntries(cfg.ids.map((id) => [id, 0]));
+    this.cracked = Object.fromEntries(cfg.ids.map((id) => [id, 0]));
     this.round = 0; this.phase = 'wait'; this.phaseT = 0; this.t = 0;
     this.players = []; this.byId = new Map(); this.bots = new Map(); this.inputs = new Map(); this.states = new Map();
     this.out = [];         // knocked-out ids this round, in order
@@ -21,7 +27,7 @@ export class HostSim {
     this.lastHit = new Map();
     this.rr = Math.random;
     if (resume) {
-      Object.assign(this.wins, resume.wins); Object.assign(this.pts, resume.pts || {});
+      Object.assign(this.wins, resume.wins); Object.assign(this.pts, resume.pts || {}); Object.assign(this.bumps, resume.bumps || {}); Object.assign(this.cracked, resume.cracked || {});
       this.setupRound(resume.round, false);
       this.phase = resume.phase; this.phaseT = resume.phaseT; this.t = resume.t; this.out = [...(resume.out || [])];
       for (const s of resume.players) { const p = this.byId.get(s.id); if (p) Object.assign(p, s, { auth: (s.auth || 0) + 1 }); }
@@ -35,6 +41,9 @@ export class HostSim {
     const prev = this.byId;
     this.players = this.ids.map((id, i) => { const p = newPlayer(id, lv, i); const o = prev.get(id); if (o) { p.auth = o.auth + 1; p.lj = o.lj; p.ld = o.ld; } return p; });
     this.byId = new Map(this.players.map((p) => [p.id, p]));
+    // comeback: players behind the match leader start closer to the middle of the top floor (more room to plan)
+    const top = Math.max(0, ...this.ids.map((id) => this.wins[id] || 0));
+    if (top > 0) for (const p of this.players) if ((this.wins[p.id] || 0) < top) underdogSpawn(lv, p);
     for (const id of this.ids) if (this.cfg.bots.has(id)) { const b = this.bots.get(id) || makeBot(this.cfg.Brain, this.cfg.level); b.inp.mx = b.inp.mz = 0; syncCounters(this.byId.get(id), b.inp); this.bots.set(id, b); }
     for (const [id, inp] of this.inputs) { const p = this.byId.get(id); if (p) syncCounters(p, inp); }
     const mp = this.byId.get(this.cfg.myId); if (mp && this.cfg.myInput) syncCounters(mp, this.cfg.myInput);
@@ -61,6 +70,7 @@ export class HostSim {
     const L = lv.layers[h];
     if (L.at[i] !== Infinity) return;
     L.at[i] = this.t + delay; L.who[i] = who;
+    if (who < this.ids.length) this.cracked[this.ids[who]]++;
     this.pending.push(h, i, +L.at[i].toFixed(3), who);
   }
   step(dt, myId, myInput) {

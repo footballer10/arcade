@@ -15,6 +15,20 @@ import { createView } from './render.js';
 import { createSound } from './sound.js';
 
 const SNAP_HZ = 15, SEND_HZ = 30;
+// The stack gauge: every floor from the top down, how much of it is left, and who is on it.
+const CSS = `
+.ff-stack{position:absolute;left:14px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:8px;pointer-events:none;z-index:2}
+.ff-row{display:flex;align-items:center;gap:6px;opacity:.95;transition:transform .2s}
+.ff-row.me{transform:scale(1.12) translateX(4px)}
+.ff-hex{width:30px;height:26px;clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%);display:grid;place-items:center;font:1rem var(--font);color:#fff;text-shadow:var(--stroke);
+  background:var(--c);box-shadow:inset 0 0 0 3px rgba(0,0,0,.25)}
+.ff-bar{width:74px;height:12px;border:3px solid var(--ink);border-radius:8px;background:rgba(20,10,50,.55);overflow:hidden}
+.ff-bar>div{height:100%;background:var(--c);transition:width .25s}
+.ff-dots{display:flex;gap:2px;min-width:40px}
+.ff-dot{width:11px;height:11px;border-radius:50%;border:2px solid var(--ink)}
+.ff-dot.me{width:15px;height:15px;border-width:3px}
+.ff-row.gone{opacity:.35}
+`;
 const MATCH = { bo3: [2, 3], bo5: [3, 5], one: [1, 1] };
 const r2 = (v) => Math.round(v * 100) / 100;
 
@@ -28,13 +42,28 @@ export async function start(ctx) {
   const api = { autopilot: false, turbo: 1 };            // test-only hooks (tests/drivers.mjs)
   window.__ff = api;
 
+  const style = document.createElement('style'); style.textContent = CSS; ctx.container.appendChild(style);
+  const stackEl = ui.el('div', 'ff-stack'); ctx.container.appendChild(stackEl);
+  let stackKey = '', stackAcc = 0;
+  function drawStack(pos) {
+    const rows = [];
+    for (let h = level.L - 1; h >= 0; h--) {
+      const L = level.layers[h], frac = solidCount(L, tC) / L.n;
+      const who = ids.filter((id) => { const p = pos.get(id); return p && p.alive !== false && layerOf(level, p.y + 0.3) === h; });
+      const col = '#' + L.color.toString(16).padStart(6, '0');
+      rows.push(`<div class="ff-row${who.includes(ctx.myId) ? ' me' : ''}${frac < 0.02 ? ' gone' : ''}" style="--c:${col}"><div class="ff-hex">${level.L - h}</div><div class="ff-bar"><div style="width:${Math.round(frac * 100)}%"></div></div><div class="ff-dots">${who.map((id) => `<span class="ff-dot${id === ctx.myId ? ' me' : ''}" style="background:${ctx.player(id).colorCss}"></span>`).join('')}</div></div>`);
+    }
+    const html = rows.join('');
+    if (html !== stackKey) { stackKey = html; stackEl.innerHTML = html; }
+  }
   const gfx = createView(ctx);
   const snd = createSound(ctx);
   ctx.on('resize', gfx.resize);
   ctx.on('settings', (k) => { if (k === 'quality') gfx.applyQ(); });
 
   // ---------------------------------------------------------------- shared client view of the match
-  const info = { wins: Object.fromEntries(ids.map((id) => [id, 0])), pts: Object.fromEntries(ids.map((id) => [id, 0])), out: [] };
+  const info = { wins: Object.fromEntries(ids.map((id) => [id, 0])), pts: Object.fromEntries(ids.map((id) => [id, 0])), bumps: {}, cracked: {}, out: [] };
+  let collapsed = false, finalTwo = false;
   let round = -1, level = null, phase = 'wait', phaseT = 0, tC = 0, ended = false;
   let snapA = null, snapB = null, snapAt = 0, snapGap = 1 / SNAP_HZ;
   const view = new Map();         // id -> drawn state
@@ -46,7 +75,7 @@ export async function start(ctx) {
 
   function useRound(k) {
     if (k === round) return;
-    round = k; level = levelFor(k); tC = 0; info.out = []; spec = null;
+    round = k; level = levelFor(k); tC = 0; info.out = []; spec = null; collapsed = false; finalTwo = false;
     gfx.buildLevel(level);
     view.clear(); snapA = snapB = null;
     ctx.players.forEach((p, i) => { const s = newPlayer(p.id, level, i); view.set(p.id, s); });
@@ -90,7 +119,7 @@ export async function start(ctx) {
       case 'round': net.toAll({ t: 'rd', k: d.round }); break;
       case 'play': net.toAll({ t: 'pl', k: d.round }); break;
       case 'out': net.toAll({ t: 'out', id: d.id, by: d.by, left: d.left }); break;
-      case 'roundEnd': net.toAll({ t: 're', winners: d.winners, wins: d.wins, pts: sim.pts, k: d.round }); break;
+      case 'roundEnd': net.toAll({ t: 're', winners: d.winners, wins: d.wins, pts: sim.pts, bumps: sim.bumps, cracked: sim.cracked, k: d.round }); break;
       case 'hit': net.toAll({ t: 'hit', ...d }); break;
       case 'dash': net.toAll({ t: 'da', id: d.id }); break;
       case 'thud': net.toAll({ t: 'th', id: d.id }); break;
@@ -100,7 +129,7 @@ export async function start(ctx) {
   function finish() {
     if (ended || !sim) return; ended = true;
     const stats = {};
-    for (const id of ids) { const w = sim.wins[id] || 0; stats[id] = `${w} round win${w === 1 ? '' : 's'} · outlived ${sim.pts[id] || 0} · ${sim.bumps[id] || 0} bumps`; }
+    for (const id of ids) { const w = sim.wins[id] || 0; stats[id] = `${w} ★ · outlived ${sim.pts[id] || 0} · ${sim.cracked[id] || 0} tiles cracked · ${sim.bumps[id] || 0} bump${sim.bumps[id] === 1 ? '' : 's'}`; }
     ctx.endGame(sim.standings(), { stats });
   }
   function snapshot() {
@@ -110,14 +139,14 @@ export async function start(ctx) {
   function fullSync() {
     const lv = sim.level, tiles = [];
     lv.layers.forEach((L, h) => { for (let i = 0; i < L.n; i++) if (L.at[i] !== Infinity) tiles.push(h, i, +L.at[i].toFixed(3), L.who[i]); });
-    return { t: 'full', k: sim.round, ph: sim.phase, pt: sim.phaseT, tm: sim.t, wins: sim.wins, pts: sim.pts, out: sim.out, tiles, s: snapshot() };
+    return { t: 'full', k: sim.round, ph: sim.phase, pt: sim.phaseT, tm: sim.t, wins: sim.wins, pts: sim.pts, bumps: sim.bumps, cracked: sim.cracked, out: sim.out, tiles, s: snapshot() };
   }
   function becomeHost() {
     const players = ids.map((id, i) => {
       const v = id === ctx.myId && me ? me : view.get(id);
       return v ? { id, x: v.x, y: v.y, z: v.z, vx: v.vx || 0, vy: v.vy || 0, vz: v.vz || 0, g: !!v.g, l: v.l ?? level.L - 1, face: v.face || 0, alive: v.alive !== false, auth: v.auth || 0, dashCd: v.dashCd || 0, stun: 0, dashT: 0 } : { id };
     });
-    sim = new HostSim(cfg(), { round, phase: phase === 'wait' && ctx.started ? 'play' : phase, phaseT, t: tC, wins: info.wins, pts: info.pts, out: info.out, players });
+    sim = new HostSim(cfg(), { round, phase: phase === 'wait' && ctx.started ? 'play' : phase, phaseT, t: tC, wins: info.wins, pts: info.pts, bumps: info.bumps, cracked: info.cracked, out: info.out, players });
     const mp = sim.byId.get(ctx.myId); if (mp) syncCounters(mp, myInput);
     net.toAll(fullSync(), false);
   }
@@ -144,11 +173,16 @@ export async function start(ctx) {
       case 's': if (!net.isHost) onSnap(m); break;
       case 'tr': if (!net.isHost) applyTiles(m.k); break;
       case 'full': if (!net.isHost) {
-        useRound(m.k); phase = m.ph; phaseT = m.pt; tC = m.tm; Object.assign(info.wins, m.wins); Object.assign(info.pts, m.pts); info.out = [...m.out];
+        useRound(m.k); phase = m.ph; phaseT = m.pt; tC = m.tm; Object.assign(info.wins, m.wins); Object.assign(info.pts, m.pts); Object.assign(info.bumps, m.bumps || {}); Object.assign(info.cracked, m.cracked || {}); info.out = [...m.out];
         applyTiles(m.tiles, true); onSnap(m.s);
         break;
       }
-      case 'rd': useRound(m.k); phase = 'intro'; ui.banner(`ROUND ${m.k + 1}`, 1600); snd.round(); break;
+      case 'rd': {
+        useRound(m.k); phase = 'intro'; ui.banner(m.k > 0 ? `ROUND ${m.k + 1} · FASTER FLOORS` : `ROUND ${m.k + 1}`, 1800, { small: m.k > 0 }); snd.round();
+        const top = Math.max(0, ...ids.map((id) => info.wins[id] || 0));
+        if (myIdx >= 0 && top > 0 && (info.wins[ctx.myId] || 0) < top) ctx.setTimeout(() => ui.toast('Underdog start: you begin nearer the middle', 'gold', 2600), 1500);
+        break;
+      }
       case 'pl': if (m.k === round) { phase = 'play'; if (m.k > 0) { ui.banner('GO!', 700); ctx.audio.play('go'); } } break;
       case 'out': {
         if (!info.out.includes(m.id)) info.out.push(m.id);
@@ -159,10 +193,11 @@ export async function start(ctx) {
         if (mine) { ui.banner('YOU FELL!', 1600); gfx.shake(0.6); }
         else ui.toast(by ? `${nm} was bumped into the void by ${by}!` : `${nm} fell into the void!`, m.by === ctx.myId ? 'gold' : '', 2400);
         if (spec === m.id) spec = null;
+        if (m.left === 2 && N > 2 && !finalTwo) { finalTwo = true; ctx.setTimeout(() => { if (phase === 'play') { ui.banner('FINAL TWO!', 1400); snd.round(); } }, 900); }
         break;
       }
       case 're': {
-        phase = 'end'; Object.assign(info.wins, m.wins); Object.assign(info.pts, m.pts);
+        phase = 'end'; Object.assign(info.wins, m.wins); Object.assign(info.pts, m.pts); Object.assign(info.bumps, m.bumps || {}); Object.assign(info.cracked, m.cracked || {});
         const names = m.winners.map((id) => ctx.player(id)?.name || '?');
         const mine = m.winners.includes(ctx.myId);
         ui.banner(names.length ? `${names.join(' & ')} ${names.length > 1 ? 'win' : 'wins'} the round!` : 'Nobody survived!', 3000, { small: true });
@@ -244,6 +279,7 @@ export async function start(ctx) {
       sendAcc += dt; if (sendAcc >= 0.25) { sendAcc = 0; net.toHost({ t: 'in', i: { ...myInput } }); }
     }
     const pos = positions();
+    if (phase === 'play' && !collapsed && tC >= C.COLLAPSE_AT / (api.turbo || 1)) { collapsed = true; ui.banner('THE FLOORS ARE COLLAPSING!', 1800, { small: true }); snd.collapse(); gfx.shake(0.5); }
     // my own movement sounds
     const mp = myState();
     if (mp && lastMe) {
@@ -261,6 +297,7 @@ export async function start(ctx) {
     const fx = gfx.frame(dt, now, st);
     if (fx) { if (fx.cracks) snd.crack(fx.cracksNear > 0); if (fx.drops) snd.drop(fx.dropsNear > 0); }
     hud(pos, focus);
+    stackAcc += dt; if (stackAcc > 0.2) { stackAcc = 0; drawStack(pos); }
   });
 
   // ---------------------------------------------------------------- HUD (shared zones)
@@ -285,7 +322,7 @@ export async function start(ctx) {
     if (amAlive()) ui.abilities([{ key: 'Space', label: 'Jump', ready: !!mp?.g }, { key: 'Shift', label: 'Dash', cd: cd / C.DASH_CD, ready: cd <= 0 }]);
     else ui.abilities([]);
   }
-  ui.setScoreboard(() => ({ columns: ['Player', 'Round wins', 'Outlived'], rows: standings().flat().map((id) => [ui.esc(ctx.player(id)?.name || id), info.wins[id] || 0, info.pts[id] || 0]) }));
+  ui.setScoreboard(() => { const src = sim || info; return { columns: ['Player', '★ Rounds', 'Outlived', 'Tiles cracked', 'Bumps'], rows: standings().flat().map((id) => [ui.esc(ctx.player(id)?.name || id), src.wins[id] || 0, src.pts[id] || 0, src.cracked?.[id] || 0, src.bumps?.[id] || 0]) }; });
   function standings() { return sim ? sim.standings() : standingsOf(ids, info.wins, info.pts); }
 
   return {
