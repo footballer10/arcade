@@ -59,6 +59,7 @@ export async function start(ctx) {
   const gfx = createView(ctx);
   const snd = createSound(ctx);
   ctx.on('resize', gfx.resize);
+  gfx.intro(3.2);                                    // swoop over the stack during the hub's 3-2-1
   ctx.on('settings', (k) => { if (k === 'quality') gfx.applyQ(); });
 
   // ---------------------------------------------------------------- shared client view of the match
@@ -178,7 +179,7 @@ export async function start(ctx) {
         break;
       }
       case 'rd': {
-        useRound(m.k); phase = 'intro'; ui.banner(m.k > 0 ? `ROUND ${m.k + 1} · FASTER FLOORS` : `ROUND ${m.k + 1}`, 1800, { small: m.k > 0 }); snd.round();
+        useRound(m.k); phase = 'intro'; gfx.intro(2.8); ui.banner(m.k > 0 ? `ROUND ${m.k + 1} · FASTER FLOORS` : `ROUND ${m.k + 1}`, 1800, { small: m.k > 0 }); snd.round();
         const top = Math.max(0, ...ids.map((id) => info.wins[id] || 0));
         if (myIdx >= 0 && top > 0 && (info.wins[ctx.myId] || 0) < top) ctx.setTimeout(() => ui.toast('Underdog start: you begin nearer the middle', 'gold', 2600), 1500);
         break;
@@ -187,6 +188,8 @@ export async function start(ctx) {
       case 'out': {
         if (!info.out.includes(m.id)) info.out.push(m.id);
         const v = view.get(m.id); if (v) v.alive = false;
+        const lp = (net.isHost && sim ? sim.byId.get(m.id) : v) || v;
+        if (lp) { gfx.burst(lp.x, C.KILL_Y - 3, lp.z, ctx.player(m.id)?.colorHex ?? 0xffffff, 40); gfx.burst(lp.x, C.KILL_Y - 3, lp.z, 0xc58bff, 30); }
         if (m.id === ctx.myId && me) me.alive = false;
         const mine = m.id === ctx.myId, nm = ctx.player(m.id)?.name || '?', by = m.by && ctx.player(m.by)?.name;
         snd.out(mine);
@@ -207,6 +210,7 @@ export async function start(ctx) {
       case 'hit': {
         const mine = m.a === ctx.myId || m.b === ctx.myId;
         snd.hit(mine); if (mine) gfx.shake(0.45);
+        gfx.burst(m.x, m.y, m.z, 0xfff27a, 18); gfx.burst(m.x, m.y, m.z, ctx.player(m.a)?.colorHex ?? 0xffffff, 10);
         break;
       }
       case 'da': if (m.id !== ctx.myId) { const v = view.get(m.id), f = focusPos(); if (v && Math.hypot(v.x - f.x, v.z - f.z) < 8 && Math.abs(v.y - f.y) < 2) snd.dash(); } break;
