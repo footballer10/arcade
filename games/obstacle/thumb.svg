@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 160" width="320" height="160">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3f8cff"/><stop offset="1" stop-color="#ffd3f2"/></linearGradient>
+    <linearGradient id="slime" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff6fc2"/><stop offset="1" stop-color="#e2338f"/></linearGradient>
+    <pattern id="stripe" width="16" height="16" patternUnits="userSpaceOnUse" patternTransform="rotate(35)"><rect width="16" height="16" fill="#fff"/><rect width="8" height="16" fill="#ff3d6e"/></pattern>
+  </defs>
+  <rect width="320" height="160" fill="url(#sky)"/>
+  <g fill="#fff" opacity=".95"><ellipse cx="60" cy="30" rx="26" ry="11"/><ellipse cx="80" cy="24" rx="18" ry="12"/><ellipse cx="250" cy="22" rx="24" ry="9"/><ellipse cx="268" cy="18" rx="14" ry="9"/></g>
+  <path d="M0 132 Q40 124 80 132 T160 132 T240 132 T320 132 V160 H0Z" fill="url(#slime)" stroke="#1d1633" stroke-width="3"/>
+  <!-- course -->
+  <polygon points="30,120 290,120 270,98 50,98" fill="#a98bff" stroke="#1d1633" stroke-width="4" stroke-linejoin="round"/>
+  <rect x="30" y="120" width="260" height="10" fill="#7a5ee0" stroke="#1d1633" stroke-width="4"/>
+  <!-- sweeper -->
+  <rect x="146" y="72" width="16" height="36" rx="4" fill="#fff0f8" stroke="#1d1633" stroke-width="4"/>
+  <rect x="58" y="96" width="196" height="12" rx="6" fill="url(#stripe)" stroke="#1d1633" stroke-width="4" transform="rotate(-8 156 102)"/>
+  <!-- hammer -->
+  <line x1="246" y1="0" x2="222" y2="62" stroke="#1d1633" stroke-width="6"/>
+  <rect x="200" y="52" width="46" height="30" rx="10" fill="#ff8c42" stroke="#1d1633" stroke-width="4" transform="rotate(20 223 67)"/>
+  <!-- finish arch -->
+  <rect x="270" y="40" width="10" height="60" fill="#ff5ab0" stroke="#1d1633" stroke-width="3"/>
+  <!-- beans -->
+  <g stroke="#1d1633" stroke-width="4">
+    <rect x="86" y="58" width="30" height="40" rx="15" fill="#ff5a5f" transform="rotate(-18 101 78)"/>
+    <rect x="176" y="34" width="30" height="40" rx="15" fill="#3ea6ff" transform="rotate(62 191 54)"/>
+    <rect x="122" y="80" width="26" height="34" rx="13" fill="#4cd964"/>
+  </g>
+  <g fill="#fff" stroke="#1d1633" stroke-width="2"><circle cx="100" cy="68" r="5"/><circle cx="111" cy="71" r="5"/><circle cx="131" cy="90" r="4.5"/><circle cx="141" cy="90" r="4.5"/></g>
+  <g fill="#1d1633"><circle cx="101" cy="69" r="2.3"/><circle cx="112" cy="72" r="2.3"/><circle cx="131" cy="91" r="2"/><circle cx="141" cy="91" r="2"/></g>
+  <!-- crown -->
+  <path d="M20 40 L28 22 L36 34 L44 18 L52 34 L60 22 L66 40 Z" fill="#ffcc33" stroke="#1d1633" stroke-width="4" stroke-linejoin="round"/>
+  <g fill="#ffcc00"><circle cx="300" cy="20" r="3"/><circle cx="150" cy="18" r="2.5"/><rect x="170" y="12" width="6" height="4" fill="#4cd964" transform="rotate(30 173 14)"/><rect x="120" y="30" width="6" height="4" fill="#ff6ec7" transform="rotate(-20 123 32)"/></g>
+  <text x="160" y="153" text-anchor="middle" font-family="Lilita One, Arial Black, sans-serif" font-size="17" fill="#fff" stroke="#1d1633" stroke-width="4" paint-order="stroke">ULTIMATE OBSTACLE COURSE</text>
+</svg>

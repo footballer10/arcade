@@ -43,6 +43,13 @@ export const DRIVERS = {
       await sleep(1000);
     }
   },
+  // Ultimate Obstacle Course: the game's own bot AI plays for us (test-only autopilot); the show runs 3x faster.
+  async obstacle(page, until) {
+    while (!(await until())) {
+      await page.evaluate(() => { if (window.__obstacle) { window.__obstacle.autopilot = true; window.__obstacle.turbo = 3; } }).catch(() => {});
+      await sleep(1000);
+    }
+  },
   async coingrab(page, until) { while (!(await until())) await wiggle(page, 1200); },
 };
 export async function play(page, gameId, until) { const d = DRIVERS[gameId] || DRIVERS.coingrab; await d(page, until); }
