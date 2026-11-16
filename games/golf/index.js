@@ -643,14 +643,16 @@ export async function start(ctx) {
     S.podium = { pos, c: new THREE.Vector3(cx, t.h0 + 0.6, cz), t0: performance.now(), win: ps[0]?.id };
   }
 
-  function startIntro() {
+  // arm=false only parks the camera on the flyover's first shot (hole 1, before the hub countdown ends)
+  function startIntro(arm = true) {
     const b = myBall() || [...balls().values()][0]; if (!b || !S.hole) return;
     const xs = S.hole.tiles.map(t => t.cx), zs = S.hole.tiles.map(t => t.cz);
     const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cz = (Math.min(...zs) + Math.max(...zs)) / 2, span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs)) + 8;
     const cup = S.hole.cup;
     S.introFrom = { pos: new THREE.Vector3(cx + 3, cup.y + span * 0.75 + 5, cz + span * 0.55), tgt: new THREE.Vector3((cx + cup.x) / 2, cup.y, (cz + cup.z) / 2) };
-    S.introUntil = Infinity; S.introArm = true; // the clock starts on the first rendered frame (after shaders compile)
     camera.position.copy(S.introFrom.pos); controls.target.copy(S.introFrom.tgt);
+    if (!arm) return;
+    S.introUntil = Infinity; S.introArm = true; // the clock starts on the first rendered frame (after shaders compile)
   }
   function homeCam(b) {
     const t0 = S.hole.tiles[0];
@@ -697,7 +699,9 @@ export async function start(ctx) {
     S.pick = S.hole.pickups.map(() => 1); S.mines = []; S.pred = { strokes: -1, until: 0 }; S.spec = null; S.podium = null;
     buildCourse(S.hole); liveAt = 0; showCard(false);
     // flyover intro: starts when the round is live (after the hub countdown for hole 1)
-    if (S.phase === 'playing' && (m.intro ?? 1) > 0.5) startIntro(); else resetCamera();
+    if (S.phase === 'playing' && (m.intro ?? 1) > 0.5) startIntro();
+    else if (!ctx.started) startIntro(false);
+    else resetCamera();
     SFX.play('pickup', 0.5);
   }
   net.onMessage((m, from) => {
@@ -894,7 +898,7 @@ export async function start(ctx) {
       } else if (inIntro && S.introFrom && cb) {
         const k = sm(1 - (S.introUntil - now) / (INTRO_SECS * 1000)), h = homeCam(cb);
         camera.position.lerpVectors(S.introFrom.pos, h.pos, k); controls.target.lerpVectors(S.introFrom.tgt, h.tgt, k);
-      } else if (cb) {
+      } else if (cb && ctx.started) {
         const sunk = cb === mb && mb.sunk;
         const tgt = new THREE.Vector3(sunk ? cup.x : cb.x, (sunk ? cup.y : cb.y) + cb.r, sunk ? cup.z : cb.z);
         const d = tgt.sub(controls.target).multiplyScalar(Math.min(1, dt * 6));
