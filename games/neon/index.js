@@ -49,6 +49,10 @@ export async function start(ctx) {
   const optTrack = ctx.options.track || 'random';
   const trackId = TRACKS[optTrack] ? optTrack : TRACK_IDS[Math.floor(ctx.rng(0x7e1)() * TRACK_IDS.length)];
   const laps = Math.max(1, Math.min(5, +ctx.options.laps || 3));
+  // Knockout: no finish line; every few seconds the last racer is derezzed until one remains
+  const KO = ctx.options.mode === 'knockout' && N >= 2;
+  const KO_FIRST = 25, KO_EVERY = Math.max(14, Math.min(25, 150 / Math.max(1, N - 1)));
+  const koAt = (k) => KO_FIRST + k * KO_EVERY;      // time of the k-th knockout (same on every client)
   const track = buildTrack(trackId);
   const L = track.main.L;
   const clsOf = (p) => Math.max(0, CLASSES.findIndex((c) => c.key === ctx.picks[p.id]?.ship));
@@ -112,7 +116,8 @@ export async function start(ctx) {
   const snaps = [];                          // [{t, at, st:[ship states]}]
   let lastSnapAt = 0, lastSnapT = 0;
   const corr = new THREE.Vector3();          // visual error offset after reconciliation
-  const env = { track, laps, t: 0, others: ships };
+  const env = { track, laps: KO ? 99 : laps, t: 0, others: ships };
+  let koDone = 0;
   window.__neon = { autopilot: false, track: trackId, get ships() { return ships; }, get phase() { return phase; }, get raceT() { return raceT; }, get corr() { return corr.length(); }, get me() { return me; }, get hist() { return hist.length; } };
   let autoBrain = null;
 
@@ -184,6 +189,20 @@ export async function start(ctx) {
     sh.hc += (target - sh.hc) * 0.02;
   }
   function raceLogic() {
+    // rank 0 (leader) .. 1 (last) feeds the underdog boost bonus
+    const alive = order(ships).filter((s) => !s.out && !s.fin);
+    alive.forEach((s, k) => { s.rk = alive.length > 1 ? k / (alive.length - 1) : 0; });
+    if (KO) {
+      while (raceT >= koAt(koDone) && alive.length > 1) {
+        const last = alive.pop(); koDone++;
+        last.out = 1; last.outT = raceT; last.drift = 0; last.ghost = 1;
+        evAcc[ships.indexOf(last)] |= EV.OUT; if (ships.indexOf(last) === myIdx) myEv |= EV.OUT;
+        if (ships.indexOf(last) !== myIdx) remoteEvents(ships.indexOf(last), EV.OUT);
+      }
+      if (alive.length <= 1) { endIn = endIn < 0 ? 3 : endIn - FIXED; if (endIn <= 0.0001) finish(); }
+      if (raceT > HARD_CAP) finish();
+      return;
+    }
     // finish / end conditions
     for (const sh of ships) if (sh.fin && !firstFin) firstFin = sh.fin;
     const humans = P.map((p, i) => i).filter((i) => !P[i].isBot && ctx.connected(P[i].id));
@@ -201,12 +220,14 @@ export async function start(ctx) {
     const stats = {};
     ships.forEach((s, i) => {
       const bits = [];
-      if (s.fin) bits.push(fmt(s.fin)); else bits.push(`DNF · lap ${lapOf(s, track, laps)}/${laps}`);
+      if (KO) bits.push(s.out ? `derezzed at ${fmt(s.outT)}` : '🏆 last one standing');
+      else if (s.fin) bits.push(fmt(s.fin)); else bits.push(`DNF · lap ${lapOf(s, track, laps)}/${laps}`);
       if (s.best) bits.push(`best lap ${s.best.toFixed(1)}s`);
       if (s.maxChain > 1) bits.push(`chain ×${chainMult(s.maxChain).toFixed(1)}`);
+      if (s.golds) bits.push(`${s.golds} gold drift${s.golds > 1 ? 's' : ''}`);
       stats[P[i].id] = bits.join(' · ');
     });
-    ctx.endGame(standings(), { stats, title: `${TRACKS[trackId].name}` });
+    ctx.endGame(standings(), { stats, title: `${TRACKS[trackId].name}${KO ? ' · Knockout' : ''}` });
   }
   function savePrev(i) { const a = ships[i], b = prev[i]; b.path = a.path; b.s = a.s; b.d = a.d; b.y = a.y; b.yaw = a.yaw; b.resp = a.resp; }
 
@@ -259,6 +280,7 @@ export async function start(ctx) {
     const hostEv = hs.evNet;
     if (hostEv & EV.BUMP) myEv |= EV.BUMP;
     if (hostEv & EV.FINISH) myEv |= EV.FINISH;
+    if (hostEv & EV.OUT) myEv |= EV.OUT;
     const before = shipWorld(me, new THREE.Vector3()), pathB = me.path;
     const keepEv = me.ev;
     for (const k of KEYS) me[k] = hs[k];
@@ -367,7 +389,9 @@ export async function start(ctx) {
       sfx.sfx('release'); fovKick = 1; shake = Math.max(shake, 0.25); burst(v, 0xffffff, 18, 10);
       if (sh.chain > 1) { sfx.sfx('chain', sh.chain); pop(`CHAIN ×${chainMult(sh.chain).toFixed(1)}`, '#ffd23f', 900); }
     }
-    if (ev & EV.FIZZLE) sfx.sfx('fizzle');
+    if (ev & EV.OVERHEAT) { sfx.sfx('overheat'); pop('OVERHEAT!', '#ff5a3a', 900); shake = Math.max(shake, 0.3); burst(v, 0xff5a3a, 20, 9); }
+    else if (ev & EV.FIZZLE) sfx.sfx('fizzle');
+    if (ev & EV.OUT) { sfx.sfx('derez'); pop('DEREZZED!', '#ff3ea5', 2200); flash = 0.6; derez(v); }
     if (ev & EV.WALL) { sfx.sfx('wall', Math.min(1.4, (sh.impact || 10) / 18)); shake = Math.max(shake, 0.6); wallSparks(v); }
     if (ev & EV.BUMP) { sfx.sfx('bump'); shake = Math.max(shake, 0.45); }
     if (ev & EV.PAD) { sfx.sfx('pad'); fovKick = 1.3; flash = 0.25; }
@@ -377,7 +401,8 @@ export async function start(ctx) {
     if (ev & EV.RESPAWN) sfx.sfx('respawn');
     if (ev & EV.SHORTCUT) { sfx.sfx('shortcut'); pop('SHORTCUT!', '#c89bff', 1100); }
     if (ev & EV.DRAFT) { sfx.sfx('draft'); ui.toast('💨 Slipstream!', '', 1200); }
-    if (ev & EV.LAP) {
+    if (ev & EV.LAP && KO) { sfx.sfx('lap'); if (sh.lastLap) ui.toast(`Lap ${sh.lastLap.toFixed(2)}s`, 'good', 1800); }
+    else if (ev & EV.LAP) {
       const lap = lapOf(sh, track, laps);
       if (lap === laps) { sfx.sfx('final'); ui.banner('FINAL LAP!', 1600); sfx.setIntensity(2); }
       else { sfx.sfx('lap'); ui.banner(`LAP ${lap}/${laps}`, 1300); sfx.setIntensity(1); }
@@ -387,23 +412,27 @@ export async function start(ctx) {
   }
   function remoteEvents(i, ev) {
     const v = views[i];
+    if (ev & EV.OUT) { derez(v); ui.toast(`💥 ${P[i].name} derezzed!`, 'bad', 2200); sfx.sfx('derezOther'); }
     if (ev & EV.RELEASE) burst(v, 0xffffff, 10, 8);
     if (ev & (EV.WALL | EV.BUMP)) wallSparks(v);
     if (ev & EV.LAND) burst(v, 0xffffff, 8, 6);
   }
   const _p = new THREE.Vector3();
   function burst(v, color, n, sp) { if (!v) return; for (let k = 0; k < n; k++) { _p.copy(v.wpos).addScaledVector(v.fwd, 1.5); sparks.emit([_p.x, _p.y, _p.z], [v.up.x * 3, v.up.y * 3, v.up.z * 3], color, 0.5, sp); } }
+  function derez(v) { if (!v) return; for (let k = 0; k < 60; k++) sparks.emit([v.wpos.x, v.wpos.y, v.wpos.z], [v.up.x * 5, v.up.y * 5, v.up.z * 5], k % 2 ? v.color.getHex() : 0xffffff, 0.9, 22); }
   function wallSparks(v) { if (!v) return; for (let k = 0; k < 16; k++) sparks.emit([v.wpos.x, v.wpos.y, v.wpos.z], [v.up.x * 6, v.up.y * 6, v.up.z * 6], 0xffc04d, 0.45, 12); }
 
   // ---------------------------------------------------------------- camera
   const cam = { pos: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0), look: new THREE.Vector3(), yaw: 0, init: false, intro: 0, target: myIdx, fov: 70 };
   const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _u = new THREE.Vector3(), _m = new THREE.Matrix4(), _q = new THREE.Quaternion();
-  if (ctx.spectator || myIdx < 0) input.on('press', (a) => {
+  input.on('press', (a) => {
+    if (!(ctx.spectator || myIdx < 0 || ships[myIdx]?.out || ships[myIdx]?.fin)) return;
     if (a !== 'left' && a !== 'right') return;
     const o = order(ships).map((s) => ships.indexOf(s)); const k = o.indexOf(cam.target);
     cam.target = o[(k + (a === 'right' ? 1 : o.length - 1)) % o.length];
   });
   function updateCamera(dt, now) {
+    if (myIdx >= 0 && ships[myIdx]?.out && cam.target === myIdx) cam.target = ships.indexOf(order(ships)[0]);
     let ti = cam.target;
     if (ti < 0 || ti >= N) { ti = ships.indexOf(order(ships)[0]); cam.target = myIdx >= 0 ? myIdx : ti; }
     const st = drawSt[ti], v = views[ti];
@@ -450,7 +479,7 @@ export async function start(ctx) {
     // ships
     for (let i = 0; i < N; i++) {
       const st = drawSt[i], v = views[i], path = track.paths[st.path] || track.main;
-      const visible = !(st.resp > 0 && Math.floor(t * 12) % 2) && !(st.resp > 0.9);
+      const visible = !(st.resp > 0 && Math.floor(t * 12) % 2) && !(st.resp > 0.9) && !st.out;
       v.root.visible = visible;
       worldPos(path, st.s, st.d, st.y, tmp, frm);
       const hover = 0.7 + Math.sin(t * 7 + i) * 0.06;
@@ -556,15 +585,17 @@ export async function start(ctx) {
     if (focus) {
       const r = rankOf(focus), lap = lapOf(focus, track, laps);
       const who = myIdx < 0 ? `👀 ${ui.esc(P[cam.target]?.name || '')} · ` : '';
-      ui.status(focus.fin ? `${who}🏁 ${ord(r)} · ${fmt(focus.fin)}` : `${who}<span style="font-size:2.1rem">${r}</span><small>${ord(r).replace(/\d+/, '')} / ${N}</small> &nbsp;LAP ${lap}/${laps}`);
+      const nAlive = KO ? ships.filter((s) => !s.out).length : N;
+      ui.status(focus.out ? `${who}💥 Derezzed · ${ord(r)}` : focus.fin ? `${who}🏁 ${ord(r)} · ${fmt(focus.fin)}` : `${who}<span style="font-size:2.1rem">${r}</span><small>${ord(r).replace(/\d+/, '')} / ${nAlive}</small> &nbsp;${KO ? '⚡ KNOCKOUT' : `LAP ${lap}/${laps}`}`);
       if (myIdx >= 0 && ctx.started && !focus.fin && lastRank && r !== lastRank) sfx.sfx(r < lastRank ? 'pass' : 'passed');
       if (myIdx >= 0) lastRank = r;
     }
     // top-center: race clock, or the finish countdown
-    if (endIn > 0 && firstFin) ui.timer(endIn, { warn: 10 });
+    if (KO && ctx.started && phase === 1) { const left = koAt(koDone) - raceClock; ui.timer(Math.max(0, left), { warn: 5 }); }
+    else if (endIn > 0 && firstFin) ui.timer(endIn, { warn: 10 });
     else ui.timer(null, { text: ctx.started ? fmt(raceClock) : TRACKS[trackId].name });
     // top-right: standings
-    ui.mini(o.map((s) => { const i = ships.indexOf(s) >= 0 ? ships.indexOf(s) : myIdx; const pl = P[i]; return { id: pl.id, name: pl.name, color: pl.color, me: i === myIdx, out: !!s.ghost, value: s.fin ? fmt(s.fin) : `L${lapOf(s, track, laps)}` }; }));
+    ui.mini(o.map((s) => { const i = ships.indexOf(s) >= 0 ? ships.indexOf(s) : myIdx; const pl = P[i]; return { id: pl.id, name: pl.name, color: pl.color, me: i === myIdx, out: !!s.ghost, value: s.out ? '💥' : s.fin ? fmt(s.fin) : KO ? '' : `L${lapOf(s, track, laps)}` }; }));
     // bottom-center: boost meter + keys
     if (myIdx >= 0 && me) {
       const m = me.meter || 0;
@@ -582,6 +613,9 @@ export async function start(ctx) {
         pipEls[k].style.width = (f * 100).toFixed(0) + '%';
         pipEls[k].style.background = '#' + TIER_COLORS[k + 1].toString(16).padStart(6, '0');
       }
+      const hot = me.heat / C.OVERHEAT;
+      pipEls[2].parentElement.style.boxShadow = hot > 0 ? `0 0 ${8 + hot * 18}px ${hot > 0.6 && Math.floor(now / 90) % 2 ? '#ff3a1c' : '#ffd23f'}` : '';
+      pipEls[2].style.background = hot > 0.6 && Math.floor(now / 90) % 2 ? '#ff5a3a' : pipEls[2].style.background;
       const cw = me.chain > 0 && !me.drift ? Math.max(0, 1 - me.chainT / C.CHAIN_WIN) : me.dlink ? 1 : 0;
       chainEl.innerHTML = me.chain > 0 ? `CHAIN ×${chainMult(me.chain + (me.drift && me.dlink ? 1 : 0)).toFixed(1)} <small>${me.drift ? (me.dlink ? 'linked!' : '') : cw > 0 ? 'drift again!' : ''}</small>` : '';
       // wrong way
@@ -596,9 +630,9 @@ export async function start(ctx) {
     rows: order(ships).map((s, k) => { const i = ships.indexOf(s); return [k + 1, `<span style="color:${P[i].colorCss}">${ui.esc(P[i].name)}</span>`, s.fin ? '🏁 ' + fmt(s.fin) : `${lapOf(s, track, laps)}/${laps}`, s.best ? s.best.toFixed(2) + 's' : '–', s.maxChain ? '×' + chainMult(s.maxChain).toFixed(1) : '–']; }),
   }));
 
-  ctx.on('go', () => { ui.banner('GO! DRIFT TO BOOST!', 1300); sfx.setIntensity(0); });
+  ctx.on('go', () => { ui.banner(KO ? 'KNOCKOUT! DON\'T BE LAST!' : 'GO! DRIFT TO BOOST!', 1400); sfx.setIntensity(KO ? 1 : 0); });
   ui.banner(TRACKS[trackId].name.toUpperCase(), 2600);
-  ui.toast(`${laps} laps · ${TRACKS[trackId].desc}`, '', 3500);
+  ui.toast(KO ? `Knockout: last place is derezzed every ${Math.round(KO_EVERY)}s` : `${laps} laps · ${TRACKS[trackId].desc}`, '', 3500);
 
   return {
     standings,

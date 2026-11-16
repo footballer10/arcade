@@ -13,7 +13,7 @@ export const C = {
   VMAX: 60, VPAD: 80, VBOOST: 86, ACC: 30, ACC_BOOST: 75, BRAKE: 60, COAST: 7, REV: 14,
   TURN_LO: 2.3, TURN_HI: 1.2, GRIP: 9, AIR_GRIP: 0.6,
   DRIFT_MINV: 22, DRIFT_K: 0.025, DRIFT_KADJ: 0.0135, DRIFT_GRIP: 8, CHARGE: 1.7,
-  CHAIN_WIN: 1.25, CHAIN_MAX: 5, DRAIN: 30, G: 42, SHIP_HW: 1.1, DRAFT_ON: 0.6,
+  CHAIN_WIN: 1.25, CHAIN_MAX: 5, DRAIN: 30, G: 42, SHIP_HW: 1.1, DRAFT_ON: 0.6, OVERHEAT: 1.3, UNDERDOG: 0.35,
 };
 export const TIER_AT = [0, 0.85, 2.2, 3.7];      // drift charge needed for each tier
 export const MINI = [0, 0.5, 0.85, 1.3];     // mini-boost seconds on release, by tier
@@ -28,10 +28,10 @@ export const CLASSES = [
 ];
 
 // Events raised by step() (bitmask in ship.ev, consumed by whoever renders / plays sounds).
-export const EV = { TIER: 1, RELEASE: 2, FIZZLE: 4, WALL: 8, JUMP: 16, LAND: 32, PAD: 64, FALL: 128, RESPAWN: 256, LAP: 512, FINISH: 1024, BUMP: 2048, DRAFT: 4096, START_DRIFT: 8192, SHORTCUT: 16384 };
+export const EV = { TIER: 1, RELEASE: 2, FIZZLE: 4, WALL: 8, JUMP: 16, LAND: 32, PAD: 64, FALL: 128, RESPAWN: 256, LAP: 512, FINISH: 1024, BUMP: 2048, DRAFT: 4096, START_DRIFT: 8192, SHORTCUT: 16384, OVERHEAT: 32768, OUT: 65536 };
 
 export const KEYS = ['path', 's', 'd', 'y', 'vy', 'yaw', 'vf', 'vl', 'st', 'drift', 'dch', 'dlink', 'dlock', 'chain', 'chainT', 'meter', 'mini', 'pad',
-  'air', 'resp', 'respS', 'prog', 'fin', 'wallT', 'draft', 'lapT', 'best', 'maxChain', 'cls', 'ghost', 'boosting', 'hc', 'bumpT', 'lastTier', 'drifts', 'lastLap'];
+  'air', 'resp', 'respS', 'prog', 'fin', 'wallT', 'draft', 'lapT', 'best', 'maxChain', 'cls', 'ghost', 'boosting', 'hc', 'bumpT', 'lastTier', 'drifts', 'lastLap', 'heat', 'rk', 'out', 'outT', 'golds'];
 
 export function newShip(track, cls, s, d) {
   const L = track.main.L;
@@ -54,6 +54,7 @@ export function step(sh, inp, dt, env) {
   const tr = env.track, K = CLASSES[sh.cls] || CLASSES[0];
   let path = tr.paths[sh.path] || tr.main;
   sh.boosting = 0;
+  if (sh.out) { sh.vf *= 0.97; return; }
   if (sh.resp > 0) { sh.resp -= dt; if (sh.resp <= 0) respawn(sh, tr); return; }
   sh.chainT += dt;
   sh.wallT = Math.max(0, sh.wallT - dt); sh.mini = Math.max(0, sh.mini - dt); sh.pad = Math.max(0, sh.pad - dt); sh.bumpT = Math.max(0, sh.bumpT - dt);
@@ -68,7 +69,7 @@ export function step(sh, inp, dt, env) {
   // ---- drift start / end
   if (!sh.drift) {
     if (inp.drift && !sh.dlock && !air && sh.vf > C.DRIFT_MINV && Math.abs(sh.st) > 0.3) {
-      sh.drift = sh.st > 0 ? 1 : -1; sh.dch = 0; sh.lastTier = 0; sh.drifts++;
+      sh.drift = sh.st > 0 ? 1 : -1; sh.dch = 0; sh.lastTier = 0; sh.heat = 0; sh.drifts++;
       sh.dlink = sh.chain > 0 && sh.chainT <= C.CHAIN_WIN ? 1 : 0;
       sh.vl -= sh.drift * 2.5; sh.yaw += sh.drift * 0.06;   // kick the tail out: crisp entry
       sh.ev |= EV.START_DRIFT;
@@ -123,6 +124,8 @@ export function step(sh, inp, dt, env) {
     sh.dch = Math.min(3.999, sh.dch + dt * C.CHARGE * q * K.charge);
     const tier = tierOf(sh.dch);
     if (tier > sh.lastTier) { sh.lastTier = tier; sh.ev |= EV.TIER; }
+    // gold can only be held so long: overheat burns the whole drift (and the chain)
+    if (tier === 3) { sh.heat += dt; if (sh.heat > C.OVERHEAT) { fizzle(sh, false); sh.ev |= EV.OVERHEAT; sh.vf *= 0.9; } }
   }
 
   // ---- move in track space
@@ -195,7 +198,7 @@ export function step(sh, inp, dt, env) {
   if (env.others) {
     let inDraft = false;
     for (const o of env.others) {
-      if (o === sh || o.ghost || o.resp > 0 || o.path !== sh.path) continue;
+      if (o === sh || o.ghost || o.out || o.resp > 0 || o.path !== sh.path) continue;
       const ahead = o.prog - sh.prog;
       if (ahead > 3.5 && ahead < 28 && Math.abs(o.d - sh.d) < 2.6 && Math.abs(o.y - sh.y) < 3) { inDraft = true; break; }
     }
@@ -213,17 +216,18 @@ function release(sh) {
   if (tier >= 1) {
     sh.chain = sh.dlink ? Math.min(C.CHAIN_MAX, sh.chain + 1) : 1;
     sh.maxChain = Math.max(sh.maxChain, sh.chain);
-    const m = chainMult(sh.chain);
+    const m = chainMult(sh.chain) * (1 + C.UNDERDOG * sh.rk);
+    if (tier === 3) sh.golds++;
     sh.mini = Math.max(sh.mini, MINI[tier] * (1 + 0.1 * (sh.chain - 1)));
     sh.meter = Math.min(100, sh.meter + GAIN[tier] * m);
     sh.vf += 3 + tier * 1.5;
     sh.chainT = 0;
     sh.ev |= EV.RELEASE;
   } else { sh.chain = 0; sh.ev |= EV.FIZZLE; }
-  sh.drift = 0; sh.dch = 0; sh.dlink = 0;
+  sh.drift = 0; sh.dch = 0; sh.dlink = 0; sh.heat = 0;
 }
 function fizzle(sh, wall) {
-  sh.drift = 0; sh.dch = 0; sh.dlink = 0; sh.dlock = 1; sh.chain = 0;
+  sh.drift = 0; sh.dch = 0; sh.dlink = 0; sh.dlock = 1; sh.chain = 0; sh.heat = 0;
   sh.ev |= EV.FIZZLE; if (wall) sh.vf *= 0.9;
 }
 
@@ -289,9 +293,9 @@ export const respawnS = (sh) => sh.respS;
 // host only: ship-to-ship bumps
 export function collide(ships) {
   for (let a = 0; a < ships.length; a++) {
-    const A = ships[a]; if (A.ghost || A.resp > 0) continue;
+    const A = ships[a]; if (A.ghost || A.out || A.resp > 0) continue;
     for (let b = a + 1; b < ships.length; b++) {
-      const B = ships[b]; if (B.ghost || B.resp > 0 || A.path !== B.path) continue;
+      const B = ships[b]; if (B.ghost || B.out || B.resp > 0 || A.path !== B.path) continue;
       const ds = B.prog - A.prog, dd = B.d - A.d;
       if (Math.abs(ds) > 3.8 || Math.abs(dd) > 2.3 || Math.abs(A.y - B.y) > 2.5) continue;
       const side = dd >= 0 ? 1 : -1, push = (2.3 - Math.abs(dd)) * 0.5 + 0.05;
@@ -305,5 +309,6 @@ export function collide(ships) {
 
 // placements: finished by time, then everyone else by progress
 export function order(ships) {
-  return [...ships].sort((a, b) => (a.fin && b.fin ? a.fin - b.fin : a.fin ? -1 : b.fin ? 1 : b.prog - a.prog));
+  // knocked-out ships sort last, the most recently knocked out first
+  return [...ships].sort((a, b) => (a.out || b.out ? (a.out ? (b.out ? b.outT - a.outT : 1) : -1) : a.fin && b.fin ? a.fin - b.fin : a.fin ? -1 : b.fin ? 1 : b.prog - a.prog));
 }

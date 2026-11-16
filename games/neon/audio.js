@@ -75,6 +75,9 @@ export class NeonAudio {
       case 'pass': T('triangle', 900, 1400, 0.08, 0.05 * k); break;
       case 'passed': T('triangle', 700, 450, 0.1, 0.04 * k); break;
       case 'finish': A.play('fanfare'); break;
+      case 'overheat': A.burst(0.5, 0.18 * k, 'highpass', 800, 6000); T('sawtooth', 500, 90, 0.45, 0.08 * k); break;
+      case 'derez': [880, 660, 440, 220].forEach((f, i) => T('square', f, f * 0.7, 0.14, 0.08 * k, i * 0.08)); A.burst(0.8, 0.16 * k, 'bandpass', 3000, 200); break;
+      case 'derezOther': A.burst(0.5, 0.08 * k, 'bandpass', 2500, 300); T('square', 500, 200, 0.3, 0.04 * k); break;
       case 'shortcut': T('sine', 300, 1600, 0.3, 0.05 * k); break;
     }
   }
