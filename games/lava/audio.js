@@ -5,7 +5,7 @@
 const C_BOMB = 1.3;
 export function createSound(audio) {
   const nodes = [];
-  let rumble = null, last = {};
+  let rumble = null, last = {}, beatT = 0, beatN = 0;
   const A = () => audio.ready && audio.ctx;
   const gate = (k, ms) => { const n = performance.now(); if (n - (last[k] || 0) < ms) return false; last[k] = n; return true; };
 
@@ -27,13 +27,25 @@ export function createSound(audio) {
 
   return {
     // danger 0..1 (lava close below me), surge 0..1 (surge warning), heat 0..1 (my platform)
-    update(dt, { danger = 0, surge = 0, active = true }) {
+    update(dt, { danger = 0, surge = 0, active = true, intensity = 0, final = false }) {
       ensure(); const ac = A(); if (!ac || !rumble) return;
       const t = ac.currentTime;
       const v = active ? 0.16 + danger * 0.45 + surge * 0.5 : 0.06;
       rumble.g.gain.setTargetAtTime(v, t, 0.25);
       rumble.lp.frequency.setTargetAtTime(90 + danger * 160 + surge * 200, t, 0.3);
       rumble.subG.gain.setTargetAtTime(active ? 0.1 + danger * 0.18 + surge * 0.2 : 0.03, t, 0.4);
+      // tension drums on the music bus: a heartbeat that speeds up as the lava climbs (and in the final two)
+      if (active) {
+        const bpm = 78 + intensity * 70 + (final ? 22 : 0);
+        beatT -= dt;
+        if (beatT <= 0) {
+          beatT += 60 / bpm; beatN++;
+          const accent = beatN % 2 === 1;
+          audio.tone('sine', accent ? 105 : 80, 38, 0.22, accent ? 0.32 : 0.2, 0, audio.music);
+          if (beatN % 4 === 0 && intensity > 0.35) audio.tone('triangle', 196, 150, 0.12, 0.08, 0.02, audio.music);
+          if (intensity > 0.6 && beatN % 2 === 0) audio.burst(0.05, 0.05, 'highpass', 6000, 4000, 60 / bpm / 2, audio.music);
+        }
+      } else beatT = 0.2;
       // random lava bloops
       if (active && Math.random() < dt * (0.7 + danger * 2)) { const f = 70 + Math.random() * 90; audio.tone('sine', f, f * 2.4, 0.18, 0.05 + danger * 0.06); }
     },
@@ -48,6 +60,7 @@ export function createSound(audio) {
     burn(mine) { if (!A()) return; const v = mine ? 1 : 0.5; audio.burst(0.9, 0.35 * v, 'bandpass', 3500, 400); audio.tone('sawtooth', 520, 90, 0.7, 0.09 * v); audio.tone('sine', 900, 300, 0.4, 0.06 * v, 0.05); },
     whistle() { if (A()) audio.tone('sine', 1400, 500, C_BOMB, 0.04); },
     boom(near) { if (!A()) return; const v = near ? 1 : 0.5; audio.burst(0.7, 0.4 * v, 'lowpass', 2200, 70); audio.tone('sine', 120, 35, 0.5, 0.22 * v); audio.tone('square', 90, 40, 0.25, 0.06 * v); },
+    erupt() { if (!A()) return; audio.burst(1.4, 0.45, 'lowpass', 900, 60); audio.tone('sine', 70, 28, 1.2, 0.3); audio.tone('sawtooth', 55, 30, 0.9, 0.08); },
     surge() { if (A()) { audio.burst(1.6, 0.35, 'lowpass', 160, 600); audio.tone('sawtooth', 45, 70, 1.4, 0.12); } },
     roundWin(mine) { if (mine) audio.play('fanfare'); else audio.play('win', 0.7); },
     dispose() {
