@@ -159,7 +159,7 @@ export async function start(ctx) {
           if (!api.autopilot) { gfx.cam.yaw = r[4]; gfx.cam.pitch = (r[8] & 4) ? 0 : -0.3; }
         }
         me.alive = !!(r[8] & 2); me.role = r[8] & 4 ? 'S' : 'H'; me.hp = r[9];
-        continue;
+        if (!api.autopilot) continue;
       }
       v.px = v.x ?? r[1]; v.py = v.y ?? r[2]; v.pz = v.z ?? r[3];
       applyRow(v, r); v.tx = r[1]; v.ty = r[2]; v.tz = r[3]; v.x = v.px; v.y = v.py; v.z = v.pz;
@@ -169,6 +169,7 @@ export async function start(ctx) {
   function onPhase(ph, prev) {
     if (!me) return;
     if (ph === 'intro') {
+      gfx.cam.intro = 1;
       const seeker = levelFor(round) && plan[round].seekers.includes(ctx.myId);
       ui.banner(seeker ? '🔨 YOU ARE A SEEKER' : '🫖 YOU ARE A HIDER', 2600);
       ctx.setTimeout(() => ui.toast(seeker ? 'You will be blindfolded while they hide. Then bonk anything suspicious!' : 'Look at an object and press E to become it. Right click locks you in place.', 'gold', 4200), 900);
@@ -217,7 +218,14 @@ export async function start(ctx) {
         if (!m.last) ctx.setTimeout(() => ui.toast('Next round: roles swap!', 'gold', 2500), 3000);
         break;
       }
-      case 'round': break;
+      case 'round': if (m.mult > 1) ctx.setTimeout(() => ui.banner('⭐ FINAL ROUND · DOUBLE POINTS ⭐', 2600, { small: true }), 2800); break;
+      case 'lastprop': {
+        const mine = m.id === ctx.myId;
+        ui.banner(mine ? '🫖 LAST PROP STANDING!' : me?.role === 'S' ? '🔨 ONE LEFT! FIND THEM!' : `🫖 ${nm(m.id)} is the LAST PROP!`, 2600, { small: true });
+        if (mine) ctx.setTimeout(() => ui.toast('Survival points are doubled for you now. Hold on!', 'gold', 3200), 1200);
+        sfx.warn(); sfx.music(true, 'tense'); gfx.fx.shake(0.3);
+        break;
+      }
       case 'phase': break;
     }
   }
@@ -325,7 +333,7 @@ export async function start(ctx) {
     // --- audio listener
     const lp = gfx.camera.position;
     sfx.setListener({ x: lp.x, z: lp.z, yaw: cam.yaw }, (x, y, z) => !!L && !lineOfSight(L, [lp.x, lp.y, lp.z], [x, y + 0.3, z]));
-    if (phase === 'hunt' && pt < 30) sfx.music(true, 'tense');
+    if (phase === 'hunt' && (pt < 30 || lastSnap?.lp)) sfx.music(true, 'tense');
     // --- render
     const viewerRole = ctx.spectator || !me || !me.alive ? 'spec' : me.role;
     gfx.update(dt, now, {
@@ -346,7 +354,7 @@ export async function start(ctx) {
     else if (phase === 'hunt') ui.timer(pt, { warn: 30 });
     else ui.timer(null);
     const order = standingsOf(ids, score).flat();
-    ui.mini(order.map((id) => { const v = view.get(id); return { id, name: (v?.role === 'S' ? '🔨 ' : '🫖 ') + (ctx.player(id)?.name || id), color: ctx.player(id)?.color ?? 0, value: score[id] || 0, me: id === ctx.myId, out: v && !v.alive && phase !== 'post' }; }), `Round ${Math.max(1, round + 1)}/${plan.length}`);
+    ui.mini(order.map((id) => { const v = view.get(id); return { id, name: (v?.role === 'S' ? '🔨 ' : '🫖 ') + (ctx.player(id)?.name || id), color: ctx.player(id)?.color ?? 0, value: (lastSnap?.lp === id && phase === 'hunt' ? '⭐' : '') + (score[id] || 0), me: id === ctx.myId, out: v && !v.alive && phase !== 'post' }; }), `Round ${Math.max(1, round + 1)}/${plan.length}${lastSnap?.mu > 1 ? ' · ×2' : ''}`);
     if (me && me.alive && phase !== 'post' && phase !== 'intro' && !(me.role === 'S' && phase === 'hide')) {
       if (me.role === 'H') {
         const tcd = Math.max(0, R.TAUNT_CD - (clock - lastTauntAt));
