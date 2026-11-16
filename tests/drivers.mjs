@@ -43,6 +43,14 @@ export const DRIVERS = {
       await sleep(1000);
     }
   },
+  // Prop Hunt: the round clock runs 6x faster (test-only hook); the host's own player is driven by the bot AI,
+  // the others wander around (and get found, or not).
+  async prophunt(page, until) {
+    while (!(await until())) {
+      await page.evaluate(() => { const g = window.__prophunt; if (g) { g.turbo = 6; if (window.__hub?.net?.isHost) g.autopilot = true; } }).catch(() => {});
+      await wiggle(page, 1200);
+    }
+  },
   async coingrab(page, until) { while (!(await until())) await wiggle(page, 1200); },
 };
 export async function play(page, gameId, until) { const d = DRIVERS[gameId] || DRIVERS.coingrab; await d(page, until); }
