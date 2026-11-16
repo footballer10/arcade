@@ -51,6 +51,28 @@ export const DRIVERS = {
       await sleep(1000);
     }
   },
+  // Ultimate Obstacle Course: the game's own bot AI plays for us (test-only autopilot); the show runs 3x faster.
+  async obstacle(page, until) {
+    while (!(await until())) {
+      await page.evaluate(() => { if (window.__obstacle) { window.__obstacle.autopilot = true; window.__obstacle.turbo = 3; } }).catch(() => {});
+      await sleep(1000);
+    }
+  },
+  // Floor Is Falling: the game's own bot AI plays for us (test-only autopilot) and the collapse comes 3x sooner.
+  async floorfall(page, until) {
+    while (!(await until())) {
+      await page.evaluate(() => { if (window.__ff) { window.__ff.autopilot = true; window.__ff.turbo = 3; } }).catch(() => {});
+      await sleep(1000);
+    }
+  },
+  // Prop Hunt: the round clock runs 6x faster (test-only hook); the host's own player is driven by the bot AI,
+  // the others wander around (and get found, or not).
+  async prophunt(page, until) {
+    while (!(await until())) {
+      await page.evaluate(() => { const g = window.__prophunt; if (g) { g.turbo = 6; if (window.__hub?.net?.isHost) g.autopilot = true; } }).catch(() => {});
+      await wiggle(page, 1200);
+    }
+  },
   async coingrab(page, until) { while (!(await until())) await wiggle(page, 1200); },
 };
 export async function play(page, gameId, until) { const d = DRIVERS[gameId] || DRIVERS.coingrab; await d(page, until); }
