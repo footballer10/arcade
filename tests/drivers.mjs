@@ -43,6 +43,14 @@ export const DRIVERS = {
       await sleep(1000);
     }
   },
+  // Rocket Soccer: the game's own bot AI drives our car (test-only autopilot); the host's match clock runs 6x
+  // faster and goal replays are skipped so a 3-minute match ends quickly.
+  async rocketsoccer(page, until) {
+    while (!(await until())) {
+      await page.evaluate(() => { if (window.__rs) { window.__rs.autopilot = true; window.__rs.turbo = 6; } }).catch(() => {});
+      await sleep(1000);
+    }
+  },
   // Ultimate Obstacle Course: the game's own bot AI plays for us (test-only autopilot); the show runs 3x faster.
   async obstacle(page, until) {
     while (!(await until())) {
