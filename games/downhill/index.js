@@ -464,13 +464,13 @@ export async function start(ctx) {
     camState.h += (e.h - camState.h) * (1 - Math.exp(-5 * dt));
     const sx = Math.sin(camState.h), sz = Math.cos(camState.h);
     camState.air = (camState.air || 0) + ((inAir ? 1 : 0) - (camState.air || 0)) * (1 - Math.exp(-4 * dt));
-    const dist = 6.6 + Math.min(e.v, 50) * 0.035 + camState.air * 1.8;
+    const dist = 7.4 + Math.min(e.v, 50) * 0.035 + camState.air * 1.8;
     tmpV.set(e.x - sx * dist, 0, e.z - sz * dist);
     const gy = r.course.groundH(tmpV.x, tmpV.z);
-    tmpV.y = Math.max(e.y + 2.9 + camState.air * 1.2, gy + 1.8);
+    tmpV.y = Math.max(e.y + 5.1 + camState.air * 1.2, gy + 3.4);
     camState.pos.lerp(tmpV, 1 - Math.exp(-9 * dt));
     camera.position.copy(camState.pos);
-    lookV.set(e.x + sx * 6, e.y + 1.2, e.z + sz * 6);
+    lookV.set(e.x + sx * 6, e.y + 0.8, e.z + sz * 6);
     camera.lookAt(lookV);
     const fov = 70 + Math.max(0, Math.min(1, (e.v - 18) / 32)) * 20;
     if (Math.abs(camera.fov - fov) > 0.1) { camera.fov += (fov - camera.fov) * (1 - Math.exp(-4 * dt)); camera.updateProjectionMatrix(); }
