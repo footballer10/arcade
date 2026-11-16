@@ -4,7 +4,7 @@ import { Emitter } from './emitter.js';
 
 const KEY = 'partyhub.settings.v1';
 export const DEFAULTS = {
-  name: '', color: -1, hat: 'cap',
+  name: '', color: -1, hat: 'cap', skin: -1, hair: '', hairColor: -1,
   master: 0.8, music: 0.35, sfx: 0.8,   // 0..1
   sens: 1,                               // mouse sensitivity multiplier 0.2..3
   quality: 'high',                       // low | med | high

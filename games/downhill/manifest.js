@@ -9,7 +9,7 @@ export const manifest = {
   roundLengthSec: 120,
   thumbnail: 'games/downhill/thumb.svg',
   controlsHelp: [
-    ['A / D', 'Steer (tap = small, hold = carve)'], ['W', 'Tuck'], ['Shift', 'Tuck (boost)'], ['S', 'Brake'], ['Space', 'Jump / pop off rails'],
+    ['A / D', 'Steer (tap = small, hold = carve)'], ['W', 'Tuck (go faster)'], ['S', 'Brake'], ['Space', 'Jump / pop off rails'],
     ['Arrows in the air', 'Spin ← → · flip ↑ ↓'], ['R F T G C V', 'Hold in the air to grab, let go before landing'],
     ['E / click', 'Use item'], ['Q', 'Butter 180'], ['H', 'Show / hide trick list'],
   ],

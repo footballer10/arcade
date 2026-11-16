@@ -12,7 +12,7 @@ export const manifest = {
   roundLengthSec: 45,
   thumbnail: 'games/_template/thumb.svg',
   // Extra keys this game uses on top of the standard control map (CLAUDE.md). Shown on the loading screen.
-  controlsHelp: [['WASD / Arrows', 'Run'], ['Space', 'Jump'], ['Shift', 'Dash'], ['Gold coin', '1 point · Gem = 3 points']],
+  controlsHelp: [['WASD / Arrows', 'Run'], ['Space', 'Jump'], ['Gold coin', '1 point · Gem = 3 points']],
   // Optional pre-round screen. picks = each player chooses; options = host chooses.
   picks: [],
   options: [
