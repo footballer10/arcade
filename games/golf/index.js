@@ -2,7 +2,7 @@
 // balls collide. Host-authoritative physics (240 Hz) with client-side prediction; bots; 9 power-ups; KOs;
 // themed worlds; hole modifiers; Classic and Speed Golf modes; emotes; flyover intros; podium.
 // Net (ctx.net): client→host {t:'hi'} {t:'shot',a,p} {t:'use'} {t:'emote',i}
-//                host→all  {t:'hole'} {t:'s'} {t:'ev'} {t:'emote'} {t:'holeEnd'} {t:'matchEnd'}
+//                host→all  {t:'hole'} {t:'s'} {t:'ev'} {t:'emoted'} {t:'holeEnd'} {t:'matchEnd'}
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import * as C from './course.js';
@@ -706,7 +706,8 @@ export async function start(ctx) {
       if (m.t === 'hi' && lastPrep) net.to(from, holeMsg());
       else if (m.t === 'shot') applyShot(from, +m.a, +m.p);
       else if (m.t === 'use') useItem(from);
-      else if (m.t === 'emote') net.toAll({ t: 'emote', id: from, i: (m.i | 0) % EMOTES.length });
+      // relay as a different type: the host's own copy comes back through the loopback and must not be relayed again
+      else if (m.t === 'emote') net.toAll({ t: 'emoted', id: from, i: Math.abs(m.i | 0) % EMOTES.length });
       if (from !== S.myId || ['shot', 'use', 'hi', 'emote'].includes(m.t)) return;
     }
     switch (m.t) {
@@ -726,7 +727,7 @@ export async function start(ctx) {
           if (m.s === 'use' || m.s === 'rocket' || m.s === 'swap') fxp.emit(m.x, m.y + 0.2, m.z, 24, ['#ffffff', '#ffe14d', '#ff9f43'], 2.5, 2, 0.6, 4);
         }
         break;
-      case 'emote': showEmote(m.id, m.i); break;
+      case 'emoted': showEmote(m.id, m.i); break;
       case 'holeEnd':
         mergePlayers(m.players); S.phase = 'holeEnd'; aimCancel();
         if (!m.last) { showCard(true); S.boardEndsAt = performance.now() + HOLE_END_SECS * 1000; }

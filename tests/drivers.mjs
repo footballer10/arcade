@@ -34,6 +34,15 @@ export const DRIVERS = {
       await sleep(1500);
     }
   },
+  // Snake: steer with keys + boost bursts (wiggle). Rounds end when one snake is left or the clock runs out.
+  async snake(page, until) { while (!(await until())) await wiggle(page, 1500); },
+  // Rising Lava: the game's own bot AI plays for us (test-only autopilot) and the lava clock runs 3x faster.
+  async lava(page, until) {
+    while (!(await until())) {
+      await page.evaluate(() => { if (window.__lava) { window.__lava.autopilot = true; window.__lava.turbo = 3; } }).catch(() => {});
+      await sleep(1000);
+    }
+  },
   async coingrab(page, until) { while (!(await until())) await wiggle(page, 1200); },
 };
 export async function play(page, gameId, until) { const d = DRIVERS[gameId] || DRIVERS.coingrab; await d(page, until); }

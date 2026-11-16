@@ -213,13 +213,13 @@ function setUrl(code, kind) {
   const q = new URLSearchParams();
   if (code) q.set('room', code);
   if (kind === 'local') q.set('net', 'local');
-  if (params.get('peer')) q.set('peer', params.get('peer'));
+  for (const k of ['peer', 'dev', 'testfps', 'netlog']) if (params.get(k) !== null) q.set(k, params.get(k));
   history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : ''));
 }
 function shareLink() {
   const q = new URLSearchParams({ room: S.code });
   if (net.kind === 'local') q.set('net', 'local');
-  if (params.get('peer')) q.set('peer', params.get('peer'));
+  for (const k of ['peer', 'dev']) if (params.get(k) !== null) q.set(k, params.get(k));
   return location.origin + location.pathname + '?' + q;
 }
 

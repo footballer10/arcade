@@ -1,7 +1,7 @@
 // BroadcastChannel transport (no internet, no PeerJS server): two TABS of one browser play together.
 import { startStatic, launch, openPage, createParty, joinByCode, waitFor, state, check, wiggle } from './harness.mjs';
 
-const BASE = 'http://127.0.0.1:8080/index.html?net=local';
+const BASE = 'http://127.0.0.1:8080/index.html?dev=1&net=local';
 const srv = await startStatic(8080);
 const { browser, context } = await launch();
 const ctx = await context();

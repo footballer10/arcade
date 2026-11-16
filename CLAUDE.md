@@ -5,7 +5,7 @@ connected while the host switches between 3D games. Hosted on GitHub Pages at
 `https://footballer10.github.io/arcade-prototypes/`. Laptop first, Chrome, keyboard + mouse.
 
 **Every new game must use `/core` and must pass the checklist in [`docs/ADDING_A_GAME.md`](docs/ADDING_A_GAME.md).**
-Start from `games/_template` (Coin Grab). One game per session.
+Start from `games/_template` (Coin Grab). That template is **hidden from players**: it only appears in the lobby with `?dev=1` (used by developers and the tests). One game per session.
 
 ## Hard rules
 - 100% free: static files on GitHub Pages; Three.js `0.160.0` and PeerJS `1.5.4` from jsDelivr via the import map in `index.html`; the public PeerJS server. No build step, no npm to play, no paid services, no API keys, no accounts.
@@ -29,7 +29,7 @@ core/input.js       the control map (below)          core/ui.js + ui.css   theme
 core/audio.js       one AudioContext, master/music/sfx buses   core/settings.js   volumes, sensitivity, quality
 core/avatar.js      shared player character + hats    core/rng.js   seeded RNG    core/bots.js   bot slots + difficulty
 core/palette.js     8 party colors (player.color is an index)  core/three-utils.js   renderer + dispose helpers
-games/registry.js   list of game manifests; games are loaded with import() only when a round starts
+games/registry.js   list of game manifests (PLAYABLE = what players see); games are loaded with import() only when a round starts
 games/<id>/         one folder per game: manifest.js, index.js (start), thumb.svg, game modules
 ```
 Host-authoritative: the host runs the game simulation and every bot; clients send inputs and predict. If the host
@@ -64,6 +64,8 @@ manifest = { id, dir?, name, tagline, minPlayers, maxPlayers, teams: false|2, su
 | `setTimeout`, `setInterval`, `listen(target, type, fn)`, `onCleanup(fn)` | auto-cleared on stop |
 | `on(event, fn)` | `'go'` (shared countdown done: start now), `'hostchange'` `{amHost, hostId, oldHost}`, `'join'` (id loaded mid-round: send them a full sync), `'leave'` (id), `'rejoin'`, `'resize'`, `'settings'` |
 | `endGame(placements, {stats, note, title})` | host only. `placements` = ids best→worst; ties as arrays: `[[a, b], c]`. `stats[id]` text shows on the results screen |
+
+**Relay trap:** `toAll(msg)` also delivers `msg` to the host's own `onMessage` (from = host). Never relay a message under the same type you are handling (e.g. client `{t:'emote'}` → host relays `{t:'emoted'}`), or the host re-broadcasts its own copy forever and the game locks up.
 
 `standings()` (optional) returns current placements; used if the host ends the game early (otherwise no trophies).
 Trophies: 1st 5, 2nd 3, 3rd 2, everyone else 1 (ties share the higher place).
@@ -103,4 +105,4 @@ PeerJS server, launch Chromium with 2–3 browser contexts (real WebRTC), and ro
 - `node party.mjs` — vote, shuffle + podium, mid-game join, host handover, kick · `node local.mjs` — BroadcastChannel tabs
 - Add a driver for your game in `tests/drivers.mjs` so the tests can play it to the end.
 - Locally by hand: `python3 -m http.server 8000` in the repo root, open `http://localhost:8000/?net=local` in two tabs.
-- Dev URL flags: `?net=local` (tabs, no internet), `?peer=host:port` (own PeerJS server), `?netlog=1` (net log), `?testfps=N` (tests only).
+- Dev URL flags: `?dev=1` (show the template in the lobby), `?net=local` (tabs, no internet), `?peer=host:port` (own PeerJS server), `?netlog=1` (net log), `?testfps=N` (tests only).

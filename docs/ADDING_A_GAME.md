@@ -4,11 +4,11 @@ One session = one game. Read `CLAUDE.md` first (contract, control map, HUD and s
 
 ## Steps
 1. **Copy the template:** `cp -r games/_template games/<id>` (lowercase id, e.g. `games/bumpercars`).
-2. **Manifest** (`games/<id>/manifest.js`, no imports): set `id`, remove `dir` (or set it to your folder), `name`,
+2. **Manifest** (`games/<id>/manifest.js`, no imports): delete the TEMPLATE comment, set `id`, remove `dir` (or set it to your folder), `name`,
    `tagline`, `minPlayers`/`maxPlayers` (party max is 8, bots count), `teams`, `supportsBots`, `roundLengthSec`
    (aim for 1–4 minutes), `controlsHelp`, `thumbnail` (draw `thumb.svg`, 320×160, bright cartoon style), and any
    `picks` (each player chooses, e.g. a character) / `options` (host chooses, e.g. map, rounds).
-3. **Register it:** one import + one entry in `games/registry.js`.
+3. **Register it:** one import + add it to `PLAYABLE` in `games/registry.js`.
 4. **Build the game in `start(ctx)`** (`games/<id>/index.js`). Keep the template's skeleton:
    - Scene: `ctx.three.createRenderer()`, a `THREE.Scene`, a camera; resize on `ctx.on('resize')`; read `ctx.quality()`.
    - Level: build it **only** from `ctx.rng()` / `ctx.seed` so every client gets the same world.
@@ -35,6 +35,7 @@ One session = one game. Read `CLAUDE.md` first (contract, control map, HUD and s
 - [ ] Level is generated from the seed; identical on every client.
 - [ ] Host-authoritative; works with 1 human + bots, and with 2–3 humans; bots respect `ctx.bots.level`.
 - [ ] Waits for `'go'`; calls `ctx.endGame` exactly once with valid placements; provides `standings()`.
+- [ ] Host never relays a message under the type it handles (`toAll` loops back to the host); if the game has emotes/chat-like messages, `node emotes.mjs <id>` passes.
 - [ ] Survives host migration (`'hostchange'`) and mid-round joiners (`'join'`, `ctx.spectator`).
 - [ ] Respects graphics quality (low: no shadows / post), master/sfx volume (route sound into `ctx.audio.sfx`), mouse sensitivity if it uses mouse look.
 - [ ] `stop()` frees everything: `node memory.mjs <id>` shows 0 renderers/canvases/HUD nodes after each unload and a flat heap.

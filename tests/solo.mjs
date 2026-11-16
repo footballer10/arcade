@@ -3,7 +3,7 @@ import { startStatic, startPeer, launch, openPage, waitFor, sleep, check } from 
 const withPeer = process.argv[2] !== 'nopeer';
 const srv = await startStatic(8080); if (withPeer) await startPeer(9000);
 const { browser, context } = await launch();
-const A = await openPage(await context(), `http://127.0.0.1:8080/index.html?peer=127.0.0.1:${withPeer ? 9000 : 9999}&testfps=4`, 'A');
+const A = await openPage(await context(), `http://127.0.0.1:8080/index.html?dev=1&peer=127.0.0.1:${withPeer ? 9000 : 9999}&testfps=4`, 'A');
 try {
   await A.click('#soloBtn');
   await waitFor(A, () => window.__hub.screen === 'lobby' && window.__hub.state.players.filter((p) => p.isBot).length === 3, null, 40000, 'solo lobby with bots');
