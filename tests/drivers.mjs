@@ -27,6 +27,13 @@ export const DRIVERS = {
       await sleep(700);
     }
   },
+  // Neon Rush: the game's own bot driver races for us (test-only autopilot hook), holding W as a fallback.
+  async neon(page, until) {
+    while (!(await until())) {
+      await page.evaluate(() => { if (window.__neon) window.__neon.autopilot = true; }).catch(() => {});
+      await sleep(1500);
+    }
+  },
   async coingrab(page, until) { while (!(await until())) await wiggle(page, 1200); },
 };
 export async function play(page, gameId, until) { const d = DRIVERS[gameId] || DRIVERS.coingrab; await d(page, until); }
