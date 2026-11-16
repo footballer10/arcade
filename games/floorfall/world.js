@@ -11,7 +11,7 @@ export const C = {
   LAYER_H: 5,            // vertical distance between layers
   KILL_Y: -9,            // below the bottom layer: out
   R: 0.42,               // player radius
-  SPEED: 5.6, ACC: 40, AIR_ACC: 15,
+  SPEED: 5.6, ACC: 62, AIR_ACC: 20,
   JUMP: 8.4, G: 25, MAX_FALL: 30,
   DASH_V: 13.5, DASH_T: 0.16, DASH_CD: 1.6, DASH_LIFT: 3,
   BUMP: 8.5, BUMP_UP: 4, STUN: 0.4,

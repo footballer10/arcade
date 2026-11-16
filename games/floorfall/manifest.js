@@ -10,7 +10,7 @@ export const manifest = {
   roundLengthSec: 210,          // best of 3 (first to 2): 2–3 rounds of ~60–90 s
   thumbnail: 'games/floorfall/thumb.svg',
   controlsHelp: [
-    ['WASD / Arrows', 'Run'], ['Space', 'Jump (cross a gap, or stall on a cracking tile)'], ['Shift', 'Dash (bumps players · works in the air)'],
+    ['WASD / Arrows', 'Run'], ['Hold mouse button', 'Run towards the cursor (any angle, slow near it)'], ['Space', 'Jump (cross a gap, or stall on a cracking tile)'], ['Shift', 'Dash (bumps players · works in the air)'],
     ['Every tile you touch', 'Cracks, then drops ~½ s later'], ['Fall through a hole', 'Land on the layer below · off the bottom = out'],
   ],
   picks: [],
