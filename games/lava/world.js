@@ -14,7 +14,10 @@ export const C = {
   HEAT_UP: 0.26, HEAT_CROWD: 0.16, COOL: 0.22, LAVA_HEAT: 0.14, CRUMBLE_T: 0.5, REGROW_T: 6.5,
   PUMICE_FLOAT: 0.42, PUMICE_SINK: 0.12, PUMICE_RISE: 0.1,
   // round clock
-  ROUND_T: 80, OVERTIME_RISE: 0.7, HARD_END: 22,
+  ROUND_T: 80, ROUND_SHRINK: 5, ROUND_MIN: 62, OVERTIME_RISE: 0.7, HARD_END: 22,
+  // volcano spirits (eliminated players lob lava bombs)
+  BOMB_T: 1.35, BOMB_R: 1.9, BOMB_KB: 9.5, BOMB_UP: 7.5, BOMB_HEAT: 40, GHOST_CD: 6, GHOST_FIRST: 2,
+  CROWN_WEIGHT: 1.6,
 };
 export const ST_CRUMBLE = 101, ST_GONE = 102;
 
@@ -80,7 +83,7 @@ function relax(cols, step = 1.3, reach = 4.6) {
 }
 const gapOk = (list, x, z, r, pad = 0.35) => list.every((o) => Math.hypot(o.x - x, o.z - z) >= o.r + r + pad);
 
-export function makeLevel(rng, layout, pattern, nPlayers) {
+export function makeLevel(rng, layout, pattern, nPlayers, round = 0) {
   const P = [];
   const add = (o) => { o.id = P.length; P.push(o); return o; };
   const col = (x, z, r, top) => add({ kind: 'basalt', x, z, r, top, bot: -40 });
@@ -169,7 +172,7 @@ export function makeLevel(rng, layout, pattern, nPlayers) {
     spawns.push(best);
   }
   const maxTop = Math.max(...P.filter((o) => o.kind === 'basalt').map((o) => o.top));
-  const lv = { from: -0.7, to: maxTop + 0.6, T: C.ROUND_T, pattern };
+  const lv = { from: -0.7, to: maxTop + 0.6, T: Math.max(C.ROUND_MIN, C.ROUND_T - C.ROUND_SHRINK * round), pattern };   // the volcano gets angrier every round
   return { layout, pattern, plats: P, spawns: spawns.map((s) => s.id), lv, maxTop };
 }
 
@@ -339,7 +342,7 @@ export function stepPlatforms(level, S, st, timers, occ, lava, dt, overtime) {
       if (p.top < lava - 0.2) { st[i] = ST_GONE; timers[i] = 0; continue; }   // drowned (may resurface on a lava tide)
       if (st[i] === ST_CRUMBLE) { timers[i] = (timers[i] || 0) + dt; if (timers[i] > C.CRUMBLE_T) { st[i] = ST_GONE; timers[i] = 0; ev.push([i, 'gone']); } continue; }
       let h = st[i] / 100;
-      if (occ[i] > 0) h += dt * (C.HEAT_UP + C.HEAT_CROWD * (occ[i] - 1));
+      if (occ[i] > 0) h += dt * (C.HEAT_UP * Math.min(occ[i], 1) + C.HEAT_CROWD * Math.max(0, occ[i] - 1));
       else h -= dt * C.COOL;
       if (p.top - lava < 0.9) h += dt * C.LAVA_HEAT;
       h = Math.max(0, h);
@@ -386,4 +389,11 @@ export function decodeSnap(buf) {
   }
   for (let i = 0; i < nS; i++) { s.st[i] = v.getUint16(o); o += 2; }
   return s;
+}
+
+// highest standable surface under (x, z): platform top or the lava
+export function groundAt(S, x, z, lava, below = 1e9) {
+  let y = lava;
+  for (const s of S) if (s.solid && s.top > y && s.top <= below && Math.hypot(s.x - x, s.z - z) < s.r) y = s.top;
+  return y;
 }

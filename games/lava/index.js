@@ -8,7 +8,7 @@
 // adopts a client's state when it is close to its own (smooth, responsive jumps) and otherwise forces a
 // correction (auth counter). Knockback, heat, crumbling, deaths and scoring are decided by the host only.
 export { manifest } from './manifest.js';
-import { C, LAYOUTS, PATTERNS, makeLevel, roundPlan, makeSolids, updateSolids, newPlayer, stepPlayer, separate, lavaAt, surgeIn, encodeSnap, decodeSnap, syncCounters } from './world.js';
+import { C, LAYOUTS, PATTERNS, makeLevel, roundPlan, makeSolids, updateSolids, newPlayer, stepPlayer, separate, lavaAt, surgeIn, encodeSnap, decodeSnap, syncCounters, groundAt } from './world.js';
 import { HostSim, INTRO_T, standingsOf } from './host.js';
 import { makeBot, botThink } from './bots.js';
 import { createView } from './render.js';
@@ -38,7 +38,7 @@ export async function start(ctx) {
   const [need, maxRounds] = MATCH[ctx.options.match] || MATCH.bo5;
   const plan = roundPlan(ctx.rng(0x1A7A), ctx.options.arena || 'mix', maxRounds);
   const levels = new Map();
-  const levelFor = (k) => { if (!levels.has(k)) levels.set(k, makeLevel(ctx.rng(0x100 + k * 977), plan[k].layout, plan[k].pattern, N)); return levels.get(k); };
+  const levelFor = (k) => { if (!levels.has(k)) levels.set(k, makeLevel(ctx.rng(0x100 + k * 977), plan[k].layout, plan[k].pattern, N, k)); return levels.get(k); };
   const api = { autopilot: false, turbo: 1, stats: { corrections: 0, snaps: 0 } };   // test-only hooks (tests/drivers.mjs)
   window.__lava = api;
 
@@ -55,7 +55,8 @@ export async function start(ctx) {
   ctx.on('settings', (k) => { if (k === 'quality') gfx.applyQ(); });
 
   // ---------------------------------------------------------------- shared client view of the round
-  const info = { round: 0, wins: Object.fromEntries(ids.map((id) => [id, 0])), pts: Object.fromEntries(ids.map((id) => [id, 0])), deaths: [], hist: [] };
+  const info = { round: 0, wins: Object.fromEntries(ids.map((id) => [id, 0])), pts: Object.fromEntries(ids.map((id) => [id, 0])), ko: {}, deaths: [], hist: [] };
+  let crown = new Set(), ghostReadyAt = 0, aimPt = null;
   let round = -1, level = null, S = null, st = null, lava = 0, phase = 'wait', phaseT = 0, tC = 0, lastSnap = null;
   const view = new Map();       // id -> rendered state (others interpolated; me predicted)
   let me = null;                // my predicted player (clients); the host reads sim directly
@@ -77,17 +78,25 @@ export async function start(ctx) {
     const sp = me || [...view.values()][0];
     if (sp) { gfx.cam.x = sp.x; gfx.cam.y = sp.y; gfx.cam.z = sp.z; gfx.cam.yaw = Math.atan2(-sp.x, -sp.z); }
     gfx.cam.intro = 1; gfx.cam.introA = Math.atan2(sp ? sp.z : 0, sp ? sp.x : 1) - 0.9;
-    shownCount = 0; spec = null;
+    shownCount = 0; spec = null; ghostReadyAt = 0;
+    // Hot Crown: same rule as the host (match leader(s) heat rocks faster)
+    const top = Math.max(0, ...ids.map((id) => info.wins[id] || 0));
+    const lead = ids.filter((id) => top > 0 && (info.wins[id] || 0) === top);
+    crown = new Set(lead.length < ids.length ? lead : []);
+    gfx.fx.crown(crown);
   }
 
   // ---------------------------------------------------------------- input
   const myInput = { mx: 0, mz: 0, jh: false, j: 0, d: 0, s: 0, face: 0 };
   let spec = null, shownCount = 0;
   input.on('press', (a) => {
-    if (a === 'primary') {
-      if (!input.mouse.locked) input.lockPointer();
-      if (!amAlive()) cycleSpectate();
+    if (a === 'primary' && !amAlive() && !ctx.spectator && phase === 'play' && aimPt && performance.now() >= ghostReadyAt) {
+      net.toHost({ t: 'throw', x: +aimPt.x.toFixed(2), z: +aimPt.z.toFixed(2) });
+      ghostReadyAt = performance.now() + (C.GHOST_CD * 1000) / (api.turbo || 1);
+      return;
     }
+    if (a === 'primary' && amAlive() && !input.mouse.locked) input.lockPointer();
+    if ((a === 'jump' || a === 'secondary' || (a === 'primary' && ctx.spectator)) && !amAlive()) cycleSpectate();
     if (!amAlive() || phase !== 'play') return;
     if (a === 'jump') sfx.jump();
   });
@@ -118,13 +127,16 @@ export async function start(ctx) {
       case 'roundEnd': net.toAll({ t: 're', ...d }); break;
       case 'round': net.toAll({ t: 'rd', round: d.round }); break;
       case 'play': net.toAll({ t: 'go', round: d.round }); break;
+      case 'bomb': net.toAll({ t: 'bomb', id: d.id, by: d.by, x: +d.x.toFixed(2), z: +d.z.toFixed(2), land: +d.land.toFixed(3) }); break;
+      case 'boom': net.toAll({ t: 'boom', id: d.id, by: d.by, x: d.x, y: d.y, z: d.z }); break;
+      case 'final': net.toAll({ t: 'f2', ids: d.ids }); break;
       case 'done': finish(); break;
     }
   }
   function finish() {
     if (ended || !sim) return; ended = true;
     const stats = {};
-    for (const id of ids) { const w = sim.wins[id] || 0; stats[id] = `${w} round win${w === 1 ? '' : 's'} · outlived ${sim.pts[id] || 0}`; }
+    for (const id of ids) { const w = sim.wins[id] || 0, k = sim.ko[id] || 0; stats[id] = `${w} round win${w === 1 ? '' : 's'} · outlived ${sim.pts[id] || 0}${k ? ` · ${k} bomb KO` : ''}`; }
     const pl = sim.standings();
     const champ = pl[0]?.length === 1 ? ctx.player(pl[0][0])?.name : null;
     ctx.endGame(pl, { stats, title: champ ? `${champ} is King of the Volcano!` : 'The volcano has spoken!' });
@@ -140,7 +152,7 @@ export async function start(ctx) {
     inputs.clear();
   }
   ctx.on('hostchange', ({ amHost }) => { if (amHost && !sim) becomeHost(); });
-  ctx.on('join', (id) => { if (net.isHost && sim) net.to(id, { t: 'info', round: sim.round, wins: sim.wins, pts: sim.pts, deaths: sim.deaths, hist: sim.hist }); });
+  ctx.on('join', (id) => { if (net.isHost && sim) net.to(id, { t: 'info', round: sim.round, wins: sim.wins, pts: sim.pts, ko: sim.ko, deaths: sim.deaths, hist: sim.hist }); });
   ctx.on('go', () => { if (net.isHost && sim) sim.go(); });
 
   function adopt(from, m) {
@@ -165,13 +177,17 @@ export async function start(ctx) {
   net.onMessage((m, from) => {
     switch (m.t) {
       case 'in': if (net.isHost && sim && from !== ctx.myId) { inputs.set(from, m.i); adopt(from, m); } break;
+      case 'throw': if (net.isHost && sim && Number.isFinite(m.x) && Number.isFinite(m.z)) sim.throwBomb(from, m.x, m.z); break;   // client -> host request; host broadcasts 'bomb'
+      case 'bomb': api.stats.bombs = (api.stats.bombs || 0) + 1; if (m.by === ctx.myId) api.stats.myBombs = (api.stats.myBombs || 0) + 1; gfx.fx.bomb(m, ctx.player(m.by)?.colorHex ?? 0xffffff, lava); if (m.by === ctx.myId) ghostReadyAt = performance.now() + ((m.land - tC) / (api.turbo || 1) + C.GHOST_CD - C.BOMB_T) * 1000; sfx.whistle(); break;
+      case 'boom': { gfx.fx.boom(m.id, m.x, m.y, m.z); const f = view.get(camFocus); const d = f ? Math.hypot(f.x - m.x, f.z - m.z) : 99; sfx.boom(d < 6); if (d < 7) gfx.fx.shake(0.7 - d * 0.07); break; }
+      case 'f2': ui.banner('🔥 FINAL TWO! 🔥', 2000); sfx.surge(); gfx.fx.shake(0.4); break;
       case 'hit': onHit(m); break;
       case 'sh': if (m.id !== ctx.myId) { const v = view.get(m.id); if (v) gfx.fx.shove(v.x, v.y, v.z, v.face, ctx.player(m.id).colorHex); sfx.shove(m.hit); } break;
       case 'die': onDie(m); break;
       case 're': onRoundEnd(m); break;
       case 'rd': info.round = m.round; info.deaths = []; break;
       case 'go': break;
-      case 'info': Object.assign(info, { round: m.round, wins: { ...m.wins }, pts: { ...m.pts }, deaths: m.deaths.map((g) => [...g]), hist: m.hist || [] }); break;
+      case 'info': Object.assign(info, { round: m.round, wins: { ...m.wins }, pts: { ...m.pts }, ko: { ...(m.ko || {}) }, deaths: m.deaths.map((g) => [...g]), hist: m.hist || [] }); break;
     }
   });
   function onHit(m) {
@@ -192,10 +208,12 @@ export async function start(ctx) {
     if (mine) { if (me) me.alive = false; gfx.fx.shake(1); ui.banner('🔥 TOASTED!', 1600); }
     const name = ctx.player(m.id)?.name || '?';
     const by = m.by ? ctx.player(m.by)?.name : null;
-    if (!mine) ui.toast(by ? `💥 ${by} shoved ${name} into the lava` : `🔥 ${name} melted`, m.by === ctx.myId ? 'gold' : '', 2600);
+    if (!mine) ui.toast(m.ghost && by ? `👻 ${by}'s lava bomb got ${name}!` : by ? `💥 ${by} shoved ${name} into the lava` : `🔥 ${name} melted`, m.by === ctx.myId ? 'gold' : '', 2600);
+    if (mine) { ghostReadyAt = performance.now() + (C.GHOST_FIRST * 1000) / (api.turbo || 1); ctx.setTimeout(() => { if (phase === 'play') ui.toast('👻 You are a volcano spirit: click to lob lava bombs!', 'gold', 3500); }, 1700); }
+    if (m.ghost && m.by === ctx.myId) { ui.toast(`👻 Revenge! Your bomb got ${name}`, 'gold', 2600); ctx.audio.play('coin'); }
   }
   function onRoundEnd(m) {
-    info.wins = { ...m.wins }; info.pts = { ...m.pts }; info.hist.push({ round: m.round, winners: m.winners });
+    info.wins = { ...m.wins }; info.pts = { ...m.pts }; info.ko = { ...(m.ko || {}) }; info.hist.push({ round: m.round, winners: m.winners });
     const names = m.winners.map((id) => ctx.player(id)?.name || '?');
     const mine = m.winners.includes(ctx.myId);
     if (N === 1) ui.banner(`🔥 You lasted ${Math.round(m.t)} s`, 3000);
@@ -258,6 +276,7 @@ export async function start(ctx) {
   });
 
   // ---------------------------------------------------------------- frame: prediction, camera, render, HUD
+  let camFocus = ctx.myId;
   let sendAcc = 0, predAcc = 0, lastPhase = 'wait', lastCount = 0, meterLbl = '';
   useRound(0);
   ctx.frame((dt, now) => {
@@ -268,7 +287,7 @@ export async function start(ctx) {
     if (host) {
       if (sim.round !== round) useRound(sim.round);
       S = sim.S; st = sim.st; lava = sim.lava; phase = sim.phase; phaseT = sim.phaseT; tC = sim.t;
-      info.round = sim.round; info.wins = sim.wins; info.pts = sim.pts; info.deaths = sim.deaths; info.hist = sim.hist;
+      info.round = sim.round; info.wins = sim.wins; info.pts = sim.pts; info.ko = sim.ko; info.deaths = sim.deaths; info.hist = sim.hist;
       for (const p of sim.players) { const v = view.get(p.id); if (!v) continue; Object.assign(v, { x: p.x, y: p.y, z: p.z, vx: p.vx, vy: p.vy, vz: p.vz, face: p.face, alive: p.alive, grounded: p.gr >= 0, dashing: p.dashT > 0, stunned: p.stun > 0, shoving: p.shoveT > 0 }); }
     } else if (level) {
       phaseT += dt * (api.turbo || 1);
@@ -315,14 +334,14 @@ export async function start(ctx) {
     }
     // --- phase cues (round intro countdown, GO)
     if (phase !== lastPhase) {
-      if (phase === 'intro') { ui.banner(`ROUND ${round + 1}`, 1700); ui.toast(`${LAYOUTS[level.layout].name} · ${PATTERNS[level.pattern].icon} ${PATTERNS[level.pattern].name}`, 'gold', 2600); gfx.cam.intro = 1; }
+      if (phase === 'intro') { ui.banner(`ROUND ${round + 1}`, 1700); if (crown.size) ctx.setTimeout(() => ui.toast(`👑 ${[...crown].map((id) => ctx.player(id)?.name).join(' & ')} wear${crown.size > 1 ? '' : 's'} the Hot Crown: rocks heat faster under them!`, '', 3200), 1200); ui.toast(`${LAYOUTS[level.layout].name} · ${PATTERNS[level.pattern].icon} ${PATTERNS[level.pattern].name}`, 'gold', 2600); gfx.cam.intro = 1; }
       if (phase === 'play' && lastPhase === 'intro') { ui.countdown(0); }
       if (phase === 'play' && round === 0) { ui.toast(`${LAYOUTS[level.layout].name} · ${PATTERNS[level.pattern].icon} ${PATTERNS[level.pattern].name}`, 'gold', 2600); }
       lastPhase = phase;
     }
     if (phase === 'intro') { const c = Math.ceil(INTRO_T - phaseT); if (c >= 1 && c <= 3 && c !== lastCount) { lastCount = c; ui.countdown(c); } } else lastCount = 0;
     // --- camera
-    const focusId = amAlive() ? ctx.myId : (spec && view.get(spec)?.alive ? spec : (spec = ids.find((id) => view.get(id)?.alive && id !== ctx.myId) || spec));
+    const focusId = camFocus = amAlive() ? ctx.myId : (spec && view.get(spec)?.alive ? spec : (spec = ids.find((id) => view.get(id)?.alive && id !== ctx.myId) || spec));
     const f = view.get(focusId) || view.get(ctx.myId) || [...view.values()][0];
     const cam = gfx.cam;
     if (f) { const k = Math.min(1, dt * 10); cam.x += (f.x - cam.x) * k; cam.z += (f.z - cam.z) * k; cam.y += (f.y - cam.y) * Math.min(1, dt * 6); }
@@ -337,7 +356,11 @@ export async function start(ctx) {
     if (si < 0 || si > 2) gfx._surgeWarned = false;
     sfx.update(dt, { danger: phase === 'play' ? danger : 0, surge: si > 0 && si < 1.6 ? 1 - si / 1.6 : 0, active: phase === 'play' });
     // --- render
-    gfx.update(dt, now, { S, st, lava, players: view, onCrumble: (p) => { const near = f && Math.hypot(p.x - f.x, p.z - f.z) < 6; sfx.crumble(near); if (near) gfx.fx.shake(0.35); }, onCrack: () => sfx.crack() });
+    gfx.update(dt, now, { S, st, lava, t: tC, groundAt: (x, z) => groundAt(S, x, z, lava), players: view, onCrumble: (p) => { const near = f && Math.hypot(p.x - f.x, p.z - f.z) < 6; sfx.crumble(near); if (near) gfx.fx.shake(0.35); }, onCrack: () => sfx.crack() });
+    // --- ghost aim (eliminated players lob lava bombs)
+    const ghost = !amAlive() && !ctx.spectator && phase === 'play' && !!S;
+    const ready = performance.now() >= ghostReadyAt;
+    aimPt = gfx.aimAt(input.mouse.locked ? 0 : input.mouse.nx, input.mouse.locked ? 0 : input.mouse.ny, f ? f.y : lava + 2, ghost, ready, ctx.player(ctx.myId)?.colorHex ?? 0xffffff, (x, z) => groundAt(S, x, z, lava));
     // --- HUD
     const myView = view.get(ctx.myId);
     const myPlat = amAlive() && me ? (host ? sim.byId.get(ctx.myId)?.gr : me.gr) : -1;
@@ -348,12 +371,16 @@ export async function start(ctx) {
     if (phase === 'play') { if (tC < T) ui.timer(T - tC, { warn: 10 }); else ui.timer(0, { text: '🔥 OVERTIME' }); } else ui.timer(null);
     const L = level ? `${LAYOUTS[level.layout].name}` : '';
     ui.status(ctx.spectator ? `👀 Spectating · Round ${round + 1}` : amAlive() || phase !== 'play' ? `🌋 Round ${round + 1}${maxRounds > 1 ? '/' + maxRounds : ''} · ${L}` : `💀 Out · watching ${ui.esc(ctx.player(focusId)?.name || '…')}`);
-    hint.textContent = !amAlive() && phase === 'play' && !ctx.spectator ? 'Click to switch who you watch' : heat > 0.7 && phase === 'play' ? 'HOT! Move!' : '';
-    const order = standingsOf(ids, info.wins, info.pts).flat();
-    ui.mini(order.map((id) => { const p = ctx.player(id), v = view.get(id); return { id, name: p.name, color: p.color, value: '★'.repeat(info.wins[id] || 0) || '·', me: id === ctx.myId, out: !v?.alive }; }), need > 1 ? `First to ${need} ★` : '');
+    hint.textContent = ghost ? (ready ? 'Aim with the mouse · click to drop a lava bomb' : '') : heat > 0.7 && phase === 'play' ? 'HOT! Move!' : '';
+    const order = standingsOf(ids, info.wins, info.pts, null, info.ko).flat();
+    ui.mini(order.map((id) => { const p = ctx.player(id), v = view.get(id); return { id, name: p.name, color: p.color, value: (crown.has(id) ? '👑' : '') + ('★'.repeat(info.wins[id] || 0) || '·'), me: id === ctx.myId, out: !v?.alive }; }), need > 1 ? `First to ${need} ★` : '');
     const mp = host ? sim.byId.get(ctx.myId) : me;
     const dim = !amAlive();
-    ui.abilities([
+    if (ghost) ui.abilities([
+      { key: 'Click', label: '🔥 Lava bomb', cd: Math.max(0, ghostReadyAt - performance.now()) / (C.GHOST_CD * 1000), ready, wide: true },
+      { key: 'Space', label: 'View', ready: true },
+    ]);
+    else ui.abilities([
       { key: 'Space', label: 'Jump', ready: !dim, dim },
       { key: 'Shift', label: mp && mp.gr < 0 && mp.airDash ? 'Dash ✗' : 'Dash', cd: (mp?.dashCd || 0) / C.DASH_CD, ready: !dim && (mp?.dashCd || 0) <= 0, dim },
       { key: 'Click', label: 'Shove', cd: (mp?.shoveCd || 0) / C.SHOVE_CD, ready: !dim && (mp?.shoveCd || 0) <= 0, dim },
@@ -370,10 +397,10 @@ export async function start(ctx) {
     }
   });
 
-  ui.setScoreboard(() => ({ columns: ['Player', 'Round wins', 'Outlived', 'This round'], rows: standingsOf(ids, info.wins, info.pts).flat().map((id) => [ui.esc(ctx.player(id)?.name || id), '★'.repeat(info.wins[id] || 0) || '0', info.pts[id] || 0, view.get(id)?.alive ? 'alive' : 'out']) }));
+  ui.setScoreboard(() => ({ columns: ['Player', 'Round wins', 'Outlived', 'Bomb KOs', 'This round'], rows: standingsOf(ids, info.wins, info.pts, null, info.ko).flat().map((id) => [ui.esc((crown.has(id) ? '👑 ' : '') + (ctx.player(id)?.name || id)), '★'.repeat(info.wins[id] || 0) || '0', info.pts[id] || 0, info.ko[id] || 0, view.get(id)?.alive ? 'alive' : 'out']) }));
 
   return {
-    standings: () => (sim ? sim.standings() : standingsOf(ids, info.wins, info.pts)),
+    standings: () => (sim ? sim.standings() : standingsOf(ids, info.wins, info.pts, null, info.ko)),
     stop() {
       sfx.dispose(); gfx.dispose(); levels.clear();
       if (window.__lava === api) delete window.__lava;

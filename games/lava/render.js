@@ -101,6 +101,7 @@ export function createView(ctx) {
     // dispose the previous round's per-platform materials
     for (const pm of platMeshes) for (const m of pm.own) m.dispose();
     levelGroup.clear(); platMeshes = []; level = lv;
+    for (const id of [...bombs.keys()]) removeBomb(id);
     const q = ctx.quality();
     for (const p of lv.plats) {
       const g = new THREE.Group(); g.position.set(p.x, p.top, p.z);
@@ -145,7 +146,7 @@ export function createView(ctx) {
   }
   // name tags
   const tagLayer = document.createElement('div'); tagLayer.className = 'lv-tags'; ctx.container.appendChild(tagLayer);
-  const tags = new Map();
+  const tags = new Map(), crowned = new Set();
   for (const p of ctx.players) { const e = document.createElement('div'); e.className = 'lv-tag' + (p.id === ctx.myId ? ' me' : ''); e.style.setProperty('--c', p.colorCss); e.textContent = p.name; tagLayer.appendChild(e); tags.set(p.id, e); }
 
   // ---- particles (embers, sparks, smoke puffs): one additive Points cloud
@@ -171,6 +172,28 @@ export function createView(ctx) {
     const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
     m.position.set(x, y + 0.8, z); m.rotation.set(-Math.PI / 2, 0, -face + Math.PI / 2); scene.add(m); rings.push({ m, t: 0 });
   }
+
+  // ---- lava bombs (thrown by eliminated players) + the ghost aim cursor
+  const bombGeo = new THREE.SphereGeometry(0.45, 14, 10), teleGeo = new THREE.RingGeometry(0.85, 1, 40), beamGeo = new THREE.CylinderGeometry(0.06, 0.06, 1, 6, 1, true);
+  beamGeo.translate(0, 0.5, 0);
+  const bombMat = new THREE.MeshBasicMaterial({ color: 0xffb347 });
+  const bombs = new Map();
+  function addBomb(b, colorHex, lavaY) {
+    const a = Math.atan2(b.z, b.x) + (Math.random() - 0.5) * 0.8;
+    const from = { x: Math.cos(a) * 15.5, z: Math.sin(a) * 15.5, y: lavaY };
+    const m = new THREE.Mesh(bombGeo, bombMat);
+    const ring = new THREE.Mesh(teleGeo, new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
+    ring.rotation.x = -Math.PI / 2; ring.scale.setScalar(C.BOMB_R);
+    const fill = new THREE.Mesh(new THREE.CircleGeometry(1, 32), new THREE.MeshBasicMaterial({ color: 0xff3a10, transparent: true, opacity: 0.25, depthWrite: false }));
+    fill.rotation.x = -Math.PI / 2;
+    scene.add(m, ring, fill);
+    bombs.set(b.id, { b, m, ring, fill, from, col: new THREE.Color(colorHex) });
+  }
+  function removeBomb(id) { const e = bombs.get(id); if (!e) return; e.m.removeFromParent(); e.ring.material.dispose(); e.ring.removeFromParent(); e.fill.geometry.dispose(); e.fill.material.dispose(); e.fill.removeFromParent(); bombs.delete(id); }
+  const aimMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false });
+  const aim = new THREE.Mesh(teleGeo, aimMat); aim.rotation.x = -Math.PI / 2; aim.visible = false; scene.add(aim);
+  const beam = new THREE.Mesh(beamGeo, aimMat); beam.visible = false; scene.add(beam);
+  const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), ndc = new THREE.Vector2();
 
   // ---- camera rig
   const cam = { yaw: 0, pitch: 0.5, dist: 10, x: 0, y: 4, z: 0, shake: 0, intro: 0 };
@@ -265,7 +288,18 @@ export function createView(ctx) {
     pGeo.setDrawRange(0, n); pGeo.attributes.position.needsUpdate = pGeo.attributes.color.needsUpdate = pGeo.attributes.size.needsUpdate = true;
     // ambient embers rising off the lava
     if (Math.random() < dt * 30) { const a = Math.random() * TAU, r = Math.random() * 15; spawn(Math.cos(a) * r, s.lava + 0.1, Math.sin(a) * r, (Math.random() - 0.5) * 0.6, 1.5 + Math.random() * 2.5, (Math.random() - 0.5) * 0.6, 2.5 + Math.random() * 2, 0.25 + Math.random() * 0.25, SPARK, 0.3); }
-    for (let i = rings.length - 1; i >= 0; i--) { const r = rings[i]; r.t += dt; const k = r.t / 0.3; r.m.scale.setScalar(1 + k * 1.6); r.m.material.opacity = Math.max(0, 0.9 * (1 - k)); if (k >= 1) { r.m.material.dispose(); r.m.removeFromParent(); rings.splice(i, 1); } }
+    for (const [id, e] of bombs) {
+      const p = Math.max(0, Math.min(1, 1 - (e.b.land - s.t) / C.BOMB_T));
+      const gy = s.groundAt ? s.groundAt(e.b.x, e.b.z) : s.lava;
+      e.m.position.set(e.from.x + (e.b.x - e.from.x) * p, e.from.y + (gy - e.from.y) * p + 10 * 4 * p * (1 - p), e.from.z + (e.b.z - e.from.z) * p);
+      e.m.rotation.x += dt * 8;
+      if (Math.random() < 0.9) spawn(e.m.position.x, e.m.position.y, e.m.position.z, (Math.random() - 0.5), 0.5, (Math.random() - 0.5), 0.5, 0.8, e.col, 0);
+      e.ring.position.set(e.b.x, gy + 0.06, e.b.z); e.fill.position.set(e.b.x, gy + 0.05, e.b.z);
+      e.ring.scale.setScalar(C.BOMB_R * (1.25 - 0.25 * p)); e.ring.material.opacity = 0.5 + 0.5 * Math.abs(Math.sin(t * (6 + p * 14)));
+      e.fill.scale.setScalar(C.BOMB_R * p); e.fill.material.opacity = 0.15 + p * 0.3;
+      if (p >= 1 && s.t > e.b.land + 0.5) removeBomb(id);
+    }
+    for (let i = rings.length - 1; i >= 0; i--) { const r = rings[i]; r.t += dt; const k = r.t / (r.big ? 0.45 : 0.3); r.m.scale.setScalar(r.big ? 0.5 + k * C.BOMB_R * 1.6 : 1 + k * 1.6); r.m.material.opacity = Math.max(0, 0.9 * (1 - k)); if (k >= 1) { r.m.material.dispose(); r.m.removeFromParent(); rings.splice(i, 1); } }
     // camera
     cam.shake = Math.max(0, cam.shake - dt * 2.2);
     const sh = cam.shake * cam.shake * 0.6;
@@ -290,14 +324,35 @@ export function createView(ctx) {
     renderer.render(scene, camera);
   }
 
+  // ghost aiming: screen point (ndc) -> ground point on the plane y = h. show=false hides the cursor
+  function aimAt(nx, ny, h, show, ready, colorHex, groundY) {
+    aim.visible = beam.visible = show;
+    if (!show) return null;
+    ndc.set(nx, ny); ray.setFromCamera(ndc, camera); plane.constant = -h;
+    const hit = ray.ray.intersectPlane(plane, v3); if (!hit) { aim.visible = beam.visible = false; return null; }
+    const r = Math.hypot(hit.x, hit.z); if (r > 14.5) { hit.x *= 14.5 / r; hit.z *= 14.5 / r; }
+    const gy = groundY(hit.x, hit.z);
+    aimMat.color.set(ready ? colorHex : 0x777777); aimMat.opacity = ready ? 0.9 : 0.4;
+    aim.position.set(hit.x, gy + 0.08, hit.z); aim.scale.setScalar(C.BOMB_R * (ready ? 1 + Math.sin(performance.now() / 120) * 0.05 : 0.7));
+    beam.position.set(hit.x, gy, hit.z); beam.scale.set(1, 12, 1);
+    return { x: hit.x, z: hit.z };
+  }
   return {
-    renderer, scene, camera, cam, buildLevel, update, resize, applyQ,
+    renderer, scene, camera, cam, buildLevel, update, resize, applyQ, aimAt,
     fx: {
       shove(x, y, z, face, color) { shoveRing(x, y, z, face, color); },
+      crown(set) { for (const [id, e] of tags) { const p = ctx.player(id); e.textContent = (set.has(id) ? '👑 ' : '') + p.name; } },
       hit(x, y, z) { burst(x, y + 0.9, z, 18, 6, SPARK, 0.4, 0.5, 3, -4); burst(x, y + 0.9, z, 6, 3, WHITE, 0.25, 0.9, 1, 0); },
       die(x, y, z) { burst(x, y, z, 50, 6, FIRE, 1.1, 0.9, 9, -10); burst(x, y, z, 24, 3, SPARK, 1.4, 0.5, 12, -12); },
       land(x, y, z, k) { burst(x, y + 0.05, z, Math.round(4 + k * 6), 2.5, new THREE.Color(0.6, 0.55, 0.6), 0.35, 0.35, 0.6, -2); },
       shake(k) { cam.shake = Math.max(cam.shake, k); },
+      bomb(b, colorHex, lavaY) { addBomb(b, colorHex, lavaY); },
+      boom(id, x, y, z) {
+        removeBomb(id);
+        burst(x, y + 0.2, z, 60, 8, FIRE, 0.9, 0.9, 7, -12); burst(x, y + 0.2, z, 20, 4, SPARK, 1.2, 0.5, 10, -14);
+        const r = new THREE.Mesh(teleGeo, new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
+        r.rotation.x = -Math.PI / 2; r.position.set(x, y + 0.1, z); scene.add(r); rings.push({ m: r, t: 0, big: true });
+      },
     },
     dispose() {
       for (const pm of platMeshes) for (const m of pm.own) m.dispose();
@@ -306,7 +361,8 @@ export function createView(ctx) {
       ctx.three.dispose(scene);
       for (const g of keepGeo) g.dispose();
       for (const m of keepMat) m.dispose();
-      GRAD.dispose(); glowTex.dispose(); ringGeo.dispose();
+      for (const id of [...bombs.keys()]) removeBomb(id);
+      GRAD.dispose(); glowTex.dispose(); ringGeo.dispose(); bombGeo.dispose(); teleGeo.dispose(); beamGeo.dispose(); bombMat.dispose(); aimMat.dispose();
       tagLayer.remove();
     },
   };
