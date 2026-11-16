@@ -327,7 +327,11 @@ export async function start(ctx) {
     else ui.abilities([]);
   }
   ui.setScoreboard(() => { const src = sim || info; return { columns: ['Player', '★ Rounds', 'Outlived', 'Tiles cracked', 'Bumps'], rows: standings().flat().map((id) => [ui.esc(ctx.player(id)?.name || id), src.wins[id] || 0, src.pts[id] || 0, src.cracked?.[id] || 0, src.bumps?.[id] || 0]) }; });
-  function standings() { return sim ? sim.standings() : standingsOf(ids, info.wins, info.pts); }
+  function standings() {
+    if (sim) return sim.standings();
+    const cur = {}; if (phase === 'play') for (const id of ids) { const i = info.out.indexOf(id); cur[id] = i < 0 ? info.out.length + 1 : i; }
+    return standingsOf(ids, info.wins, info.pts, cur);
+  }
 
   return {
     standings,
