@@ -62,8 +62,33 @@ export function createView(ctx, cfg) {
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), floorMat);
   floor.rotation.x = -Math.PI / 2; floor.scale.set(cfg.r0 * 2 + 160, cfg.r0 * 2 + 160, 1); scene.add(floor);
 
+  // ---- rocks (Asteroid Belt): chunky faceted crystals with ink outlines and a magenta under-glow
+  const rockGeo = new THREE.IcosahedronGeometry(1, 0);
+  const rockMat = new THREE.MeshToonMaterial({ color: 0x5b3fa8, emissive: 0x1d0f45 });
+  const rockInk = new THREE.MeshBasicMaterial({ color: INK, side: THREE.BackSide });
+  const rockGlowMat = new THREE.MeshBasicMaterial({ color: 0xff3dd0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.45 });
+  const rockQuad = new THREE.PlaneGeometry(1, 1);
+  for (const r of cfg.rocks || []) {
+    const m = new THREE.Mesh(rockGeo, rockMat); m.position.set(r.x, r.r * 0.35, r.y); m.scale.set(r.r * 1.05, r.r * 0.75, r.r * 1.05);
+    m.rotation.set(r.seed * 3, r.seed * 7, r.seed * 5); scene.add(m);
+    const o = new THREE.Mesh(rockGeo, rockInk); o.scale.setScalar(1.08); m.add(o);
+  }
+
+  // ---- Golden Bloom beacon: a pillar of light + pulsing floor ring
+    const beacon = new THREE.Group(); beacon.visible = false; scene.add(beacon);
+  const beamMat = new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.35, side: THREE.DoubleSide });
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 3.4, 30, 24, 1, true), beamMat); beam.position.y = 15; beacon.add(beam);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.8, side: THREE.DoubleSide });
+  const bRing = new THREE.Mesh(new THREE.RingGeometry(4.6, 5.4, 48), ringMat); bRing.rotation.x = -Math.PI / 2; bRing.position.y = 0.08; beacon.add(bRing);
+  let bloomAt = 0, bloomEnd = 0;
+
+  // ---- the King Snake's crown
+  const crown = ctx.avatar.hat('crown', 0xffcc00); crown.visible = false; scene.add(crown);
+
   // ---- snakes (all bodies in three instanced meshes)
   const glowTex = glowTexture();
+  rockGlowMat.map = glowTex;
+  for (const r of cfg.rocks || []) { const g = new THREE.Mesh(rockQuad, rockGlowMat); g.rotation.x = -Math.PI / 2; g.position.set(r.x, 0.06, r.y); g.scale.setScalar(r.r * 3.4); scene.add(g); }
   const segGeo = new THREE.SphereGeometry(1, 16, 10);
   const bodyMat = new THREE.MeshToonMaterial({ color: 0xffffff });
   const body = new THREE.InstancedMesh(segGeo, bodyMat, MAX_SEG); body.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -164,9 +189,11 @@ export function createView(ctx, cfg) {
       seen.add(s.p.id);
       const r = radiusOf(s.mass), L = lengthOf(s.mass), sp = spacingOf(r);
       const cnt = s.trail.sample(L, sp, SAMPLE, Math.min(PER_SNAKE, MAX_SEG - n));
-      const base = tmpC2.set(s.p.colorHex);
+      const base = tmpC2.set(s.p.colorHex), skin = s.skin || 'stripes', ghost = s.ghost;
+      const glowK = skin === 'neon' ? 4.4 : 3.4;
       // draw tail first so the head sits on top
       for (let k = cnt - 1; k >= 0; k--) {
+        if (ghost && k % 2 && k > 0) continue;     // respawn ghost: see-through, flickery
         const x = SAMPLE[k * 2], y = SAMPLE[k * 2 + 1];
         const taper = k > cnt - 6 ? 0.55 + 0.45 * ((cnt - k) / 6) : 1;
         const rr = r * taper * (k === 0 ? 1.12 : 1);
@@ -174,11 +201,14 @@ export function createView(ctx, cfg) {
         tmpP.set(x, yy, y); tmpS.set(rr, rr * 0.6, rr); tmpQ.identity();
         tmpM.compose(tmpP, tmpQ, tmpS); body.setMatrixAt(n, tmpM);
         tmpS.set(rr * 1.13, rr * 0.62, rr * 1.13); tmpP.y = yy - 0.02; tmpM.compose(tmpP, tmpQ, tmpS); outline.setMatrixAt(n, tmpM);
-        tmpP.set(x, 0.05, y); tmpS.setScalar(rr * (s.boost ? 4.6 : 3.4)); tmpM.compose(tmpP, FLAT, tmpS); glow.setMatrixAt(n, tmpM);
+        tmpP.set(x, 0.05, y); tmpS.setScalar(rr * (s.boost ? glowK + 1.2 : glowK) * (ghost ? 0.5 : 1)); tmpM.compose(tmpP, FLAT, tmpS); glow.setMatrixAt(n, tmpM);
         // stripes + boost pulse running down the body
-        let lum = (k % 7 < 2) ? 0.22 : 0;
+        let lum = skin === 'stripes' ? (k % 7 < 2 ? 0.25 : 0) : skin === 'dots' ? (k % 4 === 0 ? 0.45 : 0) : skin === 'neon' ? 0.12 + 0.1 * Math.sin(k * 0.5 - f.t * 6) : 0;
         if (s.boost) { const w = (k - f.t * 40) % 10; lum += (w < 0 ? w + 10 : w) < 2.5 ? 0.55 : 0.1; }
-        body.setColorAt(n, tmpC3.copy(base).lerp(WHITE, lum)); glow.setColorAt(n, base);
+        if (ghost) lum += 0.45 + 0.3 * Math.sin(f.t * 30);
+        tmpC3.copy(base);
+        if (skin === 'bands' && k % 6 >= 3) tmpC3.multiplyScalar(0.55);
+        body.setColorAt(n, tmpC3.lerp(WHITE, Math.min(1, lum))); glow.setColorAt(n, base);
         n++;
       }
       // head decorations
@@ -195,6 +225,15 @@ export function createView(ctx, cfg) {
     if (body.instanceColor) body.instanceColor.needsUpdate = true;
     if (glow.instanceColor) glow.instanceColor.needsUpdate = true;
     for (const [id, h] of heads) if (!seen.has(id)) { h.g.visible = false; h.tag.style.display = 'none'; }
+    const king = f.king && f.snakes.find((s) => s.p.id === f.king && s.alive);
+    crown.visible = !!king;
+    if (king) { const r = radiusOf(king.mass); crown.position.set(king.x, 1.6 + r * 1.4 + Math.sin(f.t * 4) * 0.25, king.y); crown.scale.setScalar(1.3 + r); crown.rotation.y = f.t * 1.5; }
+    if (f.bloom) {
+      beacon.visible = true; beacon.position.set(f.bloom.x, 0, f.bloom.y);
+      const left = f.bloom.at - f.simT, p = 0.5 + 0.5 * Math.sin(f.t * (left < 1 ? 26 : 12));
+      beamMat.opacity = 0.18 + 0.25 * p; ringMat.opacity = 0.5 + 0.5 * p;
+      const sc = 0.6 + Math.max(0, Math.min(1, left / 3)) * 0.9; bRing.scale.setScalar(sc);
+    } else beacon.visible = false;
     // orbs
     let m = 0;
     const tt = f.t;
@@ -202,8 +241,8 @@ export function createView(ctx, cfg) {
       if (m >= MAX_ORBS) return;
       const s0 = orbSize(o.v) * sc * (1 + 0.12 * Math.sin(tt * 4 + o.id));
       tmpP.set(o.x, 0.35, o.y); tmpS.setScalar(s0); tmpQ.identity(); tmpM.compose(tmpP, tmpQ, tmpS); orbs.setMatrixAt(m, tmpM);
-      tmpP.y = 0.04; tmpS.setScalar(s0 * (o.k === 1 ? 7 : 5.5)); tmpM.compose(tmpP, FLAT, tmpS); orbGlow.setMatrixAt(m, tmpM);
-      tmpC.set(o.k ? ctx.players[o.c]?.colorHex ?? PAL[o.c & 7] : PAL[o.c & 7]);
+      tmpP.y = 0.04; tmpS.setScalar(s0 * (o.k === 3 ? 8 : o.k === 1 ? 7 : 5.5)); tmpM.compose(tmpP, FLAT, tmpS); orbGlow.setMatrixAt(m, tmpM);
+      tmpC.set(o.k === 3 ? 0xffd23f : o.k ? ctx.players[o.c]?.colorHex ?? PAL[o.c & 7] : PAL[o.c & 7]);
       orbGlow.setColorAt(m, tmpC); orbs.setColorAt(m, tmpC.lerp(WHITE, 0.35));
       m++;
     };
@@ -243,9 +282,10 @@ export function createView(ctx, cfg) {
     snapCamera(x, y) { cam.x = x; cam.y = y; },
     dispose() {
       for (const h of heads.values()) { ctx.avatar.dispose(h.hat); h.tag.remove(); }
+      ctx.avatar.dispose(crown);
       heads.clear();
       ctx.three.dispose(scene, keep);
-      quad.dispose(); glowTex.dispose(); eyeGeo.dispose(); pGeo.dispose(); pMat.dispose();
+      quad.dispose(); glowTex.dispose(); rockQuad.dispose(); eyeGeo.dispose(); pGeo.dispose(); pMat.dispose();
     },
   };
 }

@@ -33,7 +33,23 @@ export function ringAt(t, cfg) {
   const f = (t - a) / (b - a);
   return r0 + (r1 - r0) * (f * (2 - f) * 0.35 + f * 0.65);   // a little faster early on
 }
-export const arenaCfg = (len, n) => ({ len, r0: 34 + 4.5 * Math.max(2, n), r1: 10 + 1.2 * n });
+export const arenaCfg = (len, n, mode = 'royale') => ({ len, mode, r0: 34 + 4.5 * Math.max(2, n), r1: (10 + 1.2 * n) * (mode === 'frenzy' ? 1.7 : 1) });
+
+// Asteroid Belt: seeded rocks (identical everywhere). One sits in the middle so the final ring becomes a donut.
+export function makeRocks(rng, cfg, n) {
+  const rocks = [{ x: 0, y: 0, r: 3.2 + rng() * 1.2 }];
+  const spawns = Array.from({ length: n }, (_, i) => spawnOf(i, n, cfg.r0));
+  for (let tries = 0; rocks.length < 9 && tries < 200; tries++) {
+    const a = rng() * Math.PI * 2, d = 12 + rng() * (cfg.r0 - 22), r = 2.2 + rng() * 2.6;
+    const x = Math.cos(a) * d, y = Math.sin(a) * d;
+    if (rocks.some((o) => Math.hypot(o.x - x, o.y - y) < o.r + r + 9)) continue;
+    if (spawns.some((sp) => Math.hypot(sp.x - x, sp.y - y) < r + 9 || Math.hypot(sp.x - Math.cos(sp.a) * 8 - x, sp.y - Math.sin(sp.a) * 8 - y) < r + 6)) continue;
+    rocks.push({ x, y, r, seed: rng() });
+  }
+  rocks[0].seed = rng();
+  return rocks;
+}
+export const inRock = (rocks, x, y, pad = 0) => rocks.some((o) => Math.hypot(o.x - x, o.y - y) < o.r + pad);
 
 // ------------------------------------------------------------------ the body: a path behind the head
 export class Trail {
@@ -146,13 +162,13 @@ export function standingsOf(list) {
 // ------------------------------------------------------------------ binary packets
 const A16 = (a) => Math.round(((wrapA(a) + Math.PI) / (Math.PI * 2)) * 65535) & 65535;
 const UA16 = (u) => (u / 65535) * Math.PI * 2 - Math.PI;
-// snapshot: [1][f32 t][u8 n] + n * [u8 idx][u8 flags][i16 x][i16 y][u16 a][u16 mass*10][u16 ack][u8 kills][u16 aim]
-export function encodeSnap(t, list) {
-  const buf = new ArrayBuffer(6 + list.length * 16), dv = new DataView(buf);
-  dv.setUint8(0, 1); dv.setFloat32(1, t); dv.setUint8(5, list.length);
-  let o = 6;
+// snapshot: [1][f32 t][f32 R][u8 n] + n * [u8 idx][u8 flags][i16 x][i16 y][u16 a][u16 mass*10][u16 ack][u8 kills][u16 aim]
+export function encodeSnap(t, R, list) {
+  const buf = new ArrayBuffer(10 + list.length * 16), dv = new DataView(buf);
+  dv.setUint8(0, 1); dv.setFloat32(1, t); dv.setFloat32(5, R); dv.setUint8(9, list.length);
+  let o = 10;
   for (const s of list) {
-    dv.setUint8(o, s.idx); dv.setUint8(o + 1, (s.alive ? 1 : 0) | (s.boost ? 2 : 0));
+    dv.setUint8(o, s.idx); dv.setUint8(o + 1, (s.alive ? 1 : 0) | (s.boost ? 2 : 0) | (s.ghost > 0 ? 4 : 0));
     dv.setInt16(o + 2, Math.round(Math.max(-650, Math.min(650, s.x)) * 50)); dv.setInt16(o + 4, Math.round(Math.max(-650, Math.min(650, s.y)) * 50));
     dv.setUint16(o + 6, A16(s.a)); dv.setUint16(o + 8, Math.min(65535, Math.round(s.mass * 10))); dv.setUint16(o + 10, s.ack & 65535);
     dv.setUint8(o + 12, Math.min(255, s.kills)); dv.setUint16(o + 13, A16(s.ang ?? s.a));
@@ -162,14 +178,14 @@ export function encodeSnap(t, list) {
 }
 export function decodeSnap(buf) {
   const dv = new DataView(buf);
-  if (dv.byteLength < 6 || dv.getUint8(0) !== 1) return null;
-  const t = dv.getFloat32(1), n = dv.getUint8(5), list = [];
-  let o = 6;
+  if (dv.byteLength < 10 || dv.getUint8(0) !== 1) return null;
+  const t = dv.getFloat32(1), R = dv.getFloat32(5), n = dv.getUint8(9), list = [];
+  let o = 10;
   for (let i = 0; i < n && o + 16 <= dv.byteLength; i++, o += 16) {
     const f = dv.getUint8(o + 1);
-    list.push({ idx: dv.getUint8(o), alive: !!(f & 1), boost: !!(f & 2), x: dv.getInt16(o + 2) / 50, y: dv.getInt16(o + 4) / 50, a: UA16(dv.getUint16(o + 6)), mass: dv.getUint16(o + 8) / 10, ack: dv.getUint16(o + 10), kills: dv.getUint8(o + 12), aim: UA16(dv.getUint16(o + 13)) });
+    list.push({ idx: dv.getUint8(o), alive: !!(f & 1), boost: !!(f & 2), ghost: !!(f & 4), x: dv.getInt16(o + 2) / 50, y: dv.getInt16(o + 4) / 50, a: UA16(dv.getUint16(o + 6)), mass: dv.getUint16(o + 8) / 10, ack: dv.getUint16(o + 10), kills: dv.getUint8(o + 12), aim: UA16(dv.getUint16(o + 13)) });
   }
-  return { t, list };
+  return { t, R, list };
 }
 // input: [2][u16 seq][u16 ang][u8 boost]
 export function encodeInput(seq, ang, boost) {

@@ -56,6 +56,10 @@ export function createSound(audio) {
     },
     kill() { if (!A()) return; [659, 784, 988, 1319].forEach((f, i) => audio.tone('square', f, f, 0.12, 0.06, i * 0.06)); },
     ring() { if (!A()) return; for (let i = 0; i < 3; i++) { audio.tone('sawtooth', 380, 760, 0.35, 0.05, i * 0.4); audio.tone('sawtooth', 760, 380, 0.35, 0.05, i * 0.4 + 0.2); } },
+    bloom() { if (!A()) return; [784, 988, 1175, 1568].forEach((f, i) => audio.tone('triangle', f, f, 0.3, 0.05, i * 0.09)); },
+    bloomPop() { if (!A()) return; audio.burst(0.4, 0.15, 'highpass', 2000, 8000); [1568, 2093, 2637].forEach((f, i) => audio.tone('sine', f, f * 1.02, 0.25, 0.05, i * 0.05)); },
+    crown() { if (!A()) return; [523, 659, 784, 1046].forEach((f, i) => audio.tone('square', f, f, 0.15, 0.045, i * 0.08)); },
+    spawn() { if (!A()) return; audio.tone('sine', 220, 880, 0.35, 0.1); audio.burst(0.3, 0.08, 'bandpass', 800, 3000); },
     tick() { if (A()) audio.tone('square', 1100, 1100, 0.05, 0.05); },
     win() { audio.play('fanfare'); },
     dispose() {

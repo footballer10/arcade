@@ -15,6 +15,7 @@ function clearance(sim, s, ang, look, r, R, threats, blind) {
   for (let d = step; d <= look; d += step) {
     const x = s.x + cx * d, y = s.y + cy * d;
     if (Math.hypot(x, y) + r > R - margin) return d;
+    for (const o of sim.rocks) if (Math.hypot(o.x - x, o.y - y) < o.r + r + 1.3) return d;
     if (blind) continue;
     for (let i = 0; i < threats.length; i += 3) if (Math.hypot(threats[i] - x, threats[i + 1] - y) < threats[i + 2] + r) return d;
     const hit = sim.grid.query(x, y, r + 1.4, (px, py, pr, owner) => owner !== s.idx && Math.hypot(px - x, py - y) < r + pr + 0.35);
@@ -45,7 +46,12 @@ export function botThink(sim, s, b, dt) {
     }
   }
   const prey = b.hunt && sim.snakes.get(b.hunt);
-  if (prey && prey.alive) {
+  const bl = sim.bloom, bd = bl ? Math.hypot(bl.x - s.x, bl.y - s.y) : 1e9;
+  if (bl && bd < 45 && bd > 2 && (b.bloomFor === bl || Math.random() < 0.35 + L.skill * 0.5)) {
+    b.bloomFor = bl; b.hunt = null;   // race to the Golden Bloom
+    goal = Math.atan2(bl.y - s.y, bl.x - s.x);
+    wantBoost = bd > 8 && s.mass > 45 && Math.random() < L.skill * 0.6 && sim.t > bl.at - 2.2;
+  } else if (prey && prey.alive && prey.ghost <= 0) {
     const lead = 5 + radiusOf(prey.mass) * 3 + L.skill * 3;
     const gx = prey.x + Math.cos(prey.a) * lead, gy = prey.y + Math.sin(prey.a) * lead;
     goal = Math.atan2(gy - s.y, gx - s.x);
