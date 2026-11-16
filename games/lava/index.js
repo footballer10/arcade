@@ -362,7 +362,7 @@ export async function start(ctx) {
     if (si < 0 || si > 2) gfx._surgeWarned = false;
     sfx.update(dt, { intensity: level && phase === 'play' ? Math.min(1, tC / level.lv.T) : 0, final: ids.filter((id) => view.get(id)?.alive).length <= 2 && N > 2, danger: phase === 'play' ? danger : 0, surge: si > 0 && si < 1.6 ? 1 - si / 1.6 : 0, active: phase === 'play' });
     // --- render
-    gfx.update(dt, now, { S, st, lava, t: tC, danger: amAlive() && phase === 'play' ? danger : 0, victory: phase === 'post' ? victory : null, groundAt: (x, z) => groundAt(S, x, z, lava), players: view, onCrumble: (p) => { const near = f && Math.hypot(p.x - f.x, p.z - f.z) < 6; sfx.crumble(near); if (near) gfx.fx.shake(0.35); }, onCrack: () => sfx.crack() });
+    gfx.update(dt, now, { S, st, lava, t: tC, danger: amAlive() && phase === 'play' ? danger : 0, victory: phase === 'post' ? victory : null, groundAt: (x, z) => groundAt(S, x, z, lava), players: view, onCrumble: (p) => { const near = f && Math.hypot(p.x - f.x, p.z - f.z) < 6; sfx.crumble(near); if (near) gfx.fx.shake(0.35); }, onCrack: () => sfx.crack(), onRise: (p) => { if (f && Math.hypot(p.x - f.x, p.z - f.z) < 9) sfx.rise(); } });
     // --- ghost aim (eliminated players lob lava bombs)
     const ghost = !amAlive() && !ctx.spectator && phase === 'play' && !!S;
     const ready = performance.now() >= ghostReadyAt;
@@ -374,7 +374,7 @@ export async function start(ctx) {
     hot.style.boxShadow = `inset 0 0 120px 30px rgba(255,80,20,${(Math.max(heat - 0.35, 0) * 0.9 + danger * 0.35 * (amAlive() ? 1 : 0)).toFixed(2)})`;
     if (heat > 0.55 && amAlive()) sfx.sizzle(heat);
     const T = level ? level.lv.T : 80;
-    if (phase === 'play') { if (tC < T) ui.timer(T - tC, { warn: 10 }); else ui.timer(0, { text: '🔥 OVERTIME' }); } else ui.timer(null);
+    if (phase === 'play') { if (tC < T) ui.timer(tC, { warn: -1 }); else ui.timer(0, { text: '🔥 NO MORE ROCK' }); } else ui.timer(null);
     const L = level ? `${LAYOUTS[level.layout].name}` : '';
     ui.status(ctx.spectator ? `👀 Spectating · Round ${round + 1}` : amAlive() || phase !== 'play' ? `🌋 Round ${round + 1}${maxRounds > 1 ? '/' + maxRounds : ''} · ${L}` : `💀 Out · watching ${ui.esc(ctx.player(focusId)?.name || '…')}`);
     hint.textContent = ghost ? (ready ? 'Aim with the mouse · click to drop a lava bomb' : '') : heat > 0.7 && phase === 'play' ? 'HOT! Move!' : '';
@@ -393,7 +393,7 @@ export async function start(ctx) {
     ]);
     // height meter
     if (level) {
-      const lo = level.lv.from - 0.5, hi = level.maxTop + 2.5, H = meter.clientHeight || 1;
+      const lo = lava - 3, hi = lava + 11, H = meter.clientHeight || 1;
       const fy = (y) => Math.max(0, Math.min(1, (y - lo) / (hi - lo)));
       meter.firstChild.style.height = (fy(lava) * 100).toFixed(1) + '%';
       for (const [id, d] of dots) { const v = view.get(id); d.style.opacity = v?.alive ? 1 : 0; if (v) d.style.top = ((1 - fy(v.y)) * H).toFixed(0) + 'px'; }
