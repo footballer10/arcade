@@ -76,6 +76,8 @@ export async function start(ctx) {
   const myTeam = myIdx >= 0 ? roster[myIdx].team : -1;
   const W = newWorld(A, roster.map((r) => r.team));
   W.clock = mins * 60;
+  const moon = ctx.options.gravity === 'moon';
+  if (moon) W.grav = C.MOON_G;
   const kickRng = ctx.rng(0x6b1c);
   kickoff(W, kickRng); W.pt = 0;   // the hub's countdown is the first kickoff
   quantize(W);
@@ -202,7 +204,9 @@ export async function start(ctx) {
       out[r.id] = bits.join(' · ');
     });
     const title = W.sA === W.sB ? `Draw ${W.sA}–${W.sB}` : `${W.sA > W.sB ? 'Blue' : 'Orange'} wins ${Math.max(W.sA, W.sB)}–${Math.min(W.sA, W.sB)}${W.ot ? ' in overtime' : ''}`;
-    ctx.endGame(placements(), { stats: out, title });
+    let mvp = 0; st.forEach((s, i) => { if (s.pts > st[mvp].pts) mvp = i; });
+    const note = st[mvp].pts > 0 ? `⭐ MVP: ${roster[mvp].name} (${TEAM[roster[mvp].team].name.toLowerCase()}, ${st[mvp].pts} pts)` : '';
+    ctx.endGame(placements(), { stats: out, title, note });
   }
 
   // ---------------------------------------------------------------- client prediction
@@ -282,6 +286,7 @@ export async function start(ctx) {
   });
   ctx.on('leave', (id) => { const i = idxOf.get(id); if (i != null && !roster[i].isBot) ui.toast(`🤖 A bot drives for ${roster[i].name}`, '', 2200); });
 
+  let lastGoal = null, demoedBy = -1, prevClock = W.clock;
   let shake = 0, flash = 0, popT = 0, pulse = [0, 0], countShown = -1, lastScore = [0, 0];
   function pop(html, ms = 1300) { popEl.innerHTML = html; popEl.classList.add('on'); popT = ms / 1000; }
   const nm = (i) => (i >= 0 && roster[i] ? ui.esc(roster[i].name) : '?');
@@ -294,7 +299,8 @@ export async function start(ctx) {
         goalBoom(e.x, e.y, e.z, colorOf(e.scorer), tc.glow);
         pulse[e.team] = 1;
         const who = e.own ? `Own goal by ${nm(e.scorer)}` : e.scorer >= 0 ? `${nm(e.scorer)} scores!${e.assist >= 0 ? ` <small>assist ${nm(e.assist)}</small>` : ''}` : '';
-        const tag = e.aerial ? 'AERIAL GOAL!' : e.speed > 50 ? 'ROCKET GOAL!' : e.ot ? 'GOLDEN GOAL!' : 'GOAL!';
+        const tag = e.ot ? 'GOLDEN GOAL!' : e.g === 3 ? 'HAT TRICK!' : e.aerial ? 'AERIAL GOAL!' : e.speed > 50 ? 'ROCKET GOAL!' : e.own ? 'OWN GOAL!' : 'GOAL!';
+        lastGoal = e;
         pop(`<span style="color:${tc.css}">${tag}</span><small>${who} · ${Math.round(e.speed * 3.6)} km/h</small>`, 2600);
         W.sA = e.sA; W.sB = e.sB;
         if (e.scorer === myIdx && !e.own) ui.toast('⚽ You scored!', 'gold', 2200);
@@ -315,8 +321,8 @@ export async function start(ctx) {
         sfx.sfx('demo', e.i === myIdx || e.by === myIdx ? 1.2 : 0.6);
         fx.burst(p.x, p.y, p.z, 70, [TEAM[roster[e.i].team].glow, 0xffd23f, 0xffffff, 0x333333], 18, 1.1, 1.4, { up: 4, grav: 10 });
         rings.add(p.x, p.y, p.z, TEAM[roster[e.i].team].glow, 10, 0.5, null);
-        if (e.i === myIdx) { shake = Math.max(shake, 1); flash = 0.5; pop('<span style="color:#ff6a6a">DEMOLISHED!</span>', 1500); }
-        else if (e.by === myIdx) { pop('💥 DEMOLITION!', 1300); shake = Math.max(shake, 0.5); }
+        if (e.i === myIdx) { shake = Math.max(shake, 1); flash = 0.5; demoedBy = e.by; pop(`<span style="color:#ff6a6a">DEMOLISHED!</span><small>by ${nm(e.by)}</small>`, 1500); }
+        else if (e.by === myIdx) { pop(e.i === demoedBy ? '😤 PAYBACK!' : '💥 DEMOLITION!', 1300); if (e.i === demoedBy) demoedBy = -1; shake = Math.max(shake, 0.5); }
         else ui.toast(`💥 ${roster[e.by]?.name} demolished ${roster[e.i]?.name}`, '', 1800);
         void c; break;
       }
@@ -388,7 +394,7 @@ export async function start(ctx) {
     if (R.tt >= fr[fr.length - 1].tick) { R.tt = fr[fr.length - 1].tick; }
     unpack(Wr, a.f); unpack(Wr2, b.f);
     const f = b.tick > a.tick ? Math.min(1, (R.tt - a.tick) / (b.tick - a.tick)) : 0;
-    if (!R.boomed && R.tt >= R.goalTick) { R.boomed = true; const B = Wr2.ball; goalBoom(B.x, B.y, B.z, 0xffffff, TEAM[R.gz > 0 ? 0 : 1].glow); }
+    if (!R.boomed && R.tt >= R.goalTick) { R.boomed = true; const B = Wr2.ball; goalBoom(B.x, B.y, B.z, lastGoal ? colorOf(lastGoal.scorer) : 0xffffff, TEAM[R.gz > 0 ? 0 : 1].glow); }
     return { a: Wr, b: Wr2, f };
   }
 
@@ -556,12 +562,15 @@ export async function start(ctx) {
     // sound
     const me = myIdx >= 0 ? W.cars[myIdx] : null;
     const danger = Math.max(0, 1 - Math.abs(Math.abs(W.ball.z) - A.L) / 30);
-    sfx.update(dt, { speed: me ? Math.min(1, speedOf(me) / C.MAX) : 0, boosting: !!me?.bst, gnd: !!me?.gnd, active: !!me && ctx.started && me.demo <= 0 && W.phase !== PH.REPLAY && !ended, excite: ctx.started ? 0.25 + danger * 0.7 : 0.15 });
+    sfx.update(dt, { speed: me ? Math.min(1, speedOf(me) / C.MAX) : 0, boosting: !!me?.bst, gnd: !!me?.gnd, active: !!me && ctx.started && me.demo <= 0 && W.phase !== PH.REPLAY && !ended, excite: ctx.started ? 0.25 + danger * 0.7 + (!W.ot && W.clock < 30 ? 0.25 : 0) + (W.ot ? 0.35 : 0) : 0.15 });
     hud(dt);
   });
 
   // ---------------------------------------------------------------- HUD
   function hud() {
+    if (!W.ot && W.phase === PH.PLAY && prevClock > 60 && W.clock <= 60 && mins > 1) { ui.banner('LAST MINUTE!', 1500); sfx.sfx('overtime'); }
+    if (!W.ot && W.phase === PH.PLAY && prevClock > 10 && W.clock <= 10) ui.toast('⏱ 10 seconds left!', 'gold', 1500);
+    prevClock = W.clock;
     if (W.sA !== lastScore[0]) bump(scA); if (W.sB !== lastScore[1]) bump(scB);
     lastScore = [W.sA, W.sB];
     scA.textContent = W.sA; scB.textContent = W.sB;
@@ -593,6 +602,7 @@ export async function start(ctx) {
   ctx.on('go', () => {
     sfx.sfx('whistle');
     if (myIdx >= 0) ui.banner(`${TEAM[myTeam].emoji} You're ${TEAM[myTeam].name}! Score in the ${TEAM[1 - myTeam].name.toLowerCase()} goal`, 2200, { small: true });
+    if (moon) ctx.setTimeout(() => ui.toast('🌙 Moon Ball: low gravity. Jump high and fly!', 'gold', 2600), 2300);
   });
 
   return {

@@ -141,11 +141,16 @@ export class HostSim {
     if (top >= this.cfg.need || this.round + 1 >= this.cfg.maxRounds) { this.phase = 'done'; this.cfg.ev('done', {}); return; }
     this.setupRound(this.round + 1, true);
   }
-  standings() { return standingsOf(this.ids, this.wins, this.pts); }
+  standings() {
+    // a round in progress counts too (tie-breaker): still standing > fell later > fell earlier
+    const cur = {};
+    if (this.phase === 'play') for (const id of this.ids) { const i = this.out.indexOf(id); cur[id] = i < 0 ? this.out.length + 1 : i; }
+    return standingsOf(this.ids, this.wins, this.pts, cur);
+  }
 }
 
-export function standingsOf(ids, wins, pts) {
-  const key = (id) => (wins[id] || 0) * 1000 + (pts[id] || 0);
+export function standingsOf(ids, wins, pts, cur = {}) {
+  const key = (id) => (wins[id] || 0) * 100000 + (pts[id] || 0) * 100 + (cur[id] || 0);
   const sorted = [...ids].sort((a, b) => key(b) - key(a));
   const groups = [];
   for (const id of sorted) { const g = groups[groups.length - 1]; if (g && key(g[0]) === key(id)) g.push(id); else groups.push([id]); }

@@ -6,7 +6,7 @@ import { sdArena } from './arena.js';
 
 export const DT = 1 / 60;
 export const C = {
-  G: 24,                    // gravity
+  G: 24, MOON_G: 14,        // gravity (normal / Moon Ball)
   BALL_R: 2.4, BALL_MAX: 66, BALL_DRAG: 0.025, BALL_E: 0.62, BALL_ROLL: 0.22,
   HX: 1.1, HY: 0.5, HZ: 1.55, REST: 0.86,   // car hitbox half extents (x width, y height, z length), ride height
   DRIVE_MAX: 25, MAX: 42, SUPER: 38,         // top speed on throttle / absolute cap / supersonic (demolishes)
@@ -88,7 +88,7 @@ export function newWorld(A, teams) {
   const cars = teams.map((t) => newCar(t));
   return {
     A, cars, ball: { x: 0, y: C.BALL_R, z: 0, vx: 0, vy: 0, vz: 0, wx: 0, wy: 0, wz: 0, px: 0, py: C.BALL_R, pz: 0 },
-    pads: new Float32Array(A.pads.length), tick: 0, phase: PH.KICK, pt: 0, clock: 180, ot: 0, sA: 0, sB: 0, lastTouch: -1, flags: 0,
+    grav: C.G, pads: new Float32Array(A.pads.length), tick: 0, phase: PH.KICK, pt: 0, clock: 180, ot: 0, sA: 0, sB: 0, lastTouch: -1, flags: 0,
     ev: null,   // events array while "live" (null during client replays)
   };
 }
@@ -144,7 +144,7 @@ function stepCar(W, c, i) {
       // tyre grip kills sideways sliding
       const vs = c.vx * sx + c.vy * sy + c.vz * sz, k = vs * (1 - Math.exp(-C.GRIP * DT));
       c.vx -= sx * k; c.vy -= sy * k; c.vz -= sz * k;
-      c.vy -= C.G * DT;
+      c.vy -= (W.grav || C.G) * DT;
       c.vx -= nx * C.STICK * DT; c.vy -= ny * C.STICK * DT; c.vz -= nz * C.STICK * DT;
       c.wx = c.wy = c.wz = 0;
       // too slow on a wall, or hanging from the ceiling: fall off
@@ -192,7 +192,7 @@ function stepCar(W, c, i) {
       qrot(c, t3[0], t3[1], t3[2], t3); c.wx = t3[0]; c.wy = t3[1]; c.wz = t3[2];
     }
     if (boosting) { c.vx += f3[0] * C.BOOST_ACC * DT; c.vy += f3[1] * C.BOOST_ACC * DT; c.vz += f3[2] * C.BOOST_ACC * DT; }
-    c.vy -= C.G * DT;
+    c.vy -= (W.grav || C.G) * DT;
     const wl = len3(c.wx, c.wy, c.wz);
     if (wl > 1e-5) qpre(c, c.wx / wl, c.wy / wl, c.wz / wl, wl * DT);
   }
@@ -275,7 +275,7 @@ export function respawn(W, c, i) {
 function stepBall(W) {
   const b = W.ball, A = W.A, R = C.BALL_R;
   b.px = b.x; b.py = b.y; b.pz = b.z;
-  b.vy -= C.G * DT;
+  b.vy -= (W.grav || C.G) * DT;
   const dk = 1 - C.BALL_DRAG * DT; b.vx *= dk; b.vy *= dk; b.vz *= dk;
   const sp = len3(b.vx, b.vy, b.vz);
   if (sp > C.BALL_MAX) { const k = C.BALL_MAX / sp; b.vx *= k; b.vy *= k; b.vz *= k; }
@@ -419,7 +419,7 @@ export function stepWorld(W) {
 
 // Only the ball (for bot predictions). Works on a lightweight copy.
 export function predictBall(W, out, steps, every = 3) {
-  const P = { A: W.A, ball: { ...W.ball }, ev: null };
+  const P = { A: W.A, ball: { ...W.ball }, ev: null, grav: W.grav };
   out.length = 0;
   for (let s = 1; s <= steps; s++) { stepBall(P); if (s % every === 0) out.push({ t: s * DT, x: P.ball.x, y: P.ball.y, z: P.ball.z, vx: P.ball.vx, vy: P.ball.vy, vz: P.ball.vz }); }
   return out;

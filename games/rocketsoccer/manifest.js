@@ -30,6 +30,7 @@ export const manifest = {
   options: [
     { key: 'size', label: 'Teams', default: '2', choices: [{ value: '1', label: '1 v 1' }, { value: '2', label: '2 v 2' }, { value: '3', label: '3 v 3' }, { value: '4', label: '4 v 4' }] },
     { key: 'length', label: 'Match length', default: '3', choices: [{ value: '2', label: '2 min' }, { value: '3', label: '3 min' }, { value: '4', label: '4 min' }, { value: '5', label: '5 min' }] },
+    { key: 'gravity', label: 'Gravity', default: 'normal', choices: [{ value: 'normal', label: 'Normal' }, { value: 'moon', label: '🌙 Moon Ball (low gravity, big air)' }] },
     { key: 'arena', label: 'Arena', default: 'stadium', choices: [{ value: 'stadium', label: 'Sunset Stadium' }, { value: 'pocket', label: 'Pocket Park (small, night)' }] },
   ],
 };

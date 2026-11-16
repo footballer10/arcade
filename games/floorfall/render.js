@@ -3,6 +3,10 @@
 // tiles become tumbling debris that falls into the glowing void. Layers above the one you watch turn ghostly
 // so the stack never hides you.
 import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { C, LAYER_COLORS, layerOf, tileAt, solid } from './world.js';
 
 const TMP = new THREE.Object3D(), COL = new THREE.Color(), WHITE = new THREE.Color(0xffffff), INK = 0x1d1633;
@@ -10,7 +14,29 @@ const TMP = new THREE.Object3D(), COL = new THREE.Color(), WHITE = new THREE.Col
 const tileGeo = new THREE.CylinderGeometry(0.9, 0.9, 0.44, 6); tileGeo.rotateY(Math.PI / 6); tileGeo.translate(0, -0.22, 0);
 const capGeo = new THREE.CylinderGeometry(0.62, 0.78, 0.06, 6); capGeo.rotateY(Math.PI / 6); capGeo.translate(0, 0.03, 0);
 const lineGeo = new THREE.CylinderGeometry(0.97, 0.97, 0.52, 6); lineGeo.rotateY(Math.PI / 6); lineGeo.translate(0, -0.24, 0);
-const KEEP = new Set([tileGeo, capGeo, lineGeo]);
+const crackGeo = new THREE.CircleGeometry(0.86, 6); crackGeo.rotateX(-Math.PI / 2); crackGeo.rotateY(Math.PI / 6); crackGeo.translate(0, 0.075, 0);
+const KEEP = new Set([tileGeo, capGeo, lineGeo, crackGeo]);
+// jagged white crack lines radiating from the middle (tinted per tile with the cracker's color)
+function crackTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+  g.strokeStyle = '#fff'; g.lineCap = 'round'; g.lineJoin = 'round';
+  let seed = 7; const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let k = 0; k < 7; k++) {
+    let x = 64, y = 64, a = (k / 7) * Math.PI * 2 + r() * 0.5; g.lineWidth = 5; g.beginPath(); g.moveTo(x, y);
+    for (let st = 0; st < 5; st++) { a += (r() - 0.5) * 0.9; x += Math.cos(a) * 12; y += Math.sin(a) * 12; g.lineTo(x, y); g.lineWidth = 4 - st * 0.6; }
+    g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+// soft round particles with per-particle color, alpha and size
+function particleMaterial() {
+  return new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: `attribute vec3 color; attribute vec2 aData; varying vec3 vC; varying float vA;
+      void main(){ vC = color; vA = aData.x; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_PointSize = aData.y * (340.0 / -mv.z); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: `varying vec3 vC; varying float vA; void main(){ vec2 d = gl_PointCoord - 0.5; float r = dot(d, d) * 4.0; if (r > 1.0) discard; gl_FragColor = vec4(vC * vA * (1.0 - r * 0.7), 1.0); }`,
+  });
+}
 
 function skyMaterial() {
   return new THREE.ShaderMaterial({
@@ -52,7 +78,50 @@ export function createView(ctx) {
   const voidDisc2 = new THREE.Mesh(new THREE.PlaneGeometry(50, 50), voidMat); voidDisc2.rotation.x = -Math.PI / 2; voidDisc2.position.y = C.KILL_Y - 10; scene.add(voidDisc2);
   const voidLight = new THREE.PointLight(0x9a6bff, 30, 45, 1.4); voidLight.position.set(0, C.KILL_Y - 4, 0); scene.add(voidLight);
 
+  // ---------------------------------------------------------------- post-processing (High only): bloom makes the cracks and the void glow
+  let composer = null, bloom = null;
+  function setupFx() {
+    const q = ctx.quality();
+    if (q.effects && !composer) {
+      composer = new EffectComposer(renderer);
+      composer.addPass(new RenderPass(scene, camera));
+      bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.42, 0.45, 0.9);
+      composer.addPass(bloom); composer.addPass(new OutputPass());
+    } else if (!q.effects && composer) { killFx(); }
+  }
+  function killFx() { if (!composer) return; composer.renderTarget1.dispose(); composer.renderTarget2.dispose(); for (const p of composer.passes) p.dispose?.(); composer = null; bloom = null; }
+
+  // ---------------------------------------------------------------- particles (one pooled Points cloud)
+  const PN = q0.effects ? 900 : q0.shadows ? 500 : 260;
+  const pPos = new Float32Array(PN * 3), pCol = new Float32Array(PN * 3), pDat = new Float32Array(PN * 2);
+  const pVel = new Float32Array(PN * 3), pLife = new Float32Array(PN), pMax = new Float32Array(PN), pSize = new Float32Array(PN), pGrav = new Float32Array(PN);
+  const pGeo = new THREE.BufferGeometry();
+  pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3)); pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3)); pGeo.setAttribute('aData', new THREE.BufferAttribute(pDat, 2));
+  const pMat = particleMaterial();
+  const points = new THREE.Points(pGeo, pMat); points.frustumCulled = false; scene.add(points);
+  let pNext = 0;
+  function emit(x, y, z, color, n, { speed = 3, up = 2, size = 0.35, life = 0.8, grav = 9, spread = 0.3 } = {}) {
+    const c = COL.set(color);
+    for (let k = 0; k < n; k++) {
+      const i = pNext++ % PN, a = Math.random() * Math.PI * 2, sp = speed * (0.4 + Math.random() * 0.6);
+      pPos[i * 3] = x + (Math.random() - 0.5) * spread; pPos[i * 3 + 1] = y + Math.random() * spread * 0.5; pPos[i * 3 + 2] = z + (Math.random() - 0.5) * spread;
+      pVel[i * 3] = Math.cos(a) * sp; pVel[i * 3 + 1] = up * (0.5 + Math.random()); pVel[i * 3 + 2] = Math.sin(a) * sp;
+      pCol[i * 3] = c.r; pCol[i * 3 + 1] = c.g; pCol[i * 3 + 2] = c.b;
+      pLife[i] = pMax[i] = life * (0.6 + Math.random() * 0.6); pSize[i] = size * (0.6 + Math.random() * 0.8); pGrav[i] = grav;
+    }
+  }
+  function stepParticles(dt) {
+    for (let i = 0; i < PN; i++) {
+      if (pLife[i] <= 0) { pDat[i * 2] = 0; continue; }
+      pLife[i] -= dt; pVel[i * 3 + 1] -= pGrav[i] * dt;
+      pPos[i * 3] += pVel[i * 3] * dt; pPos[i * 3 + 1] += pVel[i * 3 + 1] * dt; pPos[i * 3 + 2] += pVel[i * 3 + 2] * dt;
+      const f = Math.max(0, pLife[i] / pMax[i]); pDat[i * 2] = Math.min(1, f * 1.6); pDat[i * 2 + 1] = pSize[i] * (0.4 + f * 0.6);
+    }
+    pGeo.attributes.position.needsUpdate = true; pGeo.attributes.aData.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
+  }
+
   // ---------------------------------------------------------------- level
+  const crackTex = crackTexture();
   let lv = null, layers = [];
   const lineMat = new THREE.MeshBasicMaterial({ color: INK, side: THREE.BackSide });
   function buildLevel(level) {
@@ -64,6 +133,10 @@ export function createView(ctx) {
       const capMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(L.color).lerp(WHITE, 0.6), transparent: true, opacity: 0.4, depthWrite: false });
       const lm = lineMat.clone(); lm.transparent = true;
       const body = new THREE.InstancedMesh(tileGeo, mat, L.n), cap = new THREE.InstancedMesh(capGeo, capMat, L.n), line = new THREE.InstancedMesh(lineGeo, lm, L.n);
+      const crackMat = new THREE.MeshBasicMaterial({ map: crackTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+      const crack = new THREE.InstancedMesh(crackGeo, crackMat, L.n); crack.frustumCulled = false; crack.renderOrder = 3;
+      TMP.position.set(0, -999, 0); TMP.scale.set(0, 0, 0); TMP.updateMatrix();
+      for (let i = 0; i < L.n; i++) { crack.setMatrixAt(i, TMP.matrix); crack.setColorAt(i, WHITE); }
       body.castShadow = true; body.receiveShadow = true;
       const base = new THREE.Color(L.color);
       for (let i = 0; i < L.n; i++) {
@@ -72,12 +145,12 @@ export function createView(ctx) {
         COL.copy(base).offsetHSL(0, 0, (((i * 7919) % 13) / 13 - 0.5) * 0.07); body.setColorAt(i, COL);
       }
       body.frustumCulled = cap.frustumCulled = line.frustumCulled = false;
-      g.add(line, body, cap);
-      return { L, g, mat, capMat, lm, body, cap, line, base, shown: new Uint8Array(L.n), cracking: new Set(), fade: 1 };
+      g.add(line, body, cap, crack);
+      return { L, g, mat, capMat, crackMat, lm, body, cap, line, crack, base, shown: new Uint8Array(L.n), cracking: new Set(), fade: 1, tint: [] };
     });
   }
   function clearLevel() {
-    for (const y of layers) { ctx.three.dispose(y.g, KEEP); y.body.dispose(); y.cap.dispose(); y.line.dispose(); }
+    for (const y of layers) { y.crackMat.map = null; ctx.three.dispose(y.g, KEEP); y.body.dispose(); y.cap.dispose(); y.line.dispose(); y.crack.dispose(); }
     layers = []; for (const d of debris) d.m.visible = false;
   }
 
@@ -97,7 +170,7 @@ export function createView(ctx) {
   }
 
   // ---------------------------------------------------------------- players
-  const bodies = new Map(), shadows = new Map();
+  const bodies = new Map(), shadows = new Map(), prevG = new Map(), prevL = new Map();
   const shadowGeo = new THREE.CircleGeometry(0.5, 20); shadowGeo.rotateX(-Math.PI / 2);
   const shadowMat = new THREE.MeshBasicMaterial({ color: INK, transparent: true, opacity: 0.35, depthWrite: false });
   for (const p of ctx.players) {
@@ -106,13 +179,14 @@ export function createView(ctx) {
   }
 
   // ---------------------------------------------------------------- camera
-  const cam = { x: 0, y: 0, z: 0, shake: 0, intro: 0 };
+  const cam = { x: 0, y: 0, z: 0, shake: 0, intro: 0, introLen: 1, introA: 0 };
   function resize() {
     const w = ctx.container.clientWidth || innerWidth, h = ctx.container.clientHeight || innerHeight;
     renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    if (composer) { composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w, h); }
   }
-  resize();
-  function applyQ() { const q = ctx.three.applyQuality(renderer, sun); renderer.shadowMap.needsUpdate = true; return q; }
+  setupFx(); resize();
+  function applyQ() { const q = ctx.three.applyQuality(renderer, sun); renderer.shadowMap.needsUpdate = true; setupFx(); resize(); return q; }
 
   // ---------------------------------------------------------------- per frame
   // st: { t, players: Map id -> {x,y,z,face,alive,g,run,air}, focus: {x,y,z} }
@@ -124,14 +198,14 @@ export function createView(ctx) {
     // tiles
     for (const Ly of layers) {
       const L = Ly.L;
-      let dirty = false, cdirty = false;
+      let dirty = false, cdirty = false, crk = false;
       for (let i = 0; i < L.n; i++) {
         const at = L.at[i], s = at === Infinity ? 0 : at > t ? 1 : 2;
         if (s === Ly.shown[i] && s !== 1) continue;
         if (s === 2) {
-          if (Ly.shown[i] !== 2) { hide(Ly, i); spawnDebris(Ly, i); dirty = true; Ly.cracking.delete(i); fx.drops++; if (near(L, i)) fx.dropsNear++; }
+          if (Ly.shown[i] !== 2) { hide(Ly, i); if (Ly.fade > 0.5) { spawnDebris(Ly, i); emit(L.xs[i], L.y, L.zs[i], L.color, near(L, i) ? 9 : 4, { speed: 3.5, up: 1.5, size: 0.3, life: 0.9, grav: 12, spread: 1.2 }); } dirty = true; Ly.cracking.delete(i); fx.drops++; if (near(L, i)) fx.dropsNear++; }
         } else if (s === 1) {
-          if (Ly.shown[i] !== 1) { Ly.cracking.add(i); fx.cracks++; if (near(L, i)) fx.cracksNear++; const w = L.who[i]; COL.copy(w < ctx.players.length ? new THREE.Color(ctx.players[w].colorHex) : new THREE.Color(0xffffff)); Ly.body.setColorAt(i, COL.lerp(WHITE, 0.25)); cdirty = true; }
+          if (Ly.shown[i] !== 1) { Ly.cracking.add(i); fx.cracks++; if (near(L, i)) fx.cracksNear++; const w = L.who[i]; COL.copy(w < ctx.players.length ? new THREE.Color(ctx.players[w].colorHex) : new THREE.Color(0xffffff)); Ly.body.setColorAt(i, COL.lerp(WHITE, 0.25)); Ly.tint[i] = COL.getHex(); cdirty = true; if (Ly.fade > 0.5 && near(L, i)) emit(L.xs[i], L.y + 0.1, L.zs[i], 0xffffff, 3, { speed: 1.5, up: 1.6, size: 0.18, life: 0.4, grav: 6, spread: 0.9 }); }
         } else if (Ly.shown[i] !== 0) { show(Ly, i); dirty = true; COL.copy(Ly.base); Ly.body.setColorAt(i, COL); cdirty = true; }
         Ly.shown[i] = s;
       }
@@ -141,10 +215,15 @@ export function createView(ctx) {
         TMP.position.set(L.xs[i] + (Math.random() - 0.5) * j, -k * 0.12 + (Math.random() - 0.5) * j, L.zs[i] + (Math.random() - 0.5) * j);
         TMP.rotation.set((Math.random() - 0.5) * j * 0.8, 0, (Math.random() - 0.5) * j * 0.8); TMP.scale.set(1, 1, 1); TMP.updateMatrix();
         Ly.body.setMatrixAt(i, TMP.matrix); Ly.cap.setMatrixAt(i, TMP.matrix); Ly.line.setMatrixAt(i, TMP.matrix);
-        dirty = true;
+        // glowing crack overlay: grows and brightens towards the drop
+        TMP.rotation.set(0, (i % 6) * 1.047, 0); TMP.scale.setScalar(0.55 + k * 0.45); TMP.updateMatrix(); Ly.crack.setMatrixAt(i, TMP.matrix);
+        Ly.crack.setColorAt(i, COL.set(Ly.tint[i] ?? 0xffffff).multiplyScalar(0.5 + k * 1.4));
+        dirty = true; crk = true;
       }
       if (dirty) { Ly.body.instanceMatrix.needsUpdate = true; Ly.cap.instanceMatrix.needsUpdate = true; Ly.line.instanceMatrix.needsUpdate = true; }
       if (cdirty && Ly.body.instanceColor) Ly.body.instanceColor.needsUpdate = true;
+      if (dirty || crk) { Ly.crack.instanceMatrix.needsUpdate = true; if (Ly.crack.instanceColor) Ly.crack.instanceColor.needsUpdate = true; }
+      Ly.crackMat.opacity = Ly.fade;
       // ghost the layers above the one I'm watching
       const target = L.h > fl + 1 ? 0 : L.h > fl ? 0.1 : 1;
       Ly.fade += (target - Ly.fade) * Math.min(1, dt * 6);
@@ -167,6 +246,10 @@ export function createView(ctx) {
       a.visible = !!p && p.alive !== false && p.y > C.KILL_Y - 2; sh.visible = false;
       if (!a.visible) continue;
       a.position.set(p.x, p.y, p.z);
+      const was = prevG.get(id);
+      if (was === false && p.g) emit(p.x, p.y + 0.05, p.z, 0xffffff, p.l !== prevL.get(id) ? 14 : 6, { speed: p.l !== prevL.get(id) ? 4 : 2.2, up: 0.8, size: 0.35, life: 0.45, grav: 3, spread: 0.5 });
+      prevG.set(id, !!p.g); prevL.set(id, p.l);
+      if ((p.dashT || 0) > 0) emit(p.x, p.y + 0.6, p.z, ctx.player(id)?.colorHex ?? 0xffffff, 2, { speed: 0.6, up: 0.4, size: 0.45, life: 0.35, grav: 0, spread: 0.6 });
       let dr = p.face - a.rotation.y; dr = Math.atan2(Math.sin(dr), Math.cos(dr)); a.rotation.y += dr * Math.min(1, dt * 14);
       a.userData.setPose({ run: p.g ? Math.min(1, p.run / C.SPEED) : 0.2, t: now / 1000 });
       const sc = p.stun > 0 ? 1 + Math.sin(now / 40) * 0.08 : 1; a.scale.set(sc, p.g ? 1 : 1.08, sc);
@@ -176,6 +259,9 @@ export function createView(ctx) {
         if (solid(L, tileAt(L, p.x, p.z), t)) { sh.visible = true; sh.position.set(p.x, L.y + 0.07, p.z); const s = Math.max(0.35, 1 - (p.y - L.y) / 8); sh.scale.setScalar(s); break; }
       }
     }
+    // the void breathes: glowing motes drifting up out of it
+    if (Math.random() < dt * (q0.effects ? 30 : 12)) emit(st.focus.x + (Math.random() - 0.5) * 40, C.KILL_Y - 8, st.focus.z + (Math.random() - 0.5) * 30, Math.random() < 0.5 ? 0x9fe8ff : 0xc58bff, 1, { speed: 0.3, up: -6, size: 0.6, life: 3.5, grav: -1.2, spread: 2 });
+    stepParticles(dt);
     // camera
     const f = st.focus, k = Math.min(1, dt * 5);
     cam.x += (f.x - cam.x) * k; cam.z += (f.z - cam.z) * k; cam.y += (f.y - cam.y) * Math.min(1, dt * 3.2);
@@ -184,17 +270,29 @@ export function createView(ctx) {
     const dist = st.dist || 1;
     camera.position.set(cam.x * 0.75 + sx, cam.y + 13.5 * dist + sy, cam.z * 0.75 + 11 * dist);
     camera.lookAt(cam.x * 0.92, cam.y - 0.5, cam.z * 0.92 - 0.6);
+    if (cam.intro > 0 && lv) {
+      // intro shot: swoop around the whole stack from the void up to the top floor, then settle behind you
+      cam.intro = Math.max(0, cam.intro - dt);
+      const u = 1 - cam.intro / cam.introLen, e = u * u * (3 - 2 * u), topY = lv.layers[lv.L - 1].y;
+      const a = cam.introA + e * 2.4, r = 34 - e * 14, h = C.KILL_Y + 2 + e * (topY + 16 - C.KILL_Y);
+      const ix = Math.sin(a) * r, iz = Math.cos(a) * r, w = Math.min(1, Math.max(0, (u - 0.75) / 0.25));
+      const lx = 0, ly = topY * (0.4 + 0.6 * e), lz = 0;
+      camera.position.set(ix + (camera.position.x - ix) * w, h + (camera.position.y - h) * w, iz + (camera.position.z - iz) * w);
+      camera.lookAt(lx + (cam.x * 0.92 - lx) * w, ly + (cam.y - 0.5 - ly) * w, lz + (cam.z * 0.92 - 0.6 - lz) * w);
+    }
     sun.position.set(cam.x - 12, cam.y + 30, cam.z + 14); sun.target.position.set(cam.x, cam.y, cam.z);
     voidDisc.rotation.z += dt * 0.15; voidDisc2.rotation.z -= dt * 0.3;
-    renderer.render(scene, camera);
+    if (composer) composer.render(); else renderer.render(scene, camera);
     return fx;
   }
-  function hide(Ly, i) { TMP.position.set(0, -999, 0); TMP.scale.set(0, 0, 0); TMP.rotation.set(0, 0, 0); TMP.updateMatrix(); Ly.body.setMatrixAt(i, TMP.matrix); Ly.cap.setMatrixAt(i, TMP.matrix); Ly.line.setMatrixAt(i, TMP.matrix); }
-  function show(Ly, i) { TMP.position.set(Ly.L.xs[i], 0, Ly.L.zs[i]); TMP.scale.set(1, 1, 1); TMP.rotation.set(0, 0, 0); TMP.updateMatrix(); Ly.body.setMatrixAt(i, TMP.matrix); Ly.cap.setMatrixAt(i, TMP.matrix); Ly.line.setMatrixAt(i, TMP.matrix); Ly.cracking.delete(i); }
+  function hide(Ly, i) { TMP.position.set(0, -999, 0); TMP.scale.set(0, 0, 0); TMP.rotation.set(0, 0, 0); TMP.updateMatrix(); Ly.body.setMatrixAt(i, TMP.matrix); Ly.cap.setMatrixAt(i, TMP.matrix); Ly.line.setMatrixAt(i, TMP.matrix); Ly.crack.setMatrixAt(i, TMP.matrix); }
+  function show(Ly, i) { TMP.position.set(Ly.L.xs[i], 0, Ly.L.zs[i]); TMP.scale.set(1, 1, 1); TMP.rotation.set(0, 0, 0); TMP.updateMatrix(); Ly.body.setMatrixAt(i, TMP.matrix); Ly.cap.setMatrixAt(i, TMP.matrix); Ly.line.setMatrixAt(i, TMP.matrix); TMP.position.set(0, -999, 0); TMP.scale.set(0, 0, 0); TMP.updateMatrix(); Ly.crack.setMatrixAt(i, TMP.matrix); Ly.cracking.delete(i); }
 
   return {
     renderer, scene, camera, cam, buildLevel, frame, resize, applyQ,
     shake(a) { cam.shake = Math.min(1.2, cam.shake + a); },
+    intro(sec) { cam.intro = cam.introLen = sec; cam.introA = Math.random() * Math.PI * 2; },
+    burst(x, y, z, color, n = 16) { emit(x, y, z, color, n, { speed: 5, up: 3, size: 0.4, life: 0.6, grav: 8, spread: 0.4 }); },
     project(x, y, z, out) { const v = new THREE.Vector3(x, y, z).project(camera); out.x = (v.x * 0.5 + 0.5) * (ctx.container.clientWidth || innerWidth); out.y = (-v.y * 0.5 + 0.5) * (ctx.container.clientHeight || innerHeight); out.vis = v.z < 1; return out; },
     dispose() {
       clearLevel();
@@ -203,7 +301,8 @@ export function createView(ctx) {
       shadowGeo.dispose(); shadowMat.dispose(); lineMat.dispose();
       for (const d of debris) d.m.removeFromParent();
       for (const m of debrisMats) m.dispose();
-      voidTex.dispose();
+      voidTex.dispose(); crackTex.dispose(); killFx();
+      points.removeFromParent(); pGeo.dispose(); pMat.dispose();
       ctx.three.dispose(scene, KEEP);
     },
   };
