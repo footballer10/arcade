@@ -36,6 +36,7 @@ function scorePlat(w, me, s, i, b, cur) {
   if (s.kind === 'pumice') sc -= 1.2 + (w.st[i] / 100) * 6;
   if (s.kind === 'mover') sc -= 0.35;
   if (s.kind === 'glass') sc -= 0.6;
+  if (w.bombs) for (const bm of w.bombs) if (Math.hypot(s.x - bm.x, s.z - bm.z) < s.r + C.BOMB_R * 0.8) sc -= 6 * L.skill;   // dodge telegraphed bombs
   const occ = occOf(w, s.id, me);
   sc -= occ * (s.kind === 'pumice' ? 4 : 1.6);
   if (!cur) sc -= Math.hypot(s.x - me.x, s.z - me.z) * 0.12;
@@ -62,7 +63,7 @@ export function botThink(w, me, b, dt) {
       const dh = s.top - fromY;
       if (dh > 1.5) continue;
       const gap = Math.max(0, Math.hypot(s.x - me.x, s.z - me.z) - s.r - (cur ? cur.r * 0.8 : 0));
-      const reach = jumpReach(dh) * (0.82 + L.skill * 0.15);
+      const reach = jumpReach(dh) * 0.88;
       if (gap > reach) continue;
       const sc = scorePlat(w, me, s, i, b, false);
       if (sc > bs) { bs = sc; best = i; }
@@ -144,4 +145,18 @@ export function botThink(w, me, b, dt) {
   if (me.gr >= 0 && T && T !== cur && Math.hypot(me.vx, me.vz) < 0.5 && d > 0.6) { b.stuck += dt; if (b.stuck > 0.4) { inp.j++; b.holdJ = 0.5; b.stuck = 0; } } else b.stuck = 0;
   inp.face = me.face;
   return inp;
+}
+
+// A dead bot's volcano spirit: every so often lob a lava bomb at a living player, leading their movement.
+// Easy spirits wait longer and aim worse. Returns {x, z} when it wants to throw (the host checks cooldowns).
+export function ghostThink(w, me, b, dt) {
+  const L = b.lvl;
+  b.ghostWait = (b.ghostWait ?? 1 + b.brain.rnd() * 2) - dt;
+  if (b.ghostWait > 0) return null;
+  b.ghostWait = 2 + (1 - L.skill) * 4 + b.brain.rnd() * 3;
+  const alive = w.players.filter((o) => o.alive);
+  if (!alive.length) return null;
+  const o = alive[Math.floor(b.brain.rnd() * alive.length)];
+  const lead = C.BOMB_T * L.skill * 0.8, err = L.aimError * 4;
+  return { x: o.x + o.vx * lead + (b.brain.rnd() * 2 - 1) * err, z: o.z + o.vz * lead + (b.brain.rnd() * 2 - 1) * err };
 }

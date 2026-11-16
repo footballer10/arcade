@@ -12,7 +12,8 @@ export const manifest = {
   controlsHelp: [
     ['WASD / Arrows', 'Run (camera-relative)'], ['Space', 'Jump (hold = higher)'], ['Shift', 'Dash (works once in the air)'],
     ['Left click / E', 'Shove'], ['Mouse', 'Look (click to lock the mouse) · wheel = zoom'],
-    ['Glowing rock', 'Hot! It crumbles if you stay on it'], ['Click while out', 'Switch who you watch'],
+    ['Glowing rock', 'Hot! It crumbles if you stay on it'],
+    ['When you\'re out', 'Click = lob a lava bomb (you\'re a volcano spirit) · Space = switch view'],
   ],
   picks: [],
   options: [
