@@ -60,3 +60,18 @@ snapshot on `'join'` and spectate.
 ## Test hooks (tests only)
 `window.__prophunt.turbo = 6` runs the round clock 6×; `window.__prophunt.autopilot = true` (host) lets the bot AI
 play the host's own player. `__prophunt.stats` counts snapshots, finds and taunts.
+
+## Look and feel (phase 3)
+- **Open-roof dollhouse:** ceilings face down only, so inside you see a cozy ceiling with a glowing lamp, while the
+  intro camera orbits high over the whole building (garden, trees, white fence, path) and swoops down to you.
+- One merged toon mesh + ink outline for the whole building; decoys are instanced per kind with outlines; your own
+  disguise is outlined in your party color so you never lose yourself among look-alikes.
+- **High:** sun shadows, bloom on lamps, windows and the crackling fireplace (with a flickering light), a warm grade with
+  vignette, dust motes drifting in the light. **Medium:** shadows, no post. **Low:** no shadows, no post, pixel ratio 1.
+- **Juice:** poof clouds in your color when you disguise; props hop, squash and tilt when they move unlocked and
+  gently wobble when idle; on a find the disguise is launched spinning into the air with a comic BONK! burst,
+  confetti in the hider's color, dizzy stars and a screen flash / FOV punch for the bonker; wrong guesses make the
+  real object boing with a NOPE!; taunting makes your hat pop out of your disguise with music notes.
+- **Sound:** cozy lounge loop (electric-piano chords, walking bass, brushes) that turns into a ticking clock during
+  the blindfold and speeds up for the last 30 s or a Last Prop Standing; positional taunts (kazoo, quack, honk,
+  slide whistle, boing, cuckoo), hopping-prop "tok tok" footsteps, squeaky hammer, sad trombone when you're found.

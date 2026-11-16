@@ -41,6 +41,7 @@ export async function start(ctx) {
   const tauntOf = (id) => (TAUNTS.includes(ctx.picks[id]?.taunt) ? ctx.picks[id].taunt : 'kazoo');
   const api = { autopilot: false, turbo: 1, stats: { snaps: 0, finds: 0, taunts: 0 } };   // test-only hooks
   window.__prophunt = api;
+  api.dbg = () => ({ sim: sim && [...sim.players.values()].map((p) => [p.id, +p.x.toFixed(1), +p.z.toFixed(1), p.role, p.alive]), view: [...view.values()].map((v) => [v.id, +v.x?.toFixed(1), +v.z?.toFixed(1)]), me: me && [me.x, me.z], L: L && [L.ox, L.oz, L.w, L.d, L.mapId], round });
 
   const style = document.createElement('style'); style.textContent = CSS; ctx.container.appendChild(style);
   const cross = ui.el('div', 'pr-cross'); const hint = ui.el('div', 'pr-hint'); const vig = ui.el('div', 'pr-vig');
@@ -161,7 +162,10 @@ export async function start(ctx) {
         me.alive = !!(r[8] & 2); me.role = r[8] & 4 ? 'S' : 'H'; me.hp = r[9];
         if (!api.autopilot) continue;
       }
-      v.px = v.x ?? r[1]; v.py = v.y ?? r[2]; v.pz = v.z ?? r[3];
+      // interpolate from where we are drawn now toward the newest snapshot (no compounding: start = clamped render point)
+      const sx = v.x ?? r[1], sy = v.y ?? r[2], sz = v.z ?? r[3];
+      const far = Math.hypot(sx - r[1], sz - r[3]) > 4;               // teleport (new round / correction): snap
+      v.px = far ? r[1] : sx; v.py = far ? r[2] : sy; v.pz = far ? r[3] : sz;
       applyRow(v, r); v.tx = r[1]; v.ty = r[2]; v.tz = r[3]; v.x = v.px; v.y = v.py; v.z = v.pz;
       v.at = now; v.span = Math.max(40, Math.min(250, now - (v.lastAt || now - 83))); v.lastAt = now;
     }
@@ -183,11 +187,11 @@ export async function start(ctx) {
   function onEvent(m) {
     const p = (id) => ctx.player(id), nm = (id) => p(id)?.name || '?';
     switch (m.e) {
-      case 'poof': gfx.fx.poof(m.x, m.y, m.z); sfx.poof(m.x, m.y, m.z); if (m.id !== ctx.myId) gfx.fx.pop(m.id); break;
+      case 'poof': gfx.fx.poof(m.x, m.y, m.z, p(m.id)?.colorHex ?? 0xffffff); sfx.poof(m.x, m.y, m.z); if (m.id !== ctx.myId) gfx.fx.pop(m.id); break;
       case 'taunt': {
         api.stats.taunts++;
         sfx.taunt(tauntOf(m.id), m.x, m.y, m.z, m.forced ? 1.3 : 1);
-        gfx.fx.notes(m.x, m.y, m.z, p(m.id)?.colorHex ?? 0xffffff, m.daring || m.forced);
+        gfx.fx.notes(m.x, m.y, m.z, p(m.id)?.colorHex ?? 0xffffff, m.daring || m.forced); gfx.fx.tauntHat(m.id);
         if (m.id === ctx.myId) { ui.toast(m.forced ? '📢 Forced taunt!' : m.daring ? `😈 DARING TAUNT! +${m.pts}` : `📢 Taunt +${m.pts}`, m.daring ? 'gold' : '', 1600); if (m.forced) lastTauntAt = clock; }
         break;
       }
@@ -195,16 +199,16 @@ export async function start(ctx) {
       case 'swing': if (m.id !== ctx.myId) gfx.fx.swing(m.id); break;
       case 'found': {
         api.stats.finds++;
-        gfx.fx.stars(m.x, m.y, m.z, p(m.id)?.colorHex); gfx.fx.poof(m.x, m.y, m.z, 0xffffff, 10);
+        gfx.fx.stars(m.x, m.y, m.z, p(m.id)?.colorHex); gfx.fx.poof(m.x, m.y, m.z, 0xffffff, 10); gfx.fx.found(m, p(m.id)?.colorHex ?? 0xffffff);
         sfx.squeak(m.x, m.y, m.z); sfx.found(m.id === ctx.myId, m.by === ctx.myId, m.x, m.y, m.z);
         const what = m.k >= 0 ? `the ${KINDS[m.k].name.toLowerCase()}` : 'in plain sight';
-        if (m.id === ctx.myId) { ui.banner('🔨 BONK! FOUND!', 1800); gfx.fx.shake(0.8); ctx.setTimeout(() => ui.toast('You are out this round. Space / click = switch who you watch', '', 3500), 1500); }
-        else if (m.by === ctx.myId) { ui.toast(`🔨 Found ${nm(m.id)} (${what})! +${R.FIND}`, 'good', 2200); gfx.fx.shake(0.4); }
+        if (m.id === ctx.myId) { ui.banner('🔨 BONK! FOUND!', 1800); gfx.fx.shake(0.8); gfx.fx.flash(1); ctx.setTimeout(() => ui.toast('You are out this round. Space / click = switch who you watch', '', 3500), 1500); }
+        else if (m.by === ctx.myId) { ui.toast(`🔨 Found ${nm(m.id)} (${what})! +${R.FIND * (lastSnap?.mu || 1)}`, 'good', 2200); gfx.fx.shake(0.5); gfx.fx.punch(1); gfx.fx.flash(0.6); }
         else ui.toast(`🔨 ${nm(m.by)} found ${nm(m.id)} ${m.k >= 0 ? 'hiding as ' + what : what}`, '', 2600);
         break;
       }
       case 'oops': {
-        gfx.fx.oops(m.i); const dc = L?.decoys[m.i]; if (dc) sfx.squeak(dc.x, dc.y, dc.z);
+        gfx.fx.oops(m.i); gfx.fx.nope(m.i); const dc = L?.decoys[m.i]; if (dc) sfx.squeak(dc.x, dc.y, dc.z);
         if (m.by === ctx.myId) { sfx.oops(true); ui.toast(`❌ Just a real ${KINDS[dc?.k ?? 0].name.toLowerCase()}! -${R.WRONG} ❤`, 'bad', 1500); gfx.fx.shake(0.3); vigT = 0.6; } else sfx.oops(false);
         break;
       }
@@ -291,7 +295,7 @@ export async function start(ctx) {
     for (const [id, v] of view) {
       if (id === ctx.myId && !api.autopilot && me) continue;
       if (v.tx == null || v.at == null) continue;
-      const f = Math.min(1.25, (now - v.at) / v.span);
+      const f = Math.max(0, Math.min(1, (performance.now() - v.at) / v.span));
       v.x = v.px + (v.tx - v.px) * f; v.y = v.py + (v.ty - v.py) * f; v.z = v.pz + (v.tz - v.pz) * f;
       if (v.alive && v.moving && phase !== 'post') { v.snd = (v.snd || 0) - dt; if (v.snd <= 0) { v.snd = v.kind >= 0 && v.role === 'H' ? 0.22 : 0.34; if (v.kind >= 0 && v.role === 'H') sfx.hop(v.x, v.y, v.z, KINDS[v.kind].size[1]); else sfx.step(v.x, v.y, v.z); } }
     }
