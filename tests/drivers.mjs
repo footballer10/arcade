@@ -43,6 +43,13 @@ export const DRIVERS = {
       await sleep(1000);
     }
   },
+  // Floor Is Falling: the game's own bot AI plays for us (test-only autopilot) and the collapse comes 3x sooner.
+  async floorfall(page, until) {
+    while (!(await until())) {
+      await page.evaluate(() => { if (window.__ff) { window.__ff.autopilot = true; window.__ff.turbo = 3; } }).catch(() => {});
+      await sleep(1000);
+    }
+  },
   async coingrab(page, until) { while (!(await until())) await wiggle(page, 1200); },
 };
 export async function play(page, gameId, until) { const d = DRIVERS[gameId] || DRIVERS.coingrab; await d(page, until); }
