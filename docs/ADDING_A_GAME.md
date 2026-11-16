@@ -31,6 +31,7 @@ One session = one game. Read `CLAUDE.md` first (contract, control map, HUD and s
 - [ ] `manifest.js` imports nothing; thumbnail exists; `controlsHelp` lists every key the game uses.
 - [ ] Uses `/core` for networking (`ctx.net`), input (`ctx.input`), HUD (`ctx.ui`), audio (`ctx.audio`), settings, bots, rng. No own PeerJS, lobby, menu, results screen, settings or mute buttons.
 - [ ] Uses only the standard control map plus clearly needed extras; never binds Tab, Esc or Enter.
+- [ ] Has only the actions its design needs: no boost/dash/jump/item added just because the control map has a key for it (the template has no dash on purpose).
 - [ ] HUD only in the four zones; bright cartoon style, shared font and palette; players in their party color (+ avatar or hat).
 - [ ] Level is generated from the seed; identical on every client.
 - [ ] Host-authoritative; works with 1 human + bots, and with 2–3 humans; bots respect `ctx.bots.level`.

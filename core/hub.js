@@ -7,7 +7,7 @@ import { settings, store } from './settings.js';
 import { audio, startMusic, stopMusic } from './audio.js';
 import { input, CONTROL_MAP } from './input.js';
 import { $, el, esc, toast, banner, countdown, clearCenter, tableHTML } from './ui.js';
-import { buildAvatar, disposeAvatar, HATS, HAT_LABELS } from './avatar.js';
+import { buildAvatar, disposeAvatar, HATS, HAT_LABELS, SKINS, HAIRS, HAIR_LABELS, HAIR_COLORS } from './avatar.js';
 import { PALETTE, css } from './palette.js';
 import { makeBot, BOT_LEVELS } from './bots.js';
 import { randomSeed } from './rng.js';
@@ -43,7 +43,7 @@ const humans = () => S.players.filter((p) => !p.isBot);
 const connectedHumans = () => S.players.filter((p) => !p.isBot && p.connected);
 const hnow = () => (net ? net.now() : performance.now());
 const netKind = () => (params.get('net') === 'local' || $('localNet').checked ? 'local' : 'peer');
-const profile = () => ({ name: (settings.get('name') || '').trim().slice(0, 14) || 'Player', color: settings.get('color'), hat: settings.get('hat') });
+const profile = () => ({ name: (settings.get('name') || '').trim().slice(0, 14) || 'Player', color: settings.get('color'), hat: settings.get('hat'), skin: settings.get('skin'), hair: settings.get('hair'), hairColor: settings.get('hairColor') });
 
 // ---------------------------------------------------------------- screens
 const SCREENS = ['home', 'lobby', 'setup', 'loading', 'results', 'podium'];
@@ -92,7 +92,7 @@ function stageBuild(mode) {
   if (mode === 'me') list = [{ id: pid, ...profile(), color: me()?.color ?? (settings.get('color') >= 0 ? settings.get('color') : 1), hat: me()?.hat ?? settings.get('hat') }];
   else if (mode === 'party') list = S ? S.players.filter((p) => p.connected) : [];
   else if (mode === 'podium') list = (S?.podium?.top || []).map((t) => find(t.id) || t).filter(Boolean);
-  const key = mode + '|' + list.map((p) => p.id + p.color + p.hat).join(',');
+  const key = mode + '|' + list.map((p) => [p.id, p.color, p.hat, p.skin, p.hair, p.hairColor].join(':')).join(',');
   if (key === stage.key) return;
   stage.key = key; stage.mode = mode;
   for (const it of stage.items) disposeAvatar(it);
@@ -107,7 +107,7 @@ function stageBuild(mode) {
       block.position.set(x, h / 2 - 1.2, 0); block.userData.podium = true; stage.scene.add(block);
       a.position.set(x, h - 1.2, 0.1);
     } else {
-      const sp = mode === 'me' ? 0 : 1.5;
+      const sp = mode === 'me' ? 0 : 1.15;
       a.position.set((i - (n - 1) / 2) * sp, mode === 'me' ? -0.95 : -0.85, 0);
     }
     a.userData.phase = i * 0.7;
@@ -131,8 +131,11 @@ function stageLoop(now) {
   if (size.x !== w || size.y !== h) stage.renderer.setSize(w, h, false);
   stageBuild(t.mode);
   const cam = stage.camera; cam.aspect = w / h;
-  if (t.mode === 'me') { cam.fov = 30; cam.position.set(0, 0.6, 5.4); cam.lookAt(0, 0, 0); }
-  else if (t.mode === 'party') { const span = stage.items.length * 1.5 + 0.6; cam.fov = 30; cam.position.set(0, 0.7, Math.max(4.8, span / (2 * Math.tan(15 * Math.PI / 180) * (w / h)) + 0.6)); cam.lookAt(0, -0.05, 0); }
+  if (t.mode === 'me') { cam.fov = 30; cam.position.set(0, 0.75, 4.7); cam.lookAt(0, 0.02, 0); }
+  else if (t.mode === 'party') {
+    const span = stage.items.length * 1.15 + 0.5, tan = Math.tan(15 * Math.PI / 180);
+    cam.fov = 30; cam.position.set(0, 0.25, Math.max(2.3 / (2 * tan), span / (2 * tan * (w / h))) + 0.5); cam.lookAt(0, -0.05, 0);
+  }
   else { cam.fov = 38; cam.position.set(0, 1.4, 9); cam.lookAt(0, 0.2, 0); }
   cam.updateProjectionMatrix();
   const ts = now / 1000;
@@ -142,12 +145,22 @@ function stageLoop(now) {
   });
   stage.renderer.render(stage.scene, cam);
   if (t.mode === 'party') stage.items.forEach((a, i) => {
-    const v = new THREE.Vector3(a.position.x, -1.05, 0).project(cam), lab = stage.labels[i];
-    if (lab) { lab.style.left = ((v.x + 1) / 2 * 100) + '%'; lab.style.bottom = '-4px'; }
+    const v = new THREE.Vector3(a.position.x, -0.95, 0).project(cam), lab = stage.labels[i];
+    if (lab) { lab.style.left = ((v.x + 1) / 2 * 100) + '%'; lab.style.top = ((1 - v.y) / 2 * 100) + '%'; lab.style.bottom = 'auto'; lab.style.maxWidth = Math.max(60, (r.width / Math.max(1, stage.items.length)) - 4) + 'px'; }
   });
 }
 
 // ---------------------------------------------------------------- home / profile
+const LOOKS = [['skin', SKINS.length], ['hairColor', HAIR_COLORS.length]];
+function buildLookPickers(skinId, hairId, hairColId) {
+  const hx = (n) => '#' + n.toString(16).padStart(6, '0');
+  $(skinId).innerHTML = SKINS.map((c, i) => `<button data-v="${i}" style="background:${hx(c)}" title="Skin tone"></button>`).join('');
+  $(hairColId).innerHTML = HAIR_COLORS.map((c, i) => `<button data-v="${i}" style="background:${hx(c)}" title="Hair color"></button>`).join('');
+  $(hairId).innerHTML = HAIRS.map((h) => `<button data-v="${h}">${HAIR_LABELS[h]}</button>`).join('');
+  $(skinId).onclick = (e) => { const b = e.target.closest('button'); if (!b) return; audio.play('click'); settings.set('skin', +b.dataset.v); profileChanged(); };
+  $(hairColId).onclick = (e) => { const b = e.target.closest('button'); if (!b) return; audio.play('click'); settings.set('hairColor', +b.dataset.v); profileChanged(); };
+  $(hairId).onclick = (e) => { const b = e.target.closest('button'); if (!b) return; audio.play('click'); settings.set('hair', b.dataset.v); profileChanged(); };
+}
 function buildPickers(colorId, hatId) {
   $(colorId).innerHTML = PALETTE.map((_, i) => `<button data-c="${i}" style="background:${css(i)}" title="Color"></button>`).join('');
   $(hatId).innerHTML = HATS.map((h) => `<button data-h="${h}">${HAT_LABELS[h]}</button>`).join('');
@@ -159,6 +172,7 @@ function renderProfile() {
   const taken = new Set(S ? S.players.filter((p) => p.id !== pid).map((p) => p.color) : []);
   for (const id of ['colorPick', 'colorPick2']) for (const b of $(id).children) { b.classList.toggle('sel', +b.dataset.c === myColor); b.classList.toggle('taken', taken.has(+b.dataset.c)); }
   for (const id of ['hatPick', 'hatPick2']) for (const b of $(id).children) b.classList.toggle('sel', b.dataset.h === (me()?.hat ?? settings.get('hat')));
+  for (const [k, ids] of [['skin', ['skinPick', 'skinPick2']], ['hairColor', ['hairColPick', 'hairColPick2']], ['hair', ['hairPick', 'hairPick2']]]) for (const id of ids) for (const b of $(id).children) b.classList.toggle('sel', String(settings.get(k)) === b.dataset.v);
   if (document.activeElement !== $('nameIn')) $('nameIn').value = settings.get('name');
   if (document.activeElement !== $('nameIn2')) $('nameIn2').value = settings.get('name');
 }
@@ -169,8 +183,12 @@ function profileChanged() {
   profileT = setTimeout(() => { if (S) act({ type: 'profile', ...profile() }); }, 150);
 }
 buildPickers('colorPick', 'hatPick'); buildPickers('colorPick2', 'hatPick2');
+buildLookPickers('skinPick', 'hairPick', 'hairColPick'); buildLookPickers('skinPick2', 'hairPick2', 'hairColPick2');
 for (const id of ['nameIn', 'nameIn2']) $(id).addEventListener('input', () => { settings.set('name', $(id).value.trim().slice(0, 14)); profileChanged(); });
 if (settings.get('color') < 0) settings.set('color', Math.floor(Math.random() * 8));
+if (settings.get('skin') < 0) settings.set('skin', Math.floor(Math.random() * SKINS.length));
+if (!HAIRS.includes(settings.get('hair'))) settings.set('hair', HAIRS[Math.floor(Math.random() * (HAIRS.length - 1))]);
+if (settings.get('hairColor') < 0) settings.set('hairColor', Math.floor(Math.random() * HAIR_COLORS.length));
 renderProfile();
 
 function homeMsg(t, offerLocal = false) { $('homeMsg').textContent = t || ''; $('homeExtra').classList.toggle('hidden', !offerLocal); }
@@ -281,8 +299,13 @@ function freeColor(pref) {
   return 0;
 }
 function addHuman(id, h) {
-  S.players.push({ id, name: cleanName(h.name), color: freeColor(h.color), hat: HATS.includes(h.hat) ? h.hat : 'cap', isBot: false, connected: true, ready: false, trophies: 0, wins: 0, addr: h.addr, joinedAt: Date.now() });
+  S.players.push({ id, name: cleanName(h.name), color: freeColor(h.color), hat: HATS.includes(h.hat) ? h.hat : 'cap', ...cleanLooks(h), isBot: false, connected: true, ready: false, trophies: 0, wins: 0, addr: h.addr, joinedAt: Date.now() });
 }
+const cleanLooks = (h) => ({
+  skin: Number.isInteger(h.skin) && h.skin >= 0 && h.skin < SKINS.length ? h.skin : 1,
+  hair: HAIRS.includes(h.hair) ? h.hair : 'short',
+  hairColor: Number.isInteger(h.hairColor) && h.hairColor >= 0 && h.hairColor < HAIR_COLORS.length ? h.hairColor : 0,
+});
 const cleanName = (n) => String(n || 'Player').replace(/[<>]/g, '').trim().slice(0, 14) || 'Player';
 function admit(id, hello) {
   if (!S) return { ok: false, reason: 'Party is starting, try again.' };
@@ -360,6 +383,7 @@ function reduce(a, from) {
       p.name = cleanName(a.name);
       if (Number.isInteger(a.color) && a.color >= 0 && a.color < 8 && !S.players.some((q) => q !== p && q.color === a.color)) p.color = a.color;
       if (HATS.includes(a.hat)) p.hat = a.hat;
+      Object.assign(p, cleanLooks(a));
       break;
     }
     case 'ready': if (S.phase === 'lobby') p.ready = !!a.v; break;
@@ -460,7 +484,7 @@ function startLoading() {
   g.round = S.round; g.seed = randomSeed(); g.loaded = [];
   const list = S.players.filter((p) => p.connected).sort((a, b) => a.isBot - b.isBot).slice(0, m.maxPlayers);
   g.participants = list.map((p) => p.id);
-  g.roster = list.map(({ id, name, color, hat, isBot }) => ({ id, name, color, hat, isBot }));
+  g.roster = list.map(({ id, name, color, hat, skin, hair, hairColor, isBot }) => ({ id, name, color, hat, skin, hair, hairColor, isBot }));
   for (const p of list) { g.picks[p.id] = { ...Object.fromEntries((m.picks || []).map((pk) => [pk.key, pk.default])), ...(g.picks[p.id] || {}) }; }
   g.deadline = hnow() + 20000;
   for (const [k, v] of Object.entries(g.options)) store.set(`opt.${g.id}.${k}`, v);
@@ -532,7 +556,7 @@ function advance() {
       if (!fits(GAME_MAP[id], partyCount())) id = GAMES.find((m) => fits(m, partyCount()))?.id;
       if (id) { beginGame(id); return; }
     }
-    const gained = S.players.map((p) => ({ id: p.id, name: p.name, color: p.color, hat: p.hat, trophies: p.trophies - (S.shuffle.start[p.id] ?? 0) })).sort((a, b) => b.trophies - a.trophies);
+    const gained = S.players.map((p) => ({ id: p.id, name: p.name, color: p.color, hat: p.hat, skin: p.skin, hair: p.hair, hairColor: p.hairColor, trophies: p.trophies - (S.shuffle.start[p.id] ?? 0) })).sort((a, b) => b.trophies - a.trophies);
     S.podium = { top: gained.slice(0, 3), all: gained, games: S.shuffle.list.length };
     S.phase = 'podium'; S.deadline = hnow() + 25000; S.game = null; S.results = null;
     return;
@@ -655,12 +679,11 @@ function renderLobby() {
   $('playerList').innerHTML = S.players.map((p) => {
     const tags = [];
     if (p.id === S.hostId) tags.push('<span class="ph-tag gold">HOST</span>');
-    if (p.id === pid) tags.push('<span class="ph-tag">YOU</span>');
     if (p.isBot) tags.push('<span class="ph-tag">BOT</span>');
     const ping = !p.isBot && pings[p.id] ? `<span class="ph-tag">${pings[p.id]}ms</span>` : '';
     const acts = host && p.id !== pid ? (p.isBot ? `<button class="ph-btn small danger" data-kick="${p.id}" title="Remove bot">✕</button>`
       : `<button class="ph-btn small" data-host="${p.id}" title="Make host">👑</button><button class="ph-btn small danger" data-kick="${p.id}" title="Kick">✕</button>`) : '';
-    return `<li class="${p.connected ? '' : 'off'}"><span class="ph-dot" style="background:${css(p.color)}"></span><span class="nm">${esc(p.name)}</span>${tags.join('')}${ping}
+    return `<li class="${p.connected ? '' : 'off'} ${p.id === pid ? 'me' : ''}" title="${p.id === pid ? 'You' : ''}"><span class="ph-dot" style="background:${css(p.color)}"></span><span class="nm">${esc(p.name)}</span>${tags.join('')}${ping}
       <span class="trophy">🏆${p.trophies}</span><span class="ready">${p.isBot || p.ready ? '✔' : '…'}</span><span class="acts">${acts}</span></li>`;
   }).join('') + `<li style="justify-content:center;opacity:.6">${S.players.length}/${MAX_PARTY} players${S.players.some((p) => !p.connected) ? ' · greyed = reconnecting' : ''}</li>`;
   $('botLevel').value = S.botLevel;

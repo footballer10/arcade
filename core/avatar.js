@@ -1,46 +1,63 @@
-// The shared player character: a chunky cartoon "bean" in the player's color plus one hat.
-// Shown in the lobby and podium, and used by any game where a player body makes sense, so you look like you everywhere.
-//   const a = ctx.avatar.build(player)            // THREE.Group, ~1.6 units tall, feet at y=0, faces +z
-//   a.userData.setPose({ run: 0..1, t: seconds })  // simple bob/waddle animation
+// The shared player character: a chunky cartoon person — skin tone, hairstyle + hair color, a face, a shirt in the
+// player's party color, arms, trousers and shoes, plus one hat. Shown in the lobby and podium and used by any game
+// where a player body makes sense, so you look like you everywhere.
+//   const a = ctx.avatar.build(player)            // THREE.Group, ~1.7 units tall, feet at y=0, faces +z
+//   a.userData.setPose({ run: 0..1, t: seconds, jump: 0..1 })   // idle bob / run cycle / jump tuck
+//   a.userData.rig                                 // the body group (tilt it for leans, stuns, etc.)
 //   scene.add(ctx.avatar.hat(player.hat))          // just the hat (put it on your own character's head)
-//   ctx.avatar.dispose(a)                          // frees its geometries/materials (shared ones are kept)
+//   ctx.avatar.dispose(a)                          // frees its own materials (shared geometry is kept)
+// player fields used: color (palette index), hat, skin (0-5), hair (style key), hairColor (0-5). Missing fields get
+// stable defaults derived from the player id, so older callers keep working.
 import * as THREE from 'three';
 import { hex } from './palette.js';
 
 export const HATS = ['none', 'cap', 'tophat', 'crown', 'beanie', 'party', 'horns', 'halo'];
 export const HAT_LABELS = { none: 'No hat', cap: 'Cap', tophat: 'Top hat', crown: 'Crown', beanie: 'Beanie', party: 'Party hat', horns: 'Horns', halo: 'Halo' };
+export const SKINS = [0xffdcc0, 0xf3c39b, 0xe0a678, 0xc68655, 0x9a6440, 0x6b4428];
+export const HAIRS = ['short', 'spiky', 'curly', 'long', 'ponytail', 'bun', 'mohawk', 'bald'];
+export const HAIR_LABELS = { short: 'Short', spiky: 'Spiky', curly: 'Curly', long: 'Long', ponytail: 'Ponytail', bun: 'Bun', mohawk: 'Mohawk', bald: 'Bald' };
+export const HAIR_COLORS = [0x2a1d18, 0x6b3e22, 0xb7742e, 0xf2cf6b, 0xc8452f, 0x4a6cff];
 
 const GRAD = new THREE.DataTexture(new Uint8Array([90, 170, 255]), 3, 1, THREE.RedFormat);
 GRAD.needsUpdate = true;
 const toon = (color, extra = {}) => new THREE.MeshToonMaterial({ color, gradientMap: GRAD, ...extra });
+const cap = (r, l) => new THREE.CapsuleGeometry(r, l, 5, 12);
+const sph = (r, w = 16, h = 12) => new THREE.SphereGeometry(r, w, h);
 // Shared (never disposed): geometries and fixed-color materials.
 const G = {
-  body: new THREE.CapsuleGeometry(0.5, 0.55, 6, 16),
-  eye: new THREE.SphereGeometry(0.11, 12, 8),
-  pupil: new THREE.SphereGeometry(0.06, 10, 6),
-  foot: new THREE.SphereGeometry(0.17, 10, 8),
+  head: sph(0.36, 24, 18), torso: cap(0.27, 0.28), hip: sph(0.27, 16, 10), arm: cap(0.085, 0.3), hand: sph(0.1, 12, 8),
+  leg: cap(0.105, 0.26), shoe: new THREE.BoxGeometry(0.2, 0.13, 0.32), eye: sph(0.085, 14, 10), pupil: sph(0.05, 12, 8),
+  glint: sph(0.018, 6, 4), brow: new THREE.BoxGeometry(0.13, 0.03, 0.03), mouth: new THREE.TorusGeometry(0.075, 0.018, 6, 14, Math.PI),
+  nose: sph(0.045, 10, 8), cheek: new THREE.CircleGeometry(0.05, 14), ear: sph(0.07, 10, 8), collar: new THREE.TorusGeometry(0.17, 0.035, 8, 20),
+  hairCap: new THREE.SphereGeometry(0.385, 22, 14, 0, Math.PI * 2, 0, Math.PI * 0.55), spike: new THREE.ConeGeometry(0.09, 0.26, 8),
+  curl: sph(0.12, 10, 8), hairBack: cap(0.3, 0.22), tail: cap(0.08, 0.26), bun: sph(0.15, 12, 10), mohawk: new THREE.BoxGeometry(0.1, 0.18, 0.62),
+  belt: new THREE.CylinderGeometry(0.275, 0.275, 0.07, 18),
+  // hats
   visor: new THREE.CylinderGeometry(0.36, 0.36, 0.04, 20, 1, false, -Math.PI / 2, Math.PI),
   dome: new THREE.SphereGeometry(0.42, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2),
-  brim: new THREE.CylinderGeometry(0.52, 0.52, 0.05, 24),
-  tall: new THREE.CylinderGeometry(0.3, 0.32, 0.55, 20),
-  band: new THREE.CylinderGeometry(0.33, 0.33, 0.1, 20),
-  crown: new THREE.CylinderGeometry(0.34, 0.3, 0.26, 10, 1, true),
-  gem: new THREE.OctahedronGeometry(0.07),
-  pom: new THREE.SphereGeometry(0.11, 10, 8),
-  cone: new THREE.ConeGeometry(0.26, 0.6, 18),
-  horn: new THREE.ConeGeometry(0.09, 0.38, 10),
-  halo: new THREE.TorusGeometry(0.3, 0.05, 8, 28),
+  brim: new THREE.CylinderGeometry(0.52, 0.52, 0.05, 24), tall: new THREE.CylinderGeometry(0.3, 0.32, 0.55, 20),
+  band: new THREE.CylinderGeometry(0.33, 0.33, 0.1, 20), crown: new THREE.CylinderGeometry(0.34, 0.3, 0.26, 10, 1, true),
+  gem: new THREE.OctahedronGeometry(0.07), pom: new THREE.SphereGeometry(0.11, 10, 8), cone: new THREE.ConeGeometry(0.26, 0.6, 18),
+  horn: new THREE.ConeGeometry(0.09, 0.38, 10), halo: new THREE.TorusGeometry(0.3, 0.05, 8, 28),
 };
 const M = {
   white: toon(0xffffff), ink: new THREE.MeshBasicMaterial({ color: 0x1d1633 }), black: toon(0x22202e), gold: toon(0xffcc33, { emissive: 0x332200 }),
   red: toon(0xe23b3b), blue: toon(0x3e6dff), horn: toon(0xf3ead2), halo: new THREE.MeshBasicMaterial({ color: 0xfff27a }),
+  pants: toon(0x2f3a63), shoe: toon(0x26222e), sole: toon(0xf4f1ea), mouth: new THREE.MeshBasicMaterial({ color: 0x5a1f2a }),
+  cheek: new THREE.MeshBasicMaterial({ color: 0xff8f9a, transparent: true, opacity: 0.45, depthWrite: false }),
   outline: new THREE.MeshBasicMaterial({ color: 0x1d1633, side: THREE.BackSide }),
 };
 const SHARED_GEO = new Set(Object.values(G)), SHARED_MAT = new Set(Object.values(M));
 
-function mesh(geo, mat, x = 0, y = 0, z = 0) { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; return m; }
+function mesh(geo, mat, x = 0, y = 0, z = 0, parent = null) {
+  const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true;
+  if (parent) parent.add(m);
+  return m;
+}
+function inked(m, s = 1.07) { const o = new THREE.Mesh(m.geometry, M.outline); o.scale.setScalar(s); o.castShadow = false; m.add(o); return m; }
+const hashId = (s) => { let h = 7; for (const c of String(s || '')) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; };
 
-// A hat on its own, origin at the top of the wearer's head.
+// A hat on its own, origin at the top of the wearer's head (sized for a ~0.4 radius head).
 export function buildHat(kind, color = 0xffffff) {
   const g = new THREE.Group(); g.name = 'hat';
   const tint = toon(new THREE.Color(color).lerp(new THREE.Color(0x1d1633), 0.25).getHex());
@@ -57,30 +74,81 @@ export function buildHat(kind, color = 0xffffff) {
   return g;
 }
 
-// player: {color (palette index), hat}
+function buildHair(style, mat, head) {
+  const g = new THREE.Group(); head.add(g);
+  if (style === 'bald') return g;
+  const capM = mesh(G.hairCap, mat, 0, 0.02, -0.02, g);
+  capM.rotation.x = -0.25; capM.scale.set(1.02, 1, 1.04);
+  if (style === 'spiky') for (let i = 0; i < 7; i++) { const a = (i / 7) * Math.PI * 2; const s = mesh(G.spike, mat, Math.sin(a) * 0.2, 0.32, Math.cos(a) * 0.2 - 0.04, g); s.rotation.set(Math.cos(a) * 0.6, 0, -Math.sin(a) * 0.6); }
+  if (style === 'curly') for (let i = 0; i < 11; i++) { const a = (i / 11) * Math.PI * 2; mesh(G.curl, mat, Math.sin(a) * 0.3, 0.22 + (i % 2) * 0.07, Math.cos(a) * 0.28 - 0.05, g); }
+  if (style === 'long') { const b = mesh(G.hairBack, mat, 0, -0.16, -0.17, g); b.scale.set(1.1, 1, 0.55); }
+  if (style === 'ponytail') { const t = mesh(G.tail, mat, 0, 0.0, -0.42, g); t.rotation.x = 0.5; mesh(G.curl, mat, 0, 0.12, -0.34, g); }
+  if (style === 'bun') mesh(G.bun, mat, 0, 0.36, -0.12, g);
+  if (style === 'mohawk') { g.remove(capM); const m = mesh(G.mohawk, mat, 0, 0.36, -0.04, g); m.rotation.x = -0.2; }
+  return g;
+}
+
+// player: {id, color (palette index), hat, skin, hair, hairColor}
 export function buildAvatar(player = {}) {
-  const color = hex(player.color ?? 0);
+  const h = hashId(player.id || player.name);
+  const shirt = hex(player.color ?? 0);
+  const skinM = toon(SKINS[player.skin ?? (h % SKINS.length)] ?? SKINS[1]);
+  const hairM = toon(HAIR_COLORS[player.hairColor ?? ((h >> 3) % HAIR_COLORS.length)] ?? HAIR_COLORS[0]);
+  const shirtM = toon(shirt);
+  const darkShirt = toon(new THREE.Color(shirt).lerp(new THREE.Color(0x1d1633), 0.35).getHex());
   const root = new THREE.Group(); root.name = 'avatar';
-  const bodyMat = toon(color);
   const rig = new THREE.Group(); root.add(rig);
-  const body = mesh(G.body, bodyMat, 0, 0.82, 0);
-  const out = new THREE.Mesh(G.body, M.outline); out.scale.setScalar(1.06); body.add(out);
-  rig.add(body);
-  const face = new THREE.Group(); face.position.set(0, 1.05, 0.38); rig.add(face);
-  for (const s of [-1, 1]) { face.add(mesh(G.eye, M.white, s * 0.17, 0, 0.05)); face.add(mesh(G.pupil, M.ink, s * 0.17, 0, 0.14)); }
-  const feet = [];
-  for (const s of [-1, 1]) { const f = mesh(G.foot, bodyMat, s * 0.22, 0.12, 0.05); f.scale.set(1, 0.7, 1.35); rig.add(f); feet.push(f); }
-  const hat = buildHat(player.hat || 'none', color); hat.position.set(0, 1.5, 0); rig.add(hat);
+  const body = new THREE.Group(); body.position.y = 0.62; rig.add(body);   // pelvis pivot
+  // torso + hips
+  const torso = inked(mesh(G.torso, shirtM, 0, 0.3, 0, body)); torso.scale.set(1.08, 1, 0.82);
+  mesh(G.collar, darkShirt, 0, 0.6, 0, body).rotation.x = Math.PI / 2;
+  const hips = mesh(G.hip, M.pants, 0, 0.02, 0, body); hips.scale.set(1.02, 0.55, 0.8);
+  const belt = mesh(G.belt, darkShirt, 0, 0.1, 0, body); belt.scale.set(1.0, 1, 0.82);
+  // head
+  const neck = new THREE.Group(); neck.position.set(0, 0.7, 0); body.add(neck);
+  const head = new THREE.Group(); head.position.y = 0.34; neck.add(head);
+  inked(mesh(G.head, skinM, 0, 0, 0, head), 1.05);
+  for (const s of [-1, 1]) {
+    mesh(G.ear, skinM, s * 0.35, -0.02, -0.02, head).scale.set(0.6, 1, 0.8);
+    const eye = mesh(G.eye, M.white, s * 0.13, 0.04, 0.3, head); eye.scale.set(1, 1.25, 0.7);
+    mesh(G.pupil, M.ink, s * 0.13, 0.03, 0.355, head);
+    mesh(G.glint, M.white, s * 0.13 + 0.02, 0.07, 0.395, head);
+    const brow = mesh(G.brow, hairM, s * 0.13, 0.17, 0.32, head); brow.rotation.z = s * -0.18;
+    const ck = mesh(G.cheek, M.cheek, s * 0.21, -0.08, 0.3, head); ck.rotation.y = s * 0.45; ck.castShadow = false;
+  }
+  mesh(G.nose, skinM, 0, -0.04, 0.36, head);
+  const mouth = mesh(G.mouth, M.mouth, 0, -0.14, 0.32, head); mouth.rotation.set(0.15, 0, Math.PI);
+  buildHair(HAIRS.includes(player.hair) ? player.hair : HAIRS[(h >> 6) % (HAIRS.length - 1)], hairM, head);
+  const hat = buildHat(player.hat || 'none', shirt); hat.position.set(0, 0.25, 0); hat.scale.setScalar(0.92); head.add(hat);
+  // arms (shoulder pivots) + legs (hip pivots)
+  const arms = [], legs = [];
+  for (const s of [-1, 1]) {
+    const sh = new THREE.Group(); sh.position.set(s * 0.33, 0.52, 0); body.add(sh);
+    const up = inked(mesh(G.arm, shirtM, 0, -0.2, 0, sh), 1.12); up.rotation.z = s * 0.12;
+    mesh(G.hand, skinM, s * 0.05, -0.43, 0.02, sh);
+    sh.rotation.z = s * 0.18; arms.push(sh);
+    const hp = new THREE.Group(); hp.position.set(s * 0.14, 0.0, 0); body.add(hp);
+    inked(mesh(G.leg, M.pants, 0, -0.22, 0, hp), 1.1);
+    const shoe = mesh(G.shoe, M.shoe, 0, -0.52, 0.06, hp);
+    mesh(G.shoe, M.sole, 0, -0.575, 0.06, hp).scale.set(1.05, 0.25, 1.05); void shoe;
+    legs.push(hp);
+  }
   root.userData = {
-    rig, body, feet, hat, ownMats: [bodyMat, ...hat.userData.ownMats],
+    rig, body, head, arms, legs, hat, ownMats: [skinM, hairM, shirtM, darkShirt, ...hat.userData.ownMats],
     setPose({ run = 0, t = performance.now() / 1000, jump = 0 } = {}) {
-      const w = Math.sin(t * 14) * run;
-      rig.position.y = Math.abs(Math.sin(t * 14)) * 0.1 * run + Math.sin(t * 2.2) * 0.02 * (1 - run) + jump;
-      rig.rotation.z = w * 0.08;
-      feet[0].position.z = 0.05 + w * 0.22; feet[1].position.z = 0.05 - w * 0.22;
-      body.scale.set(1 + Math.sin(t * 2.2) * 0.015, 1 - Math.sin(t * 2.2) * 0.015, 1);
+      const ph = t * 11, sw = Math.sin(ph) * run;
+      const breathe = Math.sin(t * 2.2) * (1 - run);
+      rig.position.y = Math.abs(Math.sin(ph)) * 0.08 * run + breathe * 0.015 + jump;
+      body.rotation.x = 0.12 * run;                       // lean into the run
+      rig.rotation.z = Math.sin(ph) * 0.04 * run;
+      legs[0].rotation.x = sw * 0.9 - jump * 0.8; legs[1].rotation.x = -sw * 0.9 - jump * 0.4;
+      arms[0].rotation.x = -sw * 1.0 + jump * -1.2; arms[1].rotation.x = sw * 1.0 + jump * -1.2;
+      arms[0].rotation.z = -0.18 - breathe * 0.04 - jump * 0.4; arms[1].rotation.z = 0.18 + breathe * 0.04 + jump * 0.4;
+      head.rotation.z = Math.sin(t * 1.3) * 0.05 * (1 - run);
+      head.position.y = 0.34 + breathe * 0.01;
     },
   };
+  root.userData.setPose({ t: 0 });
   return root;
 }
 

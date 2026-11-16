@@ -61,6 +61,7 @@ export function createSound(audio) {
     whistle() { if (A()) audio.tone('sine', 1400, 500, C_BOMB, 0.04); },
     boom(near) { if (!A()) return; const v = near ? 1 : 0.5; audio.burst(0.7, 0.4 * v, 'lowpass', 2200, 70); audio.tone('sine', 120, 35, 0.5, 0.22 * v); audio.tone('square', 90, 40, 0.25, 0.06 * v); },
     erupt() { if (!A()) return; audio.burst(1.4, 0.45, 'lowpass', 900, 60); audio.tone('sine', 70, 28, 1.2, 0.3); audio.tone('sawtooth', 55, 30, 0.9, 0.08); },
+    rise() { if (A() && gate('r', 250)) { audio.burst(0.6, 0.12, 'lowpass', 300, 900); audio.tone('sine', 55, 90, 0.5, 0.1); } },
     surge() { if (A()) { audio.burst(1.6, 0.35, 'lowpass', 160, 600); audio.tone('sawtooth', 45, 70, 1.4, 0.12); } },
     roundWin(mine) { if (mine) audio.play('fanfare'); else audio.play('win', 0.7); },
     dispose() {

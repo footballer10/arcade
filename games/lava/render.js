@@ -94,10 +94,10 @@ export function createView(ctx) {
 
   // ---- crater wall + distant mountains (static)
   const world = new THREE.Group(); scene.add(world);
-  const wallGeo = new THREE.CylinderGeometry(17.5, 21, 26, 48, 6, true);
-  { const pos = wallGeo.attributes.position; for (let i = 0; i < pos.count; i++) { const y = pos.getY(i), a = Math.atan2(pos.getZ(i), pos.getX(i)); const k = 1 + 0.06 * Math.sin(a * 7 + y * 0.4) + 0.04 * Math.sin(a * 17); pos.setX(i, pos.getX(i) * k); pos.setZ(i, pos.getZ(i) * k); if (y > 12) pos.setY(i, y + Math.sin(a * 5) * 2.4 + Math.sin(a * 11) * 1.2); } wallGeo.computeVertexNormals(); }
-  const wall = new THREE.Mesh(wallGeo, toon(0x5a2f3a, { side: THREE.BackSide })); wall.position.y = 6; wall.receiveShadow = true; world.add(wall);
-  const rimGeo = new THREE.TorusGeometry(19.5, 2.2, 6, 48); const rim = new THREE.Mesh(rimGeo, toon(0x4a2430)); rim.rotation.x = Math.PI / 2; rim.position.y = 19.5; world.add(rim);
+  const wallGeo = new THREE.CylinderGeometry(17.5, 21, 90, 48, 18, true);
+  { const pos = wallGeo.attributes.position; for (let i = 0; i < pos.count; i++) { const y = pos.getY(i), a = Math.atan2(pos.getZ(i), pos.getX(i)); const k = 1 + 0.06 * Math.sin(a * 7 + y * 0.4) + 0.04 * Math.sin(a * 17); pos.setX(i, pos.getX(i) * k); pos.setZ(i, pos.getZ(i) * k); if (y > 44) pos.setY(i, y + Math.sin(a * 5) * 2.4 + Math.sin(a * 11) * 1.2); } wallGeo.computeVertexNormals(); }
+  const wall = new THREE.Mesh(wallGeo, toon(0x5a2f3a, { side: THREE.BackSide })); wall.position.y = 35; wall.receiveShadow = true; world.add(wall);
+  const rimGeo = new THREE.TorusGeometry(19.5, 2.2, 6, 48); const rim = new THREE.Mesh(rimGeo, toon(0x4a2430)); rim.rotation.x = Math.PI / 2; rim.position.y = 80; world.add(rim);
   const mtnMat = toon(0x6b2a3c);
   for (let i = 0; i < 9; i++) { const a = (i / 9) * TAU + 0.3, r = 110 + (i % 3) * 25, h = 30 + ((i * 37) % 30); const m = new THREE.Mesh(new THREE.ConeGeometry(28 + (i % 4) * 6, h, 7), mtnMat); m.position.set(Math.cos(a) * r, h / 2 - 12, Math.sin(a) * r); world.add(m); }
 
@@ -270,24 +270,32 @@ export function createView(ctx) {
       for (let i = 0; i < platMeshes.length; i++) {
         const pm = platMeshes[i], p = pm.p, sl = s.S[i], st = s.st[i];
         const was = prevSt ? prevSt[i] : st;
+        if ((p.kind === 'basalt' || p.kind === 'glass') && s.t < p.born) {
+          // not risen yet: bubbling, glowing lava where the new rock is about to come up
+          pm.g.visible = false;
+          if (p.born - s.t < C.WARN_T && Math.random() < dt * (low ? 10 : 25)) { const a = Math.random() * TAU, rr = Math.random() * p.r; spawn(p.x + Math.cos(a) * rr, s.lava + 0.05, p.z + Math.sin(a) * rr, 0, 1.2 + Math.random() * 2, 0, 0.6, 0.7, SPARK, -2); }
+          if (p.born - s.t < 0.05 && !pm.rose) { pm.rose = true; s.onRise?.(p); burst(p.x, s.lava, p.z, 14, 3, FIRE, 0.7, 0.7, 6); }
+          continue;
+        }
         if (p.kind === 'basalt') {
-          if (st === ST_GONE && was !== ST_GONE) { pm.fall = 0.001; if (sl.top > s.lava - 0.5) { burst(p.x, p.top, p.z, 26, 4, FIRE, 0.9, 0.7, 5); debris(p.x, p.top, p.z, p.r); s.onCrumble?.(p); } }
+          if (st === ST_GONE && was !== ST_GONE) { pm.fall = 0.001; pm.goneTop = sl.top; if (sl.top > s.lava - 0.5) { burst(p.x, sl.top, p.z, 26, 4, FIRE, 0.9, 0.7, 5); debris(p.x, sl.top, p.z, p.r); s.onCrumble?.(p); } }
           if (st !== ST_GONE && was === ST_GONE) { pm.fall = 0; pm.rise = 1; }
           if (st === ST_CRUMBLE && was !== ST_CRUMBLE) s.onCrack?.(p);
           const heat = st === ST_CRUMBLE ? 1 : st === ST_GONE ? 1 : st / 100;
           c1.set(0x6e6a86); c2.set(0xff7a1a); tmpCol.copy(c1).lerp(c2, Math.min(1, heat * 1.15));
           pm.capMat.color.copy(tmpCol); pm.capMat.emissive.setRGB(heat * heat * 0.9, heat * heat * 0.28, 0);
-          let y = p.top, ox = 0, oz = 0;
+          let y = sl.top, ox = 0, oz = 0;
+          if (s.t - p.born < C.RISE_T && Math.random() < dt * 20) spawn(p.x + (Math.random() - 0.5) * p.r * 2, s.lava + 0.1, p.z + (Math.random() - 0.5) * p.r * 2, (Math.random() - 0.5) * 2, 2 + Math.random() * 3, (Math.random() - 0.5) * 2, 0.8, 0.6, FIRE, -8);
           if (st === ST_CRUMBLE) { ox = (Math.random() - 0.5) * 0.14; oz = (Math.random() - 0.5) * 0.14; }
           else if (heat > 0.6) { const k = (heat - 0.6) * 0.06; ox = (Math.random() - 0.5) * k; oz = (Math.random() - 0.5) * k; }
-          if (st === ST_GONE) { pm.fall += dt; y = p.top - pm.fall * pm.fall * 9; pm.g.visible = y > s.lava - 3; }
-          else { pm.g.visible = true; if (pm.rise > 0) { pm.rise = Math.max(0, pm.rise - dt * 1.6); y = p.top - pm.rise * pm.rise * 4; } }
+          if (st === ST_GONE) { pm.fall += dt; y = (pm.goneTop ?? sl.top) - pm.fall * pm.fall * 9; pm.g.visible = y > s.lava - 3; }
+          else pm.g.visible = y > s.lava - 3;
           pm.g.position.set(p.x + ox, y, p.z + oz);
-          if (heat > 0.35 && Math.random() < heat * dt * 6) spawn(p.x + (Math.random() - 0.5) * p.r, p.top + 0.1, p.z + (Math.random() - 0.5) * p.r, 0, 1.5 + Math.random(), 0, 0.9, 0.35, FIRE, 1);
+          if (heat > 0.35 && Math.random() < heat * dt * 6) spawn(p.x + (Math.random() - 0.5) * p.r, sl.top + 0.1, p.z + (Math.random() - 0.5) * p.r, 0, 1.5 + Math.random(), 0, 0.9, 0.35, FIRE, 1);
         } else if (p.kind === 'mover') {
           pm.g.position.set(sl.x, sl.top, sl.z);
         } else if (p.kind === 'glass') {
-          pm.g.visible = sl.solid || (prevSt && false);
+          pm.g.visible = sl.solid && sl.top > s.lava - 1; pm.g.position.y = sl.top;
           const blink = sl.warn ? (Math.sin(t * 22) > 0 ? 1 : 0.35) : 1;
           pm.capMat.opacity = 0.88 * blink; pm.capMat.emissive.setRGB(0.16 + (sl.warn ? 0.5 * blink : 0), 0.05, 0.4);
         } else if (p.kind === 'pumice') {

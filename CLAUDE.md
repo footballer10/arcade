@@ -77,8 +77,11 @@ Trophies: 1st 5, 2nd 3, 3rd 2, everyone else 1 (ties share the higher place).
 | Mouse | aim / look (`mouse`, `takeMouseDelta(sens)`) | | Q | special (`special`) |
 | Left / right click | `primary` / `secondary` | | Tab | scoreboard — **hub only** |
 | Space | jump / action (`jump`) | | Esc | pause menu — **hub only** |
-| Shift | boost / dash (`boost`) | | Enter | chat — **hub only** |
-Add extra keys only when the game truly needs them (e.g. Downhill grabs, emotes on 1–4) and list them in `controlsHelp`.
+| Shift | boost / dash, *if the game has one* (`boost`) | | Enter | chat — **hub only** |
+The map says **which key to use if your game has that kind of action**. It is not a feature list: don't add a boost,
+dash, jump, item or special just because a key exists for it. Most games use only a few of these (Mini-Golf uses mouse +
+E + Space; Downhill has no boost key). Add extra keys only when the game truly needs them (e.g. Downhill grabs, emotes on
+1–4) and list every key you use in `controlsHelp`.
 
 ## UI / HUD rules
 - HUD goes **only** in the four zones: top-left status (`ui.status`), top-center timer (`ui.timer`), top-right mini scoreboard (`ui.mini`), bottom-center abilities/items/meters (`ui.abilities`, `ui.bar`). Toasts and banners via `ui.toast` / `ui.banner`; the countdown, pause menu, results screen and Tab scoreboard are the hub's (use `ui.setScoreboard` to add your table).

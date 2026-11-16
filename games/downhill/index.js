@@ -217,7 +217,7 @@ export async function start(ctx) {
   const GRAB_CODES = [['KeyR', 'KeyJ'], ['KeyF', 'KeyK'], ['KeyT', 'KeyL'], ['KeyG', 'KeyI'], ['KeyC', 'KeyU'], ['KeyV', 'KeyO']];
   function localInput(e) {
     if (S.autopilot && S.race?.me) { const me = S.race.me; me.brain ||= newBrain(mulberry32(7), me.info.cls); return botInput(e, me.brain, S.race.course, FIXED); }
-    const inp = { steer: steerAmount(), tuck: !!(K('KeyW') || K('ArrowUp') || input.down('boost')), brake: !!(K('KeyS') || K('ArrowDown')), jump: jumpBuf > 0, spin: 0, flip: 0, grab: 0, use: useBuf > 0, butter: butterBuf > 0 };
+    const inp = { steer: steerAmount(), tuck: !!(K('KeyW') || K('ArrowUp')), brake: !!(K('KeyS') || K('ArrowDown')), jump: jumpBuf > 0, spin: 0, flip: 0, grab: 0, use: useBuf > 0, butter: butterBuf > 0 };
     if (e.air) {
       inp.grab = GRAB_CODES.findIndex(([a, b]) => K(a) || K(b)) + 1;
       inp.spin = ((fresh('ArrowRight') || fresh('KeyD')) ? 1 : 0) - ((fresh('ArrowLeft') || fresh('KeyA')) ? 1 : 0);

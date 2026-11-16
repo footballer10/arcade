@@ -31,8 +31,8 @@ function scorePlat(w, me, s, i, b, cur) {
   const futureLava = lavaAt(w.lv, w.t + look);
   const safety = s.top - Math.max(w.lava, futureLava);
   if (safety < 0.5) return -1e9;
-  let sc = Math.min(safety, 4.2) * 1.1 + s.top * 0.12;
-  if (s.kind === 'basalt') sc -= (w.st[i] / 100) * 3.6;
+  let sc = Math.min(safety, 5) * 1.2 + s.top * 0.1;
+  if (s.kind === 'basalt') sc -= (w.st[i] / 100) * 4.5;
   if (s.kind === 'pumice') sc -= 1.2 + (w.st[i] / 100) * 6;
   if (s.kind === 'mover') sc -= 0.35;
   if (s.kind === 'glass') sc -= 0.6;
@@ -55,7 +55,7 @@ export function botThink(w, me, b, dt) {
   if (b.brain.ready(dt) && !committed) {
     // ---- choose where to stand next
     let best = -1, bs = -1e9;
-    const curScore = cur && standable(w, cur, cur.id) ? scorePlat(w, me, cur, cur.id, b, true) + 1.1 - (cur.kind === 'basalt' && w.st[cur.id] > 55 ? 4 : 0) : -1e9;
+    const curScore = cur && standable(w, cur, cur.id) ? scorePlat(w, me, cur, cur.id, b, true) + 1.1 - (cur.kind === 'basalt' && w.st[cur.id] > 42 ? 4 : 0) : -1e9;
     const fromY = cur ? cur.top : me.y;
     for (let i = 0; i < S.length; i++) {
       const s = S[i];
@@ -67,6 +67,15 @@ export function botThink(w, me, b, dt) {
       if (gap > reach) continue;
       const sc = scorePlat(w, me, s, i, b, false);
       if (sc > bs) { bs = sc; best = i; }
+    }
+    if (best < 0 && (curScore < 0 || (cur && cur.kind === 'basalt' && w.st[cur.id] > 42))) {
+      // nothing in easy reach and we have to move: try the closest rock we could make with a dash
+      let bd = 1e9;
+      for (let i = 0; i < S.length; i++) {
+        const s = S[i]; if (s === cur || !standable(w, s, i) || s.top - fromY > 1.3 || s.top < w.lava + 0.8) continue;
+        const gap = Math.max(0, Math.hypot(s.x - me.x, s.z - me.z) - s.r - (cur ? cur.r * 0.8 : 0));
+        if (gap < jumpReach(s.top - fromY) + 1.4 && gap - s.top < bd) { bd = gap - s.top; best = i; bs = curScore + 1; }
+      }
     }
     if (best >= 0 && bs > curScore) { if (b.target !== best) { b.target = best; b.aimOff = (b.brain.rnd() * 2 - 1) * L.aimError * 0.8; b.fumble = b.brain.mistake(); b.jumpK = 0.42 + b.brain.rnd() * 0.25; } }
     else if (cur) b.target = cur.id;

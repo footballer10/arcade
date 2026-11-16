@@ -352,7 +352,7 @@ export function kindBox(k, x, y, z, ry, pad = 0) {
   const hx = Math.max(0.15, (w * c + d * s) / 2) + pad, hz = Math.max(0.15, (w * s + d * c) / 2) + pad;
   return { x0: x - hx, x1: x + hx, z0: z - hz, z1: z + hz, y0: y - pad, y1: y + Math.max(0.25, h) + pad };
 }
-export const BEAN = { r: 0.34, h: 1.55 };
+export const BEAN = { r: 0.34, h: 1.7 };
 export function bodySize(kind) { if (kind < 0) return BEAN; const [w, h, d] = KINDS[kind].size; return { r: Math.max(0.1, Math.min(w, d) / 2 * 0.9), h }; }
 export function lineOfSight(L, a, b) {
   const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], len = Math.hypot(d[0], d[1], d[2]) || 1;
