@@ -45,3 +45,19 @@ fixed rate. In head-to-head 2v2 tests (24 matches each): hard beat normal 44–3
 - **Handbrake / powerslide key**: would need a non-standard key; steering and corner speed were tuned instead.
 - **Homing / heat-seeking ball mode**: removes the aiming skill that makes goals satisfying.
 - **Spectator player-cycling camera**: nice to have; the TV camera that follows the ball is enough for one round.
+
+## Phase 3: look and feel
+- **Stadium**: stepped stands on all four sides with an instanced crowd in team shirts and party colours that bobs
+  and jumps on goals (vertex-shader animation, one draw call), corner light towers with glowing panels and soft
+  flares, ground outside the bowl, sunset (Sunset Stadium) or night (Pocket Park) sky.
+- **Intro shot**: a slow crane around the stadium during loading and the countdown that settles behind the player's
+  own goal, then glides down into the chase camera on GO.
+- **Arena**: team-coloured chevron panels on the lower walls with a glowing trim line, fine hex glass above, glowing
+  pitch lines that pulse in the scoring team's colour, glowing goal frames and nets, boost pads with glowing rings
+  and spinning orbs (dim while recharging).
+- **Juice**: goal explosion in the scorer's party colour (particles, shockwave rings, coloured point light, flash,
+  shake, crowd roar, cars blasted away), boost flames and particle trails (team colour with party-colour sparks),
+  ball speed streak tinted by the last team to touch it, hit sparks and rings, demolition blasts, landing squash,
+  speed FOV kick, off-screen ball arrow, slow-mo goal replay from beside the net, confetti for the winners.
+- **Quality**: Low = no shadows, no bloom, fewer particles, a thinner crowd of box fans (~27k triangles);
+  Medium = shadows; High = shadows + bloom and a fuller crowd (~240k triangles).

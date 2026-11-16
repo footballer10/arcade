@@ -105,11 +105,11 @@ function fieldGLSL(A, mood) {
 uniform float uTime; uniform float uPulseA; uniform float uPulseB;
 float lineAA(float d, float w){ return 1.0 - smoothstep(w * 0.6, w, abs(d)); }
 float hexEdge(vec2 p){
-  p /= 2.6; vec2 r = vec2(1.0, 1.732); vec2 h = r * 0.5;
+  p /= 1.7; vec2 r = vec2(1.0, 1.732); vec2 h = r * 0.5;
   vec2 a = mod(p, r) - h; vec2 b = mod(p - h, r) - h;
   vec2 g = dot(a, a) < dot(b, b) ? a : b;
   vec2 q = abs(g); float e = max(q.x * 0.866 + q.y * 0.5, q.y);
-  return smoothstep(0.40, 0.47, e);
+  return smoothstep(0.43, 0.47, e);
 }
 void fieldColor(vec3 p, inout vec3 col, out vec3 em, out float alpha){
   em = vec3(0.0); alpha = 1.0;
@@ -141,10 +141,12 @@ void fieldColor(vec3 p, inout vec3 col, out vec3 em, out float alpha){
   }
   // walls: team-tinted panels below the curve top, see-through hex glass above
   float hy = ${f(A.r)};
-  vec3 base = mix(team * 0.55 + vec3(0.12), vec3(0.95), 0.18);
+  vec3 base = team * 0.78 + vec3(0.1);
   if (p.y < hy + 0.2) {
-    float pan = step(0.94, fract((p.x + p.z) / 6.0)) + step(0.94, fract(p.y / 3.5));
-    col = mix(base, base * 0.75, clamp(pan, 0.0, 1.0));
+    float pan = step(0.93, fract((abs(p.x) + abs(p.z)) / 5.0)) + step(0.93, fract(p.y / 3.2));
+    float chev = step(0.5, fract((abs(p.x) + abs(p.z)) / 10.0 + p.y / 6.0));
+    col = mix(base * (0.88 + 0.12 * chev), vec3(0.09, 0.07, 0.18), clamp(pan, 0.0, 1.0) * 0.8);
+    em += team * 0.08 * chev;
     float trim = lineAA(p.y - hy, 0.35);
     em += team * trim * (1.6 + pulse * 2.0);
     col = mix(col, vec3(1.0), trim * 0.5);
@@ -262,6 +264,88 @@ function buildBall() {
   return { root: g, mesh: m, geo, mat };
 }
 
+// ------------------------------------------------------------------ stadium (stands, crowd, light towers)
+let GLOW = null;
+export function glowTex() {
+  if (GLOW) return GLOW;
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,255,255,.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  GLOW = new THREE.CanvasTexture(c); GLOW.colorSpace = THREE.SRGBColorSpace; return GLOW;
+}
+function buildStadium(scene, A, mood, Q, own) {
+  const group = new THREE.Group(); scene.add(group);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pos = new THREE.Vector3(), col = new THREE.Color();
+  // ground outside the arena
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(420, 48), new THREE.MeshLambertMaterial({ color: mood === MOODS.night ? 0x1f2a3a : 0x3c7a3e }));
+  ground.rotation.x = -Math.PI / 2; ground.position.y = -0.4; ground.receiveShadow = true; group.add(ground); own.push(ground.geometry, ground.material);
+  // stands: four stepped banks of seats around the arena
+  const tiers = 11, rise = 2.4, depth = 3.2, gap = 4;
+  const sides = [
+    { ax: 'x', s: 1, at: A.W + gap, len: A.L * 2 + 30 }, { ax: 'x', s: -1, at: A.W + gap, len: A.L * 2 + 30 },
+    { ax: 'z', s: 1, at: A.L + A.GD + gap, len: A.W * 2 + 30 }, { ax: 'z', s: -1, at: A.L + A.GD + gap, len: A.W * 2 + 30 },
+  ];
+  const box = new THREE.BoxGeometry(1, 1, 1); own.push(box);
+  const standMat = new THREE.MeshLambertMaterial({ color: 0xffffff }); own.push(standMat);
+  const stands = new THREE.InstancedMesh(box, standMat, sides.length * tiers + 8); let si = 0;
+  const seat = [];   // crowd slots
+  const spacing = Q.effects ? 1.45 : Q.shadows ? 1.9 : 2.6;   // fewer fans on lower quality
+  for (const S of sides) for (let k = 0; k < tiers; k++) {
+    const d = S.at + k * depth + depth / 2, h = (k + 1) * rise;
+    if (S.ax === 'x') { pos.set(S.s * d, h / 2 - 0.4, 0); sc.set(depth, h, S.len + k * depth * 2); }
+    else { pos.set(0, h / 2 - 0.4, S.s * d); sc.set(S.len + k * depth * 2, h, depth); }
+    m4.compose(pos, q.identity(), sc); stands.setMatrixAt(si, m4);
+    const teamSide = S.ax === 'x' ? 2 : S.s < 0 ? 0 : 1;
+    col.set(k % 2 ? 0x3a3270 : 0x2c255c); if (teamSide < 2 && k % 3 === 2) col.set(TEAM[teamSide].dark);
+    stands.setColorAt(si++, col);
+    const len = S.len + k * depth * 2 - 8;
+    for (let u = -len / 2; u < len / 2; u += spacing) {
+      const j = Math.sin(u * 12.9898 + k * 78.233) * 43758.5453; const r = j - Math.floor(j);
+      if (r < 0.12) continue;   // a few empty seats
+      seat.push(S.ax === 'x' ? [S.s * (d - 0.4), h - 0.4, u, teamSide, r] : [u, h - 0.4, S.s * (d - 0.4), teamSide, r]);
+    }
+  }
+  stands.count = si; stands.instanceMatrix.needsUpdate = true; stands.instanceColor.needsUpdate = true; stands.receiveShadow = true; group.add(stands);
+  // crowd: little fans in team shirts or party colours, bobbing; they jump when a goal goes in
+  const fanGeo = Q.shadows ? new THREE.CapsuleGeometry(0.32, 0.55, 2, 6) : new THREE.BoxGeometry(0.6, 1.15, 0.5); fanGeo.translate(0, 0.6, 0); own.push(fanGeo);
+  const cheer = { value: 0 }, time = { value: 0 };
+  const fanMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  fanMat.onBeforeCompile = (sh) => {
+    sh.uniforms.uCheer = cheer; sh.uniforms.uT = time;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uCheer; uniform float uT;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nfloat ph = instanceMatrix[3].x * 0.37 + instanceMatrix[3].z * 0.23;\ntransformed.y += (0.5 + 0.5 * sin(uT * (5.0 + uCheer * 6.0) + ph)) * (0.12 + uCheer * 1.1);');
+  };
+  fanMat.customProgramCacheKey = () => 'rs-fans';
+  own.push(fanMat);
+  const fans = new THREE.InstancedMesh(fanGeo, fanMat, seat.length);
+  const shirts = [0xffffff, 0xff5a5f, 0xffcc00, 0x4cd964, 0xb57bff, 0xff6ec7, 0x2ee6d6];
+  seat.forEach(([x, y, z, t, r], i) => {
+    m4.makeTranslation(x, y, z); fans.setMatrixAt(i, m4);
+    col.set(t < 2 && r < 0.75 ? (r < 0.45 ? TEAM[t].hex : TEAM[t].light) : shirts[Math.floor(r * 97) % shirts.length]); fans.setColorAt(i, col);
+  });
+  fans.instanceMatrix.needsUpdate = true; if (fans.instanceColor) fans.instanceColor.needsUpdate = true; group.add(fans);
+  // light towers at the four corners, with glowing panels and big soft glows
+  const poleGeo = new THREE.CylinderGeometry(0.9, 1.4, 1, 8); poleGeo.translate(0, 0.5, 0);
+  const headGeo = new THREE.BoxGeometry(12, 7, 1.5), lampGeo = new THREE.PlaneGeometry(10.5, 5.6);
+  own.push(poleGeo, headGeo, lampGeo);
+  const poleMat = new THREE.MeshLambertMaterial({ color: 0x3b3566 }), lampMat = new THREE.MeshBasicMaterial({ color: 0xfff4d6 });
+  const flare = new THREE.SpriteMaterial({ map: glowTex(), color: mood === MOODS.night ? 0xcfe0ff : 0xfff0c8, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: mood === MOODS.night ? 0.9 : 0.6, fog: false });
+  own.push(poleMat, lampMat, flare);
+  const tx = A.W + gap + tiers * depth + 6, tz = A.L + A.GD + gap + tiers * depth + 6, th = 78;
+  for (const [x, z] of [[tx, tz], [-tx, tz], [tx, -tz], [-tx, -tz]]) {
+    const pole = new THREE.Mesh(poleGeo, poleMat); pole.scale.set(1, th, 1); pole.position.set(x, -0.4, z); group.add(pole);
+    const head = new THREE.Group(); head.position.set(x, th, z); head.lookAt(0, 0, 0); group.add(head);
+    head.add(new THREE.Mesh(headGeo, poleMat));
+    const lamp = new THREE.Mesh(lampGeo, lampMat); lamp.position.z = 0.8; head.add(lamp);
+    const fl = new THREE.Sprite(flare); fl.scale.setScalar(70); fl.position.z = 3; head.add(fl);
+  }
+  return {
+    update(dt, ch) { time.value += dt; cheer.value += ((ch || 0) - cheer.value) * Math.min(1, dt * 3); },
+    dispose() { stands.dispose(); fans.dispose(); },
+  };
+}
+
 // ------------------------------------------------------------------ world
 export function createView(ctx, A, roster) {
   const mood = MOODS[A.mood] || MOODS.sunset;
@@ -305,23 +389,33 @@ export function createView(ctx, A, roster) {
     for (const x of [-A.GW, A.GW]) { const p = new THREE.Mesh(postGeo, m); p.position.set(x, A.GH / 2, s * A.L); scene.add(p); }
     const bar = new THREE.Mesh(barGeo, m); bar.position.set(0, A.GH, s * A.L); scene.add(bar);
   });
-  // boost pads
-  const padGeoS = new THREE.CylinderGeometry(0.9, 1.1, 0.12, 16), padGeoB = new THREE.CylinderGeometry(1.7, 2.0, 0.16, 20);
-  const orbGeo = new THREE.SphereGeometry(0.9, 16, 10), orbGeoS = new THREE.SphereGeometry(0.42, 10, 8);
-  own.push(padGeoS, padGeoB, orbGeo, orbGeoS);
-  const padBase = toon(0x2b2350), orbOn = new THREE.MeshBasicMaterial({ color: 0xffd23f }), orbOnS = new THREE.MeshBasicMaterial({ color: 0xffe680 });
-  own.push(padBase, orbOn, orbOnS);
+  // boost pads: a dark disc, a glowing ring and a hovering orb (dim while recharging)
+  const padGeoS = new THREE.CylinderGeometry(1.0, 1.15, 0.1, 18), padGeoB = new THREE.CylinderGeometry(2.0, 2.3, 0.14, 24);
+  const ringGeoS = new THREE.TorusGeometry(0.85, 0.09, 6, 24), ringGeoB = new THREE.TorusGeometry(1.75, 0.16, 8, 32);
+  ringGeoS.rotateX(Math.PI / 2); ringGeoB.rotateX(Math.PI / 2);
+  const orbGeo = new THREE.IcosahedronGeometry(0.85, 1), orbGeoS = new THREE.IcosahedronGeometry(0.36, 0);
+  own.push(padGeoS, padGeoB, ringGeoS, ringGeoB, orbGeo, orbGeoS);
+  const padBase = toon(0x241c4a), ringOn = new THREE.MeshBasicMaterial({ color: 0xffd23f }), ringOff = new THREE.MeshBasicMaterial({ color: 0x5a4a2a });
+  const orbOn = new THREE.MeshBasicMaterial({ color: 0xffe066 }), haloMat = new THREE.SpriteMaterial({ map: glowTex(), color: 0xffc83a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85 });
+  own.push(padBase, ringOn, ringOff, orbOn, haloMat);
   const pads = A.pads.map((pd) => {
     const g = new THREE.Group(); g.position.set(pd.x, 0.02, pd.z);
     const base = new THREE.Mesh(pd.big ? padGeoB : padGeoS, padBase); base.receiveShadow = true; g.add(base);
-    const orb = new THREE.Mesh(pd.big ? orbGeo : orbGeoS, pd.big ? orbOn : orbOnS); orb.position.y = pd.big ? 1.5 : 0.5; g.add(orb);
-    scene.add(g); return { g, orb, big: pd.big };
+    const ring = new THREE.Mesh(pd.big ? ringGeoB : ringGeoS, ringOn); ring.position.y = 0.1; g.add(ring);
+    const orb = new THREE.Group(); orb.position.y = pd.big ? 1.7 : 0.6; g.add(orb);
+    orb.add(new THREE.Mesh(pd.big ? orbGeo : orbGeoS, orbOn));
+    const halo = new THREE.Sprite(haloMat); halo.scale.setScalar(pd.big ? 4.2 : 1.6); orb.add(halo);
+    scene.add(g); return { g, orb, ring, big: pd.big, on: true };
   });
+  const setPad = (p, on) => { const P = pads[p]; if (P.on === on) return; P.on = on; P.orb.visible = on; P.ring.material = on ? ringOn : ringOff; };
   // ball
   const ball = buildBall(); own.push(ball.geo, ball.mat); scene.add(ball.root);
   const ballShadow = new THREE.Mesh(CAR_GEO.shadow, SHADOW_MAT); ballShadow.scale.setScalar(C.BALL_R * 0.95); scene.add(ballShadow);
   // cars
   const cars = roster.map((r) => { const v = buildCar(ctx, r); scene.add(v.root, v.shadow); return v; });
+  const stadium = buildStadium(scene, A, mood, ctx.quality(), own);
+  // one coloured light for goal explosions (always in the scene so shaders never recompile)
+  const boomLight = new THREE.PointLight(0xffffff, 0, 90, 1.6); boomLight.position.set(0, 8, 0); scene.add(boomLight);
 
   // post-processing (High only): bloom on the glowing lines, boost and goal explosions
   let composer = null, bloom = null;
@@ -342,7 +436,9 @@ export function createView(ctx, A, roster) {
   }
   resize();
   return {
-    scene, camera, renderer, cars, ball, ballShadow, pads, uniforms, sun, mood,
+    scene, camera, renderer, cars, ball, ballShadow, pads, setPad, uniforms, sun, mood, boomLight,
+    update(dt, cheer) { stadium.update(dt, cheer); const t = performance.now() / 1000; for (const P of pads) if (P.on) { P.orb.rotation.y = t * 2; P.orb.position.y = (P.big ? 1.7 : 0.6) + Math.sin(t * 3 + P.g.position.x) * 0.15; } if (boomLight.intensity > 0) boomLight.intensity = Math.max(0, boomLight.intensity - dt * 900); },
+    boom(x, y, z, color) { boomLight.position.set(x, Math.max(3, y), z); boomLight.color.set(color); boomLight.intensity = 1600; },
     resize,
     setQuality() { ctx.three.applyQuality(renderer, sun); setupComposer(); resize(); },
     render() { if (composer) composer.render(); else renderer.render(scene, camera); },
@@ -350,7 +446,7 @@ export function createView(ctx, A, roster) {
     dispose() {
       if (composer) { composer.renderTarget1.dispose(); composer.renderTarget2.dispose(); bloom?.dispose(); }
       for (const v of cars) disposeCar(ctx, v);
-      ctx.three.dispose(scene, keep);
+      stadium.dispose(); ctx.three.dispose(scene, keep);
       for (const d of own) d.dispose?.();
     },
   };

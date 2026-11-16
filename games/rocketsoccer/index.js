@@ -286,7 +286,7 @@ export async function start(ctx) {
   });
   ctx.on('leave', (id) => { const i = idxOf.get(id); if (i != null && !roster[i].isBot) ui.toast(`🤖 A bot drives for ${roster[i].name}`, '', 2200); });
 
-  let lastGoal = null, demoedBy = -1, prevClock = W.clock;
+  let lastGoal = null, demoedBy = -1, prevClock = W.clock, cheer = 0, goT = -1;
   let shake = 0, flash = 0, popT = 0, pulse = [0, 0], countShown = -1, lastScore = [0, 0];
   function pop(html, ms = 1300) { popEl.innerHTML = html; popEl.classList.add('on'); popT = ms / 1000; }
   const nm = (i) => (i >= 0 && roster[i] ? ui.esc(roster[i].name) : '?');
@@ -337,12 +337,15 @@ export async function start(ctx) {
     }
   }
   function goalBoom(x, y, z, color, team) {
-    fx.burst(x, y, z, ctx.quality().effects ? 260 : 120, [color, color, team, 0xffffff, 0xffd23f], 40, 1.6, 2.4, { up: 6, grav: 6, drag: 1.2 });
-    fx.burst(x, y, z, 60, 0xffffff, 18, 0.6, 3.5);
+    const hi = ctx.quality().effects;
+    fx.burst(x, y, z, hi ? 170 : 90, [color, color, color, team], 42, 1.7, 2.2, { up: 7, grav: 7, drag: 1.1 });
+    fx.burst(x, y, z, hi ? 50 : 25, [0xffd23f, color], 22, 1.0, 1.4, { up: 10, grav: 14, drag: 0.6 });
+    fx.burst(x, y, z, 14, 0xffffff, 14, 0.4, 3.0);
     rings.add(x, Math.max(0.3, y), z, color, 34, 0.9, null);
     rings.add(x, y, z, team, 26, 0.7, new THREE.Vector3(0, 0, 1));
-    shake = Math.max(shake, 1.3); flash = 0.85;
-    view.setBloom(1.6);
+    rings.add(x, y, z, color, 16, 0.5, new THREE.Vector3(0, 0, 1));
+    shake = Math.max(shake, 1.3); flash = 0.45; cheer = 1.6;
+    view.boom(x, y, z, color); view.setBloom(1.2);
   }
   function confetti(team) {
     const cols = [TEAM[team].hex, TEAM[team].light, 0xffffff, 0xffd23f];
@@ -362,9 +365,9 @@ export async function start(ctx) {
           break;
         }
         case 'bounce': if (e.s > 14) { sfx.sfx('bounce', e.s / 30); fx.burst(e.x, e.y, e.z, 8, 0xffffff, 6, 0.35, 0.7); } break;
-        case 'jump': case 'jump2': if (mine) sfx.sfx('jump'); break;
+        case 'jump': case 'jump2': view.cars[e.i].squash = -0.22; if (mine) sfx.sfx('jump'); break;
         case 'dodge': if (mine) sfx.sfx('dodge'); { const p = W.cars[e.i]; fx.burst(p.x, p.y - 0.3, p.z, 10, 0xffffff, 6, 0.4, 0.7); } break;
-        case 'land': if (mine) { sfx.sfx('land', e.s / 14); shake = Math.max(shake, Math.min(0.4, e.s / 40)); } break;
+        case 'land': view.cars[e.i].squash = Math.min(0.4, e.s / 35); if (mine) { sfx.sfx('land', e.s / 14); shake = Math.max(shake, Math.min(0.4, e.s / 40)); } break;
         case 'bump': if (e.i === myIdx || e.j === myIdx) { sfx.sfx('bump', e.s / 10); shake = Math.max(shake, 0.4); } fx.burst(e.x, e.y, e.z, 14, [0xffd23f, 0xffffff], 9, 0.4, 0.8); break;
         case 'pad': { const pd = A.pads[e.p]; if (mine) sfx.sfx(pd.big ? 'padbig' : 'pad'); fx.burst(pd.x, 0.8, pd.z, pd.big ? 24 : 8, 0xffd23f, pd.big ? 9 : 5, 0.5, pd.big ? 1.1 : 0.6, { up: 5 }); break; }
         case 'kickoff': if (ctx.started && countShown > 0) ui.countdown(0); countShown = -1; break;
@@ -418,6 +421,7 @@ export async function start(ctx) {
       if (a !== b && !jump) { _q2.set(ca.qx, ca.qy, ca.qz, ca.qw); _q.copy(_q2.slerp(_q, f)); }
       dispQ[i].copy(_q);
       v.root.position.copy(p); v.root.quaternion.copy(_q);
+      const sq = v.squash || 0; v.rig.scale.set(1 + sq * 0.35, 1 - sq * 0.6, 1 + sq * 0.2); v.squash = sq * 0.86;
       // wheels + boost flames
       const sp = speedOf(cb);
       v.spin += sp * 0.016 * (cb.inp & 8 ? -1 : 1);
@@ -439,7 +443,7 @@ export async function start(ctx) {
     view.ball.root.position.copy(ballPos);
     view.ballShadow.position.set(ballPos.x, 0.05, ballPos.z); view.ballShadow.scale.setScalar(C.BALL_R * Math.max(0.35, 1 - ballPos.y / 34));
     // pads
-    for (let p = 0; p < view.pads.length; p++) { const on = b.pads[p] <= 0; view.pads[p].orb.visible = on; }
+    for (let p = 0; p < view.pads.length; p++) view.setPad(p, b.pads[p] <= 0);
   }
 
   // ---------------------------------------------------------------- camera
@@ -462,9 +466,11 @@ export async function start(ctx) {
     } else if (!ctx.started) {
       // intro: sweep around the stadium toward my end
       introT += dt;
-      const ang = (myTeam === 1 ? Math.PI : 0) + Math.PI * 0.9 - introT * 0.32, r = 95 - introT * 6;
-      pos.set(Math.sin(ang) * r, 42 - introT * 5, -Math.cos(ang) * r * (myTeam === 1 ? -1 : 1));
-      look.set(0, 2, 0); fov = 60;
+      // intro: a slow crane shot around the stadium that settles behind my team's goal
+      const e = Math.min(1, introT / 7), side = myTeam === 1 ? 1 : -1;
+      const ang = Math.PI * 0.75 * (1 - e) + (side > 0 ? 0 : Math.PI), r = 120 - 50 * e;
+      pos.set(Math.sin(ang) * r * 0.8, 55 - 30 * e + Math.sin(introT * 0.7) * 2, Math.cos(ang) * r);
+      look.set(0, 3, 0); fov = 58;
       cam.pos.copy(pos); cam.look.copy(look);
     } else if (myIdx >= 0 && W.cars[myIdx].demo <= 0) {
       const p = dispPos[myIdx], c = W.cars[myIdx];
@@ -489,7 +495,9 @@ export async function start(ctx) {
         look.copy(p).addScaledVector(to, Math.min(1, 6 / tl)); look.y += 0.5;
       } else look.set(p.x + cam.dir.x * 6, p.y + 0.8, p.z + cam.dir.z * 6);
       keepInside(pos);
-      cam.pos.lerp(pos, 1 - Math.exp(-dt * 14)); cam.look.lerp(look, 1 - Math.exp(-dt * 16));
+      const glide = goT >= 0 && goT < 1.6 ? Math.pow(Math.min(1, 0.08 + goT / 1.6), 2) : 1;   // swoop down from the intro shot
+      if (goT >= 0) goT += dt;
+      cam.pos.lerp(pos, 1 - Math.exp(-dt * 14 * glide)); cam.look.lerp(look, 1 - Math.exp(-dt * 16 * glide));
       fov = 72 + Math.max(0, sp - 25) * 0.5 + (c.bst ? 4 : 0);
     } else {
       // spectating / demolished: TV camera from the side stand, tracking the ball
@@ -534,11 +542,20 @@ export async function start(ctx) {
     shake = Math.max(0, shake - dt * 2.2); flash = Math.max(0, flash - dt * 2.5);
     pulse[0] = Math.max(0, pulse[0] - dt * 0.5); pulse[1] = Math.max(0, pulse[1] - dt * 0.5);
     view.uniforms.uTime.value += dt; view.uniforms.uPulseA.value = pulse[0] * (0.6 + 0.4 * Math.sin(now / 90)); view.uniforms.uPulseB.value = pulse[1] * (0.6 + 0.4 * Math.sin(now / 90));
-    flashEl.style.opacity = (flash * 0.7).toFixed(3);
+    flashEl.style.opacity = (flash * 0.55).toFixed(3);
     if (popT > 0) { popT -= dt; if (popT <= 0) popEl.classList.remove('on'); }
+    cheer = Math.max(0, cheer - dt * 0.3);
+    const dangerC = Math.max(0, 1 - Math.abs(Math.abs(W.ball.z) - A.L) / 25);
+    view.update(dt, Math.min(1.3, cheer + (ctx.started ? dangerC * 0.35 : 0.1)));
+    // ball streak at speed, tinted by the team that last hit it
+    const bsrc = replay ? Wr2.ball : W.ball, bsp = speedOf(bsrc);
+    if (bsp > 30 && view.ball.root.visible) {
+      const lt = (replay ? Wr2 : W).lastTouch, tint = lt >= 0 && roster[lt] ? TEAM[roster[lt].team].glow : 0xffffff;
+      for (let k = 0; k < (bsp > 48 ? 3 : 1); k++) fx.emit(ballPos.x + (Math.random() - 0.5) * 2.4, ballPos.y + (Math.random() - 0.5) * 2.4, ballPos.z + (Math.random() - 0.5) * 2.4, 0, 0, 0, Math.random() < 0.5 ? 0xffffff : tint, 0.4, 1.3, 0);
+    }
     fx.update(dt); rings.update(dt);
     updateCamera(dt, now);
-    view.setBloom(0.55 + flash * 1.1);
+    view.setBloom(0.55 + flash * 0.9);
     view.render();
     // name tags + off-screen ball arrow
     const w = ctx.container.clientWidth, h = ctx.container.clientHeight;
@@ -600,7 +617,7 @@ export async function start(ctx) {
     return { columns: ['Player', 'Team', 'Points', 'Goals', 'Assists', 'Saves', 'Shots', 'Demos'], rows: roster.map((r, i) => ({ r, s: st[i] || {} })).sort((a, b) => a.r.team - b.r.team || b.s.pts - a.s.pts).map(({ r, s }) => [`<span style="color:${r.colorCss}">${ui.esc(r.name)}</span>`, TEAM[r.team].emoji, s.pts ?? 0, s.g ?? 0, s.a ?? 0, s.s ?? 0, s.sh ?? 0, s.d ?? 0]) };
   });
   ctx.on('go', () => {
-    sfx.sfx('whistle');
+    sfx.sfx('whistle'); goT = 0; cheer = 0.8;
     if (myIdx >= 0) ui.banner(`${TEAM[myTeam].emoji} You're ${TEAM[myTeam].name}! Score in the ${TEAM[1 - myTeam].name.toLowerCase()} goal`, 2200, { small: true });
     if (moon) ctx.setTimeout(() => ui.toast('🌙 Moon Ball: low gravity. Jump high and fly!', 'gold', 2600), 2300);
   });
