@@ -22,6 +22,8 @@ const CSS = `
 .snk-map{position:absolute;right:14px;bottom:14px;width:150px;height:150px;border-radius:50%;border:4px solid var(--ink);background:rgba(11,8,32,.75);pointer-events:none}
 .snk-arrow{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;font:1.6rem var(--font);color:#ffd23f;text-shadow:var(--stroke)}
 .snk-arrow i{position:absolute;transform:translate(-50%,-50%);font-style:normal}
+.snk-fx{position:absolute;inset:0;pointer-events:none;z-index:1}
+.snk-flash{position:absolute;inset:0;pointer-events:none;z-index:1;background:#fff;opacity:0;transition:opacity .45s ease-out}
 .snk-hint{position:absolute;left:50%;bottom:92px;transform:translateX(-50%);font:1rem var(--font);color:#fff;text-shadow:var(--stroke);pointer-events:none;opacity:.9}
 @keyframes snkIn{from{transform:translateX(-30px);opacity:0}to{transform:none;opacity:1}}
 `;
@@ -46,9 +48,14 @@ export async function start(ctx) {
   const hint = document.createElement('div'); hint.className = 'snk-hint'; ctx.container.appendChild(hint);
   const arrow = document.createElement('div'); arrow.className = 'snk-arrow'; arrow.innerHTML = '<i>➤</i>'; ctx.container.appendChild(arrow);
   const mg = map.getContext('2d');
+  const fx = document.createElement('div'); fx.className = 'snk-fx'; ctx.container.appendChild(fx);
+  const flash = document.createElement('div'); flash.className = 'snk-flash'; ctx.container.appendChild(flash);
+  const doFlash = (color = '#fff', o = 0.55) => { flash.style.transition = 'none'; flash.style.background = color; flash.style.opacity = o; void flash.offsetWidth; flash.style.transition = ''; flash.style.opacity = 0; };
+  const t0 = performance.now();
 
   const gfx = createView(ctx, cfg);
   ctx.on('resize', gfx.resize);
+  ctx.on('settings', (k) => { if (k === 'quality') gfx.setQuality(); });
   const sfx = createSound(ctx.audio);
 
   // ---------------------------------------------------------------- client view of the world (everyone keeps one)
@@ -148,7 +155,8 @@ export async function start(ctx) {
   function displayOf(id) { return id === ctx.myId && pred && !net.isHost ? disp : snakeOf(id); }
   function onEat(o, idx) {
     flying.push({ x: o.x, y: o.y, v: o.v, c: o.c, k: o.k, id: o.id, to: idx, life: 0.18 });
-    if (idx === myIdx) sfx.eat(o.v, o.k === 1);
+    if (idx === myIdx) sfx.eat(o.v, o.k === 1 || o.k === 3);
+    if (o.v >= 3 || idx === myIdx) gfx.burst(o.x, o.y, o.k === 3 ? 0xffd23f : 0xffffff, o.k === 3 ? 4 : 2, 4, 0.7, 0.35, 3);
   }
   const SAMP = new Float32Array(2 * 200);
   function onDeath(m) {
@@ -159,9 +167,12 @@ export async function start(ctx) {
     const n = s.trail.sample(lengthOf(s.mass), Math.max(0.8, r), SAMP, 200);
     for (let k = 0; k < n; k++) gfx.burst(SAMP[k * 2], SAMP[k * 2 + 1], pl.colorHex, 3, 7 + r * 3, 1.3 * r + 0.5, 0.9, 6);
     gfx.burst(d.x, d.y, 0xffffff, 26, 16, 1.6, 0.6, 10);
+    gfx.shock(d.x, d.y, pl.colorHex, 6 + r * 6, 0.7);
+    if (m.king) { gfx.shock(d.x, d.y, 0xffd23f, 14 + r * 6, 1.0); gfx.burst(d.x, d.y, 0xffd23f, 40, 18, 1.8, 1.1, 12); }
     const me = focusSnake();
     const near = me && Math.hypot(me.x - d.x, me.y - d.y) < 25;
-    if (m.id === ctx.myId) { gfx.shake(1.1); ui.banner('POPPED!', 1600); }
+    if (m.id === ctx.myId) { gfx.shake(1.1); ui.banner('POPPED!', 1600); doFlash('#ff3d7f', 0.5); }
+    else if (m.by === ctx.myId) doFlash('#ffffff', 0.18);
     else if (near) gfx.shake(0.45);
     sfx.death(m.id === ctx.myId, near);
     if (m.by === ctx.myId) {
@@ -193,7 +204,7 @@ export async function start(ctx) {
       if (id === ctx.myId && pred) { Object.assign(pred, { x, y, a, v: C.SPEED, mass: C.START_MASS }); Object.assign(disp, { x, y, a }); err = { x: 0, y: 0, a: 0 }; pending = []; }
     }
     const pl = ctx.player(id);
-    gfx.burst(x, y, pl.colorHex, 30, 10, 1.4, 0.8, 8);
+    gfx.burst(x, y, pl.colorHex, 30, 10, 1.4, 0.8, 8); gfx.shock(x, y, pl.colorHex, 7, 0.6);
     if (id === ctx.myId) { ui.banner('BACK IN!', 900); gfx.snapCamera(x, y); sfx.spawn(); }
   }
 
@@ -241,7 +252,7 @@ export async function start(ctx) {
     else if (m.t === 'bloom') {
       V.bloom = { x: m.x, y: m.y, at: m.at };
       ui.banner('GOLDEN BLOOM!', 1500); sfx.bloom();
-      ctx.setTimeout(() => { if (V.bloom && V.bloom.at === m.at) { gfx.burst(m.x, m.y, 0xffd23f, 60, 14, 2, 1, 10); sfx.bloomPop(); V.bloom = null; } }, 3000);
+      ctx.setTimeout(() => { if (V.bloom && V.bloom.at === m.at) { gfx.burst(m.x, m.y, 0xffd23f, 60, 14, 2, 1, 10); gfx.shock(m.x, m.y, 0xffd23f, 16, 0.9); sfx.bloomPop(); V.bloom = null; } }, 3000);
     } else if (m.t === 'show') { V.showdown = true; ui.banner('SHOWDOWN! THE RING IS RACING IN!', 2200); sfx.ring(); }
     else if (m.t === 'king') {
       V.king = m.id; const p = ctx.player(m.id);
@@ -252,8 +263,8 @@ export async function start(ctx) {
     else if (m.t === 'win') {
       const p = m.id && ctx.player(m.id);
       ui.banner(p ? (m.id === ctx.myId ? 'YOU WIN!' : `${p.name.toUpperCase()} WINS!`) : 'NOBODY SURVIVED!', 2500);
-      if (m.id === ctx.myId) sfx.win();
-      if (p) spectate = m.id;
+      if (m.id === ctx.myId) { sfx.win(); doFlash('#ffd23f', 0.35); }
+      if (p) { spectate = m.id; winner = m.id; const w = snakeOf(m.id); if (w) { gfx.shock(w.x, w.y, 0xffd23f, 18, 1.2); for (let i = 0; i < 5; i++) ctx.setTimeout(() => { const ww = displayOf(m.id); if (ww) gfx.burst(ww.x, ww.y, [0xffd23f, 0xff5a5f, 0x3ea6ff, 0x4cd964, 0xff6ec7][i], 40, 16, 1.5, 1.2, 14); }, i * 220); } }
     } else if (m.t === 'full' && !net.isHost) {
       V.t = m.T; V.R = m.R; V.maxOrb = m.maxOrb; V.full = true; V.orbs.clear(); V.deaths = []; V.king = m.king; V.showdown = m.show; V.bloom = m.bloom; V.nextBloom = m.nb;
       for (const [id, x, y, v, c, k] of m.o) V.orbs.set(id, { id, x, y, v, c, k });
@@ -267,7 +278,7 @@ export async function start(ctx) {
   });
 
   // ---------------------------------------------------------------- input
-  let lastKingToast = 0;
+  let lastKingToast = 0, winner = null, goAt = 0;
   let aimAng = myInput.ang, lastMouse = { x: -1, y: -1 }, keySteer = false, spectate = null, wasBoost = false;
   input.on('press', (a) => {
     if (a === 'primary' && !myAlive() && ctx.started) {   // click while out: cycle who you watch
@@ -294,6 +305,7 @@ export async function start(ctx) {
   // ---------------------------------------------------------------- per frame: predict, interpolate, draw, HUD
   let ringPhase = 0, lastSec = 99;
   function focusId() {
+    if (winner && snakeOf(winner)?.alive) return winner;
     if (myAlive()) return ctx.myId;
     if (spectate && snakeOf(spectate)?.alive) return spectate;
     let best = null;
@@ -366,12 +378,23 @@ export async function start(ctx) {
       list.push({ p, x: d.x, y: d.y, a: d.a, aim: host ? s.ang : s.aim, mass: s.mass, alive: s.alive, boost: s.boost, trail: s.trail, skin: skinOf(p.id), ghost: host ? s.ghost > 0 : s.ghost });
     }
     const fid = focusId(), focus = fid && displayOf(fid), fm = fid ? snakeOf(fid).mass : 25;
+    // boost sparks shed from the tail
+    if (Math.random() < 0.7) for (const s of list) {
+      if (!s.alive || !s.boost || !s.trail.x.length) continue;
+      const tx = s.trail.x[Math.min(s.trail.x.length - 1, 2)], ty = s.trail.y[Math.min(s.trail.y.length - 1, 2)];
+      gfx.burst(tx, ty, s.p.colorHex, 1, 3, 1.1, 0.5, 2);
+    }
+    // intro fly-in: from the whole pit down to your snake by the end of the countdown
+    const intro = goAt ? 1 + (now - goAt) / 600 : Math.min(0.92, (now - t0) / 4200);
     const shrinking = V.showdown || (V.t > LEN * 0.12 && V.t < LEN * 0.82);
     const bloom = host ? sim.bloom : V.bloom;
     const king = host ? sim.king : V.king;
     const meS = myAlive() ? displayOf(ctx.myId) : null;
     const edgeDanger = meS ? Math.max(0, 1 - (R - Math.hypot(meS.x, meS.y)) / 6) : 0;
-    gfx.draw({ t: now / 1000, dt, R, warn: Math.max(shrinking ? 0.25 : 0, edgeDanger), snakes: list, orbs: host ? sim.orbs.values() : V.orbs.values(), flying, focus: focus && { x: focus.x, y: focus.y, mass: fm }, bloom, king, simT: V.t });
+    gfx.draw({ t: now / 1000, dt, R, warn: Math.max(shrinking ? 0.25 : 0, edgeDanger), snakes: list, orbs: host ? sim.orbs.values() : V.orbs.values(), flying, focus: focus && { x: focus.x, y: focus.y, mass: fm * (winner ? 0.6 : 1) }, bloom, king, simT: V.t, intro: Math.min(1, intro), boost: myAlive() && myInput.boost && (snakeOf(ctx.myId)?.mass || 0) > C.BOOST_MIN });
+    // danger vignette: red at the screen edge when your head nears the ring
+    const vg = Math.max(edgeDanger, V.showdown && myAlive() ? 0.25 : 0);
+    fx.style.background = vg > 0.02 ? `radial-gradient(ellipse at center, transparent 55%, rgba(255,40,100,${(vg * 0.55).toFixed(2)}) 100%)` : 'radial-gradient(ellipse at center, transparent 60%, rgba(5,3,20,.55) 100%)';
     // off-screen arrow to the Golden Bloom
     arrow.style.display = 'none';
     if (bloom && focus) {
@@ -429,7 +452,7 @@ export async function start(ctx) {
     mg.restore();
   }
 
-  ctx.on('go', () => { ui.banner('SLITHER!', 1100); });
+  ctx.on('go', () => { goAt = performance.now(); ui.banner('SLITHER!', 1100); });
 
   // host simulation tick (keeps running in background tabs)
   ctx.tick((dt) => { if (net.isHost && sim) hostTick(dt); });

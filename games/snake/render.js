@@ -1,6 +1,10 @@
 // Rendering: a neon hex floor (one shader, which also draws the ring), instanced glowing snake bodies with ink
 // outlines, heads with eyes + the player's hat, instanced orbs, additive particles, name tags, camera shake.
 import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { radiusOf, lengthOf, spacingOf, orbSize } from './sim.js';
 
 const MAX_SEG = 2600, MAX_ORBS = 1400, MAX_PART = 1800, PER_SNAKE = 320;
@@ -57,16 +61,16 @@ export function createView(ctx, cfg) {
   // ---- floor + ring
   const floorMat = new THREE.ShaderMaterial({
     vertexShader: FLOOR_VS, fragmentShader: FLOOR_FS,
-    uniforms: { uR: { value: cfg.r0 }, uT: { value: 0 }, uWarn: { value: 0 }, uIn: { value: new THREE.Color(0x1a1240) }, uLine: { value: new THREE.Color(0x3b2a8f) }, uOut: { value: new THREE.Color(0x3a0a24) }, uEdge: { value: new THREE.Color(0xff3d7f) } },
+    uniforms: { uR: { value: cfg.r0 }, uT: { value: 0 }, uWarn: { value: 0 }, uIn: { value: new THREE.Color(0x1a1240) }, uLine: { value: new THREE.Color(0x2e2170) }, uOut: { value: new THREE.Color(0x3a0a24) }, uEdge: { value: new THREE.Color(0xff3d7f) } },
   });
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), floorMat);
   floor.rotation.x = -Math.PI / 2; floor.scale.set(cfg.r0 * 2 + 160, cfg.r0 * 2 + 160, 1); scene.add(floor);
 
   // ---- rocks (Asteroid Belt): chunky faceted crystals with ink outlines and a magenta under-glow
   const rockGeo = new THREE.IcosahedronGeometry(1, 0);
-  const rockMat = new THREE.MeshToonMaterial({ color: 0x5b3fa8, emissive: 0x1d0f45 });
+  const rockMat = new THREE.MeshToonMaterial({ color: 0x7a55d6, emissive: 0x2a1060 });
   const rockInk = new THREE.MeshBasicMaterial({ color: INK, side: THREE.BackSide });
-  const rockGlowMat = new THREE.MeshBasicMaterial({ color: 0xff3dd0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.45 });
+  const rockGlowMat = new THREE.MeshBasicMaterial({ color: 0xff3dd0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.7 });
   const rockQuad = new THREE.PlaneGeometry(1, 1);
   for (const r of cfg.rocks || []) {
     const m = new THREE.Mesh(rockGeo, rockMat); m.position.set(r.x, r.r * 0.35, r.y); m.scale.set(r.r * 1.05, r.r * 0.75, r.r * 1.05);
@@ -106,8 +110,8 @@ export function createView(ctx, cfg) {
     const g = new THREE.Group(); scene.add(g);
     const eyes = [], pupils = [];
     for (const sd of [-1, 1]) {
-      const e = new THREE.Mesh(eyeGeo, eyeMat); e.scale.setScalar(0.34); e.position.set(0.42, 0.45, sd * 0.42); g.add(e); eyes.push(e);
-      const pp = new THREE.Mesh(eyeGeo, pupilMat); pp.scale.setScalar(0.18); g.add(pp); pupils.push([pp, sd]);
+      const e = new THREE.Mesh(eyeGeo, eyeMat); e.scale.setScalar(0.4); e.position.set(0.4, 0.5, sd * 0.44); g.add(e); eyes.push(e);
+      const pp = new THREE.Mesh(eyeGeo, pupilMat); pp.scale.setScalar(0.22); g.add(pp); pupils.push([pp, sd]);
     }
     const hat = ctx.avatar.hat(p.hat || 'none', p.colorHex); hat.rotation.y = -Math.PI / 2; hat.position.set(-0.05, 0.62, 0); hat.scale.setScalar(1.15); g.add(hat);
     const tag = document.createElement('div'); tag.className = 'snk-tag'; tag.textContent = p.name; tag.style.setProperty('--c', p.colorCss); ctx.container.appendChild(tag);
@@ -158,12 +162,56 @@ export function createView(ctx, cfg) {
     pGeo.attributes.position.needsUpdate = pGeo.attributes.color.needsUpdate = pGeo.attributes.size.needsUpdate = true;
   }
 
+  // ---- shockwave rings (deaths, blooms, respawns)
+  const shockGeo = new THREE.RingGeometry(0.82, 1, 64);
+  const shocks = [];
+  for (let i = 0; i < 10; i++) {
+    const m = new THREE.Mesh(shockGeo, new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    m.rotation.x = -Math.PI / 2; m.position.y = 0.1; m.visible = false; m.userData.life = 0; scene.add(m); shocks.push(m);
+  }
+  let shockNext = 0;
+  function shock(x, y, color, size = 8, life = 0.6) {
+    const m = shocks[shockNext]; shockNext = (shockNext + 1) % shocks.length;
+    m.position.set(x, 0.1, y); m.material.color.set(color); Object.assign(m.userData, { life, max: life, size }); m.visible = true;
+  }
+  function stepShocks(dt) {
+    for (const m of shocks) {
+      if (!m.visible) continue;
+      const u = m.userData; u.life -= dt;
+      if (u.life <= 0) { m.visible = false; continue; }
+      const k = 1 - u.life / u.max;
+      m.scale.setScalar(0.5 + u.size * (1 - (1 - k) * (1 - k)));
+      m.material.opacity = (1 - k) * 0.9;
+    }
+  }
+
+  // ---- post-processing (High only): bloom makes the neon actually glow
+  let composer = null, bloomPass = null;
+  function ensureComposer() {
+    if (!ctx.quality().effects) return null;
+    if (!composer) {
+      composer = new EffectComposer(renderer);
+      composer.addPass(new RenderPass(scene, camera));
+      bloomPass = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.6, 0.45, 0.72);
+      composer.addPass(bloomPass); composer.addPass(new OutputPass());
+      sizeComposer();
+    }
+    return composer;
+  }
+  function sizeComposer() {
+    if (!composer) return;
+    const w = ctx.container.clientWidth || innerWidth, h = ctx.container.clientHeight || innerHeight;
+    composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w, h);
+    bloomPass.resolution.set(w / 2, h / 2);
+  }
+
   // ---- camera
-  const cam = { x: 0, y: 0, h: 60, shake: 0, kick: 0 };
+  const cam = { x: 0, y: 0, h: cfg.r0 * 2.6, shake: 0, kick: 0, fov: 50 };
   const resize = () => {
     const w = ctx.container.clientWidth || innerWidth, h = ctx.container.clientHeight || innerHeight;
     renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
     pMat.uniforms.scale.value = h * 0.9;
+    sizeComposer();
   };
   resize();
 
@@ -218,7 +266,7 @@ export function createView(ctx, cfg) {
       h.g.rotation.y = -s.a;
       h.g.scale.setScalar(r * 1.12);
       const look = (s.aim ?? s.a) - s.a;
-      for (const [pp, sd] of h.pupils) pp.position.set(0.42 + Math.cos(look) * 0.17, 0.62, sd * 0.42 + Math.sin(look) * 0.17);
+      for (const [pp, sd] of h.pupils) pp.position.set(0.47 + Math.cos(look) * 0.18, 0.72, sd * 0.44 + Math.sin(look) * 0.18);
     }
     body.count = outline.count = glow.count = n;
     body.instanceMatrix.needsUpdate = outline.instanceMatrix.needsUpdate = glow.instanceMatrix.needsUpdate = true;
@@ -227,7 +275,7 @@ export function createView(ctx, cfg) {
     for (const [id, h] of heads) if (!seen.has(id)) { h.g.visible = false; h.tag.style.display = 'none'; }
     const king = f.king && f.snakes.find((s) => s.p.id === f.king && s.alive);
     crown.visible = !!king;
-    if (king) { const r = radiusOf(king.mass); crown.position.set(king.x, 1.6 + r * 1.4 + Math.sin(f.t * 4) * 0.25, king.y); crown.scale.setScalar(1.3 + r); crown.rotation.y = f.t * 1.5; }
+    if (king) { const r = radiusOf(king.mass); crown.position.set(king.x, 2 + r * 1.6 + Math.sin(f.t * 4) * 0.3, king.y); crown.scale.setScalar(2.2 + r * 1.6); crown.rotation.y = f.t * 1.5; }
     if (f.bloom) {
       beacon.visible = true; beacon.position.set(f.bloom.x, 0, f.bloom.y);
       const left = f.bloom.at - f.simT, p = 0.5 + 0.5 * Math.sin(f.t * (left < 1 ? 26 : 12));
@@ -243,7 +291,7 @@ export function createView(ctx, cfg) {
       tmpP.set(o.x, 0.35, o.y); tmpS.setScalar(s0); tmpQ.identity(); tmpM.compose(tmpP, tmpQ, tmpS); orbs.setMatrixAt(m, tmpM);
       tmpP.y = 0.04; tmpS.setScalar(s0 * (o.k === 3 ? 8 : o.k === 1 ? 7 : 5.5)); tmpM.compose(tmpP, FLAT, tmpS); orbGlow.setMatrixAt(m, tmpM);
       tmpC.set(o.k === 3 ? 0xffd23f : o.k ? ctx.players[o.c]?.colorHex ?? PAL[o.c & 7] : PAL[o.c & 7]);
-      orbGlow.setColorAt(m, tmpC); orbs.setColorAt(m, tmpC.lerp(WHITE, 0.35));
+      orbGlow.setColorAt(m, tmpC); orbs.setColorAt(m, tmpC.lerp(WHITE, o.k === 3 ? 0.12 : 0.35));
       m++;
     };
     for (const o of f.orbs) drawOrb(o);
@@ -252,18 +300,25 @@ export function createView(ctx, cfg) {
     orbs.instanceMatrix.needsUpdate = orbGlow.instanceMatrix.needsUpdate = true;
     if (orbs.instanceColor) orbs.instanceColor.needsUpdate = true;
     if (orbGlow.instanceColor) orbGlow.instanceColor.needsUpdate = true;
-    stepParticles(dt);
+    stepParticles(dt); stepShocks(dt);
     // camera follows the focus, zooming out as it grows
     const fx = f.focus?.x ?? 0, fy = f.focus?.y ?? 0;
     const k = Math.min(1, dt * 5);
     cam.x += (fx - cam.x) * k; cam.y += (fy - cam.y) * k;
-    const wantH = f.zoom ?? 34 + Math.sqrt(f.focus?.mass ?? 25) * 1.6;
-    cam.h += (wantH - cam.h) * Math.min(1, dt * 2);
+    let wantH = f.zoom ?? 34 + Math.sqrt(f.focus?.mass ?? 25) * 1.6;
+    if (f.intro != null && f.intro < 1) {   // intro: the whole pit from high above, swooping down to your snake
+      const e = 1 - Math.pow(1 - f.intro, 3);
+      wantH = cfg.r0 * 2.6 + (wantH - cfg.r0 * 2.6) * e;
+      cam.h = wantH; cam.x = fx * e; cam.y = fy * e;
+    } else cam.h += (wantH - cam.h) * Math.min(1, dt * 2);
+    const wantFov = 50 + (f.boost ? 7 : 0);
+    if (Math.abs(wantFov - cam.fov) > 0.05) { cam.fov += (wantFov - cam.fov) * Math.min(1, dt * 5); camera.fov = cam.fov; camera.updateProjectionMatrix(); }
     cam.shake = Math.max(0, cam.shake - dt * 2.2);
     const sh = cam.shake * cam.shake * 1.6;
     camera.position.set(cam.x + (Math.random() - 0.5) * sh, cam.h, cam.y + cam.h * 0.32 + (Math.random() - 0.5) * sh);
     camera.lookAt(cam.x, 0, cam.y);
-    renderer.render(scene, camera);
+    const comp = ensureComposer();
+    if (comp) comp.render(); else renderer.render(scene, camera);
     // name tags (after render, so the camera matrices are current)
     const W = renderer.domElement.clientWidth, H = renderer.domElement.clientHeight;
     for (const s of f.snakes) {
@@ -277,12 +332,15 @@ export function createView(ctx, cfg) {
   const PAL = [0xff5a5f, 0x3ea6ff, 0x4cd964, 0xffcc00, 0xb57bff, 0xff8c42, 0x2ee6d6, 0xff6ec7];
 
   return {
-    renderer, scene, camera, resize, draw, burst, mouseWorld,
+    renderer, scene, camera, resize, draw, burst, shock, mouseWorld,
+    setQuality() { ctx.three.applyQuality(renderer); if (!ctx.quality().effects && composer) { composer.dispose(); bloomPass.dispose(); composer = bloomPass = null; } resize(); },
     shake(v) { cam.shake = Math.min(1.2, Math.max(cam.shake, v)); },
     snapCamera(x, y) { cam.x = x; cam.y = y; },
     dispose() {
       for (const h of heads.values()) { ctx.avatar.dispose(h.hat); h.tag.remove(); }
       ctx.avatar.dispose(crown);
+      if (composer) { composer.dispose(); bloomPass.dispose(); composer = bloomPass = null; }
+      shockGeo.dispose();
       heads.clear();
       ctx.three.dispose(scene, keep);
       quad.dispose(); glowTex.dispose(); rockQuad.dispose(); eyeGeo.dispose(); pGeo.dispose(); pMat.dispose();

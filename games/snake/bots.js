@@ -26,7 +26,7 @@ function clearance(sim, s, ang, look, r, R, threats, blind) {
 
 export function botThink(sim, s, b, dt) {
   if (!b.brain.ready(dt)) return;
-  const L = b.brain.level, R = sim.R, r = radiusOf(s.mass), dc = Math.hypot(s.x, s.y);
+  const L = b.brain.level, R = sim.R, r = radiusOf(s.mass), dc = Math.hypot(s.x, s.y), turnR = s.v / turnOf(s.mass);
   // --- what do I want?
   let goal = null, wantBoost = false;
   const others = [...sim.snakes.values()].filter((o) => o.alive && o !== s);
@@ -69,6 +69,7 @@ export function botThink(sim, s, b, dt) {
       const fwd = Math.cos(wrapA(Math.atan2(dy, dx) - s.a));
       let sc = (o.v / (d + 4)) * (1.4 + fwd);
       if (Math.hypot(o.x, o.y) > R - 3) sc *= 0.3 + L.skill * 0.9;     // edge piles: tempting but risky
+      if (d < turnR * 2.2 && Math.abs(wrapA(Math.atan2(dy, dx) - s.a)) > 0.9) sc *= 0.08;   // inside my turning circle: I'd just orbit it
       if (sc > best) { best = sc; bx = o.x; by = o.y; }
     }
     if (best > 0) {
