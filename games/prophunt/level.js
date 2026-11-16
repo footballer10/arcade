@@ -372,7 +372,8 @@ export function makeLevel(rng, mapId) {
   const solids = [], slots = [], glows = [];
   const geo = new Batch(0.03);
   // floors, ceilings are drawn by the renderer from rooms; walls here
-  const wall = (x0, z0, x1, z1, col) => { solids.push({ x0, z0, x1, z1, y0: 0, y1: WH }); geo.at(0, 0, 0).box((x0 + x1) / 2, WH / 2, (z0 + z1) / 2, x1 - x0, WH, z1 - z0, col, { t: 0.02 }); };
+  const wall = (x0, z0, x1, z1, col) => { solids.push({ x0, z0, x1, z1, y0: 0, y1: WH }); geo.at(0, 0, 0).box((x0 + x1) / 2, WH / 2, (z0 + z1) / 2, x1 - x0, WH, z1 - z0, col, { t: 0.02 }); geo.box((x0 + x1) / 2, WH + 0.04, (z0 + z1) / 2, x1 - x0 + 0.02, 0.08, z1 - z0 + 0.02, 0x6b4a3a, { out: false }); };
+  const windows = [];   // glowing panes (drawn by the renderer): {x, y, z, w, h, ry}
   const W2 = WT / 2;
   for (const A of rooms) {
     const hw = CELL / 2;
@@ -396,6 +397,17 @@ export function makeLevel(rng, mapId) {
         if (side === 2) geo.box(A.x, WH / 2, A.z + o2, L, WH, 0.02, M.outside, { out: false });
         if (side === 3) geo.box(A.x - o2, WH / 2, A.z, 0.02, WH, L, M.outside, { out: false });
         if (side === 1) geo.box(A.x + o2, WH / 2, A.z, 0.02, WH, L, M.outside, { out: false });
+        // two windows per outside wall, high enough to clear furniture; frames on both faces
+        for (const u of [-2.6, 2.6]) {
+          const horiz = side === 0 || side === 2, sg = side === 0 || side === 3 ? -1 : 1;
+          const wx = horiz ? A.x + u : A.x + sg * hw, wz = horiz ? A.z + sg * hw : A.z + u;
+          for (const f of [-1, 1]) {
+            const off = f * (W2 + 0.03);
+            const fx = horiz ? wx : wx + off, fz = horiz ? wz + off : wz;
+            geo.box(fx, 1.95, fz, horiz ? 1.5 : 0.06, 0.95, horiz ? 0.06 : 1.5, 0xfffaf0, { out: false });
+            windows.push({ x: horiz ? fx : fx + f * 0.01, y: 1.95, z: horiz ? fz + f * 0.01 : fz, w: 1.3, h: 0.78, ry: horiz ? 0 : Math.PI / 2 });
+          }
+        }
       }
       if (door && !M.door) { // door frame trim (white) on this room's side
         const dc = 0xfffaf0;
@@ -447,7 +459,7 @@ export function makeLevel(rng, mapId) {
   const seekRoom = rng.int(0, n - 1);
   const free = rooms.filter((r) => r.i !== seekRoom);
   return {
-    mapId: mapId in MAPS ? mapId : 'house', map: M, rooms, doors, solids, slots: usable, decoys, present, glows, cols, rows, seekRoom,
+    mapId: mapId in MAPS ? mapId : 'house', map: M, rooms, doors, solids, slots: usable, decoys, present, glows, windows, cols, rows, seekRoom,
     geo: built, ox, oz, w: cols * CELL, d: rows * CELL,
     seekerSpawn: (i) => { const r = rooms[seekRoom]; const a = i * 2.1; return [r.x + Math.sin(a) * 0.9, r.z + Math.cos(a) * 0.9]; },
     hiderSpawn: (i) => { const r = free[i % free.length]; const a = Math.floor(i / free.length) * 2.4 + 0.5; return [r.x + Math.sin(a) * 0.8, r.z + Math.cos(a) * 0.8]; },
@@ -513,7 +525,7 @@ export function kindBox(k, x, y, z, ry, pad = 0) {
   return { x0: x - hx, x1: x + hx, z0: z - hz, z1: z + hz, y0: y - pad, y1: y + Math.max(0.25, h) + pad };
 }
 export const BEAN = { r: 0.34, h: 1.7 };
-export function bodySize(kind) { if (kind < 0) return BEAN; const [w, h, d] = KINDS[kind].size; return { r: Math.max(0.1, Math.min(w, d) / 2 * 0.9), h }; }
+export function bodySize(kind) { if (kind < 0) return BEAN; const [w, h, d] = KINDS[kind].size; return { r: Math.max(0.1, (w + d) / 4), h }; }
 export function lineOfSight(L, a, b) {
   const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], len = Math.hypot(d[0], d[1], d[2]) || 1;
   return rayWorld(L, a, [d[0] / len, d[1] / len, d[2] / len], len) >= len - 0.05;
