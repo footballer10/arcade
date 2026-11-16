@@ -13,10 +13,31 @@ the highest total score wins.
    Forced taunts hit every hider who has stayed silent for 15 s at 90 s and 45 s before the end (5 s warning).
 4. **Post (7 s):** everyone is revealed with name tags.
 
+## Maps (host option; default: a new map every round)
+- **Cozy House** (3×2 rooms from living room, kitchen, bedroom, bathroom + two of dining room, kids room, garage, study).
+- **School** (3×3: two classrooms, library, cafeteria, gym with bleachers, science lab, principal's office, locker hall,
+  art room). More rooms and more doors, so seekers have more ground to cover.
+- **Grocery Store** (4×2, wide-open floor plan): double-sided shelf aisles stocked with cans, cereal and bottles,
+  produce stands, bakery, frozen foods, checkouts and a stock room. Long sight lines, lots of look-alike objects.
+Every round also re-rolls the layout (room order, turns, doors, which slots are stocked), all from the seed.
+
 ## Scoring
 Hider: +1 per 5 s survived during the hunt, +10 for surviving the round, taunt +3 (+5 more for a **daring taunt**
 with a seeker within 7 m; forced taunts give 0). Seeker: +15 per find, +10 each if the seekers find everyone.
 If all seekers faint, surviving hiders also collect the points for the remaining time.
+- **Last Prop Standing:** when only one hider is left, everyone gets a banner and the music turns tense; that hider
+  earns survival points twice as fast and a double survive bonus.
+- **Final round = double points** (all points), so whoever is behind can still catch up.
+- **Sniff** (seeker, Q, 22 s cooldown): a hot/cold reading of the distance to the nearest hider.
+
+## Considered and cut (phase 2)
+- Power-ups / items (speed shoes, decoy clones, traps): they pull attention away from reading the room, which is the game.
+- Found players whispering hints as ghosts: unfair; found players spectate.
+- Size-based health for props: classic but adds hidden math; one bonk = found is clearer.
+- Sprint stamina: friction without real decisions.
+- Random events (lights out, earthquake shuffles props): would wreck hides people worked for.
+- Ranged seeker weapons: the squeaky-hammer bonk at arm's length is the identity; ranged = spam clicking.
+- Multi-story buildings: stairs complicate navigation and cameras for little gain over three distinct maps.
 
 ## What makes a hide good (and what bots look for)
 Every piece of furniture registers **slots** (counter tops, shelf boards, bed, tub, chairs around a table, floor

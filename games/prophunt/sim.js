@@ -76,8 +76,11 @@ export class HostSim {
     for (const id of this.ids) if (this.cfg.isBot(id)) this.brains.set(id, this.cfg.makeBrain(id, this));
     this.setPhase('intro', T.INTRO);
     this.forcedIdx = 0; this.warned = -1;
-    this.cfg.ev('round', { r: k });
+    this.lastProp = null; this.hidersAtStart = this.alive('H');
+    this.mult = this.cfg.plan.length > 1 && k === this.cfg.plan.length - 1 ? 2 : 1;   // final round: double points (comeback)
+    this.cfg.ev('round', { r: k, mult: this.mult });
   }
+  add(id, pts) { this.score[id] = (this.score[id] || 0) + pts * (this.mult || 1); }
   setPhase(ph, dur) { this.phase = ph; this.pt = dur; }
   alive(role) { let n = 0; for (const p of this.players.values()) if (p.alive && p.role === role) n++; return n; }
   canMove(p) { return p.alive && (this.phase === 'hunt' || (this.phase === 'hide' && p.role === 'H')); }
@@ -108,8 +111,8 @@ export class HostSim {
       case 'hide': if (this.pt <= 0) { this.setPhase('hunt', this.cfg.hunt); this.cfg.ev('phase', { ph: 'hunt' }); } break;
       case 'hunt': {
         for (const p of this.players.values()) if (p.alive && p.role === 'H') {
-          p.sAcc += dt; this.stats[p.id].surv += dt;
-          while (p.sAcc >= R.SURV_EVERY) { p.sAcc -= R.SURV_EVERY; this.score[p.id] += 1; }
+          p.sAcc += dt * (p.id === this.lastProp ? 2 : 1); this.stats[p.id].surv += dt;
+          while (p.sAcc >= R.SURV_EVERY) { p.sAcc -= R.SURV_EVERY; this.add(p.id, 1); }
         }
         const at = R.FORCED_AT.filter((s) => s < this.cfg.hunt - 15);
         const next = at[this.forcedIdx];
@@ -117,6 +120,7 @@ export class HostSim {
           if (this.pt <= next + R.FORCED_WARN && this.warned !== this.forcedIdx) { this.warned = this.forcedIdx; this.cfg.ev('fwarn', { in: R.FORCED_WARN }); }
           if (this.pt <= next) { this.forcedIdx++; for (const p of this.players.values()) if (p.alive && p.role === 'H' && this.t - p.lastTaunt > 15) this.taunt(p, true); }
         }
+        if (!this.lastProp && this.hidersAtStart >= 2 && this.alive('H') === 1) { this.lastProp = [...this.players.values()].find((p) => p.alive && p.role === 'H').id; this.cfg.ev('lastprop', { id: this.lastProp }); }
         if (this.alive('H') === 0) this.endRound('S');
         else if (this.alive('S') === 0) this.endRound('H');
         else if (this.pt <= 0) this.endRound('H');
@@ -130,8 +134,8 @@ export class HostSim {
   endRound(winner) {
     const surv = [];
     for (const p of this.players.values()) {
-      if (p.role === 'H' && p.alive) { this.score[p.id] += R.SURVIVE; surv.push(p.id); if (this.alive('S') === 0) this.score[p.id] += Math.floor(Math.max(0, this.pt) / R.SURV_EVERY); }
-      if (p.role === 'S' && winner === 'S' && this.cfg.connected(p.id) || (p.role === 'S' && winner === 'S' && this.cfg.isBot(p.id))) this.score[p.id] += R.SWEEP;
+      if (p.role === 'H' && p.alive) { this.add(p.id, R.SURVIVE * (p.id === this.lastProp ? 2 : 1)); surv.push(p.id); if (this.alive('S') === 0) this.add(p.id, Math.floor(Math.max(0, this.pt) / R.SURV_EVERY)); }
+      if (p.role === 'S' && winner === 'S' && this.cfg.connected(p.id) || (p.role === 'S' && winner === 'S' && this.cfg.isBot(p.id))) this.add(p.id, R.SWEEP);
       p.locked = p.locked && p.alive;
     }
     this.setPhase('post', T.POST);
@@ -167,8 +171,8 @@ export class HostSim {
     let near = Infinity; for (const q of this.players.values()) if (q.alive && q.role === 'S') near = Math.min(near, Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z));
     const daring = !forced && near <= R.DARING_R && this.phase === 'hunt';
     const pts = forced || this.phase !== 'hunt' ? 0 : R.TAUNT + (daring ? R.DARING : 0);
-    this.score[p.id] += pts;
-    this.cfg.ev('taunt', { id: p.id, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), pts, daring, forced });
+    this.add(p.id, pts);
+    this.cfg.ev('taunt', { id: p.id, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), pts: pts * this.mult, daring, forced });
   }
   tag(p, a) {
     if (p.role !== 'S' || !p.alive || this.phase !== 'hunt') return;
@@ -196,7 +200,7 @@ export class HostSim {
     this.cfg.ev('swing', { id: p.id });
     if (hit?.q) {
       const q = hit.q; q.alive = false; q.locked = false;
-      this.score[p.id] += R.FIND; this.stats[p.id].finds++; p.hp = Math.min(R.HP, p.hp + R.FIND_HP);
+      this.add(p.id, R.FIND); this.stats[p.id].finds++; p.hp = Math.min(R.HP, p.hp + R.FIND_HP);
       this.cfg.ev('found', { id: q.id, by: p.id, x: q.x, y: q.y, z: q.z, k: q.kind, rot: q.rot });
       if (this.alive('H') === 0) this.endRound('S');
     } else if (hit?.dc) {
@@ -219,14 +223,14 @@ export class HostSim {
   }
   snapshot() {
     const ft = (() => { const at = R.FORCED_AT.filter((s) => s < this.cfg.hunt - 15)[this.forcedIdx]; return this.phase === 'hunt' && at != null ? +(this.pt - at).toFixed(1) : -1; })();
-    return { t: 's', r: this.round, ph: this.phase, pt: +Math.max(0, this.pt).toFixed(2), ft, sc: this.score, st: this.stats, p: [...this.players.values()].map(rowOf), fi: this.forcedIdx };
+    return { t: 's', r: this.round, ph: this.phase, lp: this.lastProp, mu: this.mult || 1, hs: this.hidersAtStart || 0, pt: +Math.max(0, this.pt).toFixed(2), ft, sc: this.score, st: this.stats, p: [...this.players.values()].map(rowOf), fi: this.forcedIdx };
   }
   standings() { return standingsOf(this.ids, this.score); }
   // host migration: continue from the last snapshot this client saw
   static fromSnap(cfg, s) {
     const sim = new HostSim(cfg);
     if (!s || s.r < 0) return sim;
-    sim.round = s.r; sim.phase = s.ph === 'wait' ? 'wait' : s.ph; sim.pt = s.pt; sim.forcedIdx = s.fi || 0; sim.warned = sim.forcedIdx - 1;
+    sim.round = s.r; sim.phase = s.ph === 'wait' ? 'wait' : s.ph; sim.lastProp = s.lp || null; sim.mult = s.mu || 1; sim.hidersAtStart = s.hs || 0; sim.pt = s.pt; sim.forcedIdx = s.fi || 0; sim.warned = sim.forcedIdx - 1;
     Object.assign(sim.score, s.sc || {});
     for (const id of cfg.ids) if (s.st?.[id]) sim.stats[id] = { ...sim.stats[id], ...s.st[id] };
     for (const r of s.p) { const p = sim.players.get(r[0]); if (!p) continue; applyRow(p, r); Object.assign(p, bodySize(p.kind)); p.lastTaunt = -99; p.ep++; }

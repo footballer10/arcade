@@ -39,12 +39,14 @@ export function createView(ctx) {
   let Q = applyQ();
 
   // ---------------------------------------------------------------- level
-  let level = null; const levelObjs = []; const decoys = []; let highlighted = -1;
+  let level = null; const levelObjs = []; const decoys = []; const decoyMeshes = []; let highlighted = -1;
+  const dm = new THREE.Object3D();
+  const hiMesh = new THREE.Mesh(undefined, hiMat); hiMesh.visible = false; scene.add(hiMesh);
   function clearLevel() {
     for (const o of levelObjs) { o.removeFromParent(); o.geometry?.dispose(); }
     levelObjs.length = 0;
-    for (const d of decoys) d.removeFromParent();
-    decoys.length = 0; highlighted = -1;
+    for (const m of decoyMeshes) { m.removeFromParent(); m.dispose(); }
+    decoyMeshes.length = 0; decoys.length = 0; highlighted = -1; hiMesh.visible = false;
   }
   function buildLevel(L) {
     clearLevel(); level = L;
@@ -57,7 +59,7 @@ export function createView(ctx) {
       fb.box(r.x, -0.05, r.z, CELL, 0.1, CELL, r.def.floor);
       // simple pattern: planks / tiles as slightly darker strips
       const dark = new THREE.Color(r.def.floor).multiplyScalar(0.9).getHex();
-      if (r.type === 'kitchen' || r.type === 'bath') { for (let i = -4; i <= 4; i++) for (let j = -4; j <= 4; j++) if ((i + j) % 2 === 0) fb.box(r.x + i * 1.1, 0.002, r.z + j * 1.1, 1.1, 0.004, 1.1, dark, { out: false }); }
+      if (r.def.tile || r.type === 'kitchen' || r.type === 'bath') { for (let i = -4; i <= 4; i++) for (let j = -4; j <= 4; j++) if ((i + j) % 2 === 0) fb.box(r.x + i * 1.1, 0.002, r.z + j * 1.1, 1.1, 0.004, 1.1, dark, { out: false }); }
       else for (let i = -4; i <= 4; i++) fb.box(r.x + i * 1.1, 0.002, r.z, 0.03, 0.004, CELL, dark, { out: false });
       const g = new THREE.PlaneGeometry(CELL, CELL); g.rotateX(Math.PI / 2); g.translate(r.x, WH, r.z); cb.push(g);
       // ceiling light disc
@@ -67,13 +69,16 @@ export function createView(ctx) {
     const f = fb.build(); add(f.geo, toonV, false);
     const ceil = new THREE.Mesh(mergeList(cb), M(new THREE.MeshToonMaterial({ color: 0xfff6e8, gradientMap: GRAD }))); scene.add(ceil); levelObjs.push(ceil);
     for (const g of cb) g.dispose();
-    // decoys
-    for (const d of L.decoys) {
-      const { geo, line } = kindGeometry(kindCache, d.k);
-      const m = new THREE.Mesh(geo, toonV); m.castShadow = true; m.receiveShadow = true;
-      const l = new THREE.Mesh(line, inkMat); m.add(l); m.userData.line = l;
-      m.position.set(d.x, d.y, d.z); m.rotation.y = d.ry; m.userData.base = { y: d.y, ry: d.ry }; m.userData.bounce = 0;
-      scene.add(m); decoys.push(m);
+    // decoys: one instanced mesh (+ outline) per kind -> ~2 draw calls per kind however stocked the shelves are
+    const byKind = new Map();
+    for (const d of L.decoys) { if (!byKind.has(d.k)) byKind.set(d.k, []); byKind.get(d.k).push(d); }
+    for (const [k, list] of byKind) {
+      const { geo, line } = kindGeometry(kindCache, k);
+      const im = new THREE.InstancedMesh(geo, toonV, list.length); im.castShadow = true; im.receiveShadow = true;
+      const il = new THREE.InstancedMesh(line, inkMat, list.length);
+      list.forEach((d, j) => { dm.position.set(d.x, d.y, d.z); dm.rotation.set(0, d.ry, 0); dm.scale.set(1, 1, 1); dm.updateMatrix(); im.setMatrixAt(j, dm.matrix); il.setMatrixAt(j, dm.matrix); decoys[d.i] = { d, im, il, j, bounce: 0 }; });
+      im.computeBoundingSphere(); il.computeBoundingSphere();
+      scene.add(im, il); decoyMeshes.push(im, il);
     }
     // sun + shadow camera cover the building
     const ext = Math.max(L.w, L.d) / 2 + 2;
@@ -90,10 +95,11 @@ export function createView(ctx) {
   }
   function setHighlight(i) {
     if (i === highlighted) return;
-    if (highlighted >= 0 && decoys[highlighted]) decoys[highlighted].userData.line.material = inkMat;
-    highlighted = i;
-    if (i >= 0 && decoys[i]) decoys[i].userData.line.material = hiMat;
+    highlighted = i; const D = decoys[i];
+    hiMesh.visible = !!D;
+    if (D) { hiMesh.geometry = kindGeometry(kindCache, D.d.k).line; hiMesh.position.set(D.d.x, D.d.y - 0.01, D.d.z); hiMesh.rotation.set(0, D.d.ry, 0); hiMesh.scale.setScalar(1.04); }
   }
+  function setDecoyMatrix(D, sx, sy) { dm.position.set(D.d.x, D.d.y, D.d.z); dm.rotation.set(0, D.d.ry, 0); dm.scale.set(sx, sy, sx); dm.updateMatrix(); D.im.setMatrixAt(D.j, dm.matrix); D.il.setMatrixAt(D.j, dm.matrix); D.im.instanceMatrix.needsUpdate = true; D.il.instanceMatrix.needsUpdate = true; }
 
   // ---------------------------------------------------------------- players
   const bodies = new Map();
@@ -169,7 +175,7 @@ export function createView(ctx) {
     poof(x, y, z, color = 0xffffff, n = 12) { for (let i = 0; i < n; i++) { const a = Math.random() * 6.28, sp = 0.8 + Math.random() * 1.6; spawn('puff', x, y + 0.3, z, { vx: Math.cos(a) * sp, vz: Math.sin(a) * sp, vy: 0.6 + Math.random(), life: 0.7 + Math.random() * 0.4, size: 0.35, size1: 0.9, color }); } },
     stars(x, y, z, color = 0xffd23f, n = 14) { for (let i = 0; i < n; i++) { const a = Math.random() * 6.28, sp = 2 + Math.random() * 2.5; spawn('star', x, y + 0.5, z, { vx: Math.cos(a) * sp, vz: Math.sin(a) * sp, vy: 3 + Math.random() * 3, g: 9, life: 1.1, size: 0.32, size1: 0.18, color, spin: 6 }); } },
     notes(x, y, z, color, big) { for (let i = 0; i < (big ? 9 : 5); i++) spawn('note', x + (Math.random() - 0.5) * 0.4, y + 0.4 + Math.random() * 0.3, z + (Math.random() - 0.5) * 0.4, { vx: (Math.random() - 0.5) * 1.2, vz: (Math.random() - 0.5) * 1.2, vy: 1.2 + Math.random(), life: 1.4 + Math.random() * 0.5, size: big ? 0.5 : 0.36, color, spin: (Math.random() - 0.5) * 3 }); },
-    oops(i) { const m = decoys[i]; if (!m) return; m.userData.bounce = 1; spawn('x', m.position.x, m.position.y + 0.6, m.position.z, { vy: 0.8, life: 0.9, size: 0.45, size1: 0.7 }); fx.poof(m.position.x, m.position.y, m.position.z, 0xffffff, 5); },
+    oops(i) { const D = decoys[i]; if (!D) return; D.bounce = 1; spawn('x', D.d.x, D.d.y + 0.6, D.d.z, { vy: 0.8, life: 0.9, size: 0.45, size1: 0.7 }); fx.poof(D.d.x, D.d.y, D.d.z, 0xffffff, 5); },
     swing(id) { const B = bodies.get(id); if (B) B.swing = 1; if (id === ctx.myId && vm) vm.swing = 1; },
     shake(a) { shakeA = Math.max(shakeA, a); },
     pop(id) { const B = bodies.get(id); if (B) B.pop = 1; },
@@ -254,7 +260,7 @@ export function createView(ctx) {
     }
     for (const [id, B] of bodies) if (!live.has(id)) { B.root.visible = false; B.tag.style.display = 'none'; }
     // decoy bounce (wrongly bonked)
-    for (const m of decoys) if (m.userData.bounce > 0) { const u = m.userData; u.bounce = Math.max(0, u.bounce - dt * 2.2); const s = Math.sin(u.bounce * Math.PI * 3) * u.bounce; m.scale.set(1 - s * 0.2, 1 + s * 0.3, 1 - s * 0.2); if (!u.bounce) m.scale.set(1, 1, 1); }
+    for (const D of decoys) if (D && D.bounce > 0) { D.bounce = Math.max(0, D.bounce - dt * 2.2); const s = Math.sin(D.bounce * Math.PI * 3) * D.bounce; setDecoyMatrix(D, 1 - s * 0.2, 1 + s * 0.3); }
     setHighlight(st.highlight ?? -1);
     // camera
     const f = st.players.get(st.focusId);
@@ -273,10 +279,10 @@ export function createView(ctx) {
   resize();
 
   return {
-    renderer, scene, camera, cam, fx, buildLevel, update, resize, centerRay, decoyMesh: (i) => decoys[i],
+    renderer, scene, camera, cam, fx, buildLevel, update, resize, centerRay,
     applyQ() { Q = applyQ(); },
     dispose() {
-      clearLevel();
+      clearLevel(); hiMesh.removeFromParent();
       for (const B of bodies.values()) { ctx.avatar.dispose(B.av); B.hg.geo.dispose(); B.hg.line.dispose(); B.root.removeFromParent(); B.tag.remove(); }
       bodies.clear();
       if (vm) { vm.geo.geo.dispose(); vm.geo.line.dispose(); vm = null; }

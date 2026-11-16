@@ -23,7 +23,10 @@ export const manifest = {
     ] },
   ],
   options: [
-    { key: 'map', label: 'Map', default: 'house', choices: [{ value: 'house', label: 'Cozy House' }] },
+    { key: 'map', label: 'Map', default: 'mix', choices: [
+      { value: 'mix', label: 'New map every round' }, { value: 'house', label: 'Cozy House' },
+      { value: 'school', label: 'School' }, { value: 'grocery', label: 'Grocery Store' },
+    ] },
     { key: 'seekers', label: 'Seekers', default: 'auto', choices: [
       { value: 'auto', label: 'Auto' }, { value: '1', label: '1' }, { value: '2', label: '2' }, { value: '3', label: '3' },
     ] },

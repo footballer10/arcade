@@ -133,6 +133,94 @@ const FURN = {
   },
   rack(b, o) { return FURN.bookshelf(b, { w: o.w || 1.4, col: 0x8a94a8, cats: ['storage', 'shelf'] }); },
   rug(b, o) { b.box(0, 0.01, 0, o.w, 0.02, o.d, o.col || 0xff8a7a, { out: false }); b.box(0, 0.012, 0, o.w - 0.3, 0.02, o.d - 0.3, o.col2 || 0xffd08a, { out: false }); return { w: o.w, d: o.d, solids: [], slots: [] }; },
+  // ---- school
+  schooldesk(b, o) {
+    const col = o.col || 0xffcf6b;
+    b.box(0, 0.7, 0, 0.72, 0.05, 0.52, col); for (const x of [-0.31, 0.31]) b.box(x, 0.34, 0, 0.05, 0.68, 0.46, 0x8a94a8);
+    b.box(0, 0.5, -0.05, 0.6, 0.04, 0.4, 0x8a94a8, { out: false });
+    return { w: 0.72, d: 0.52, solids: [[-0.36, 0.67, -0.26, 0.36, 0.73, 0.26], [-0.34, 0, -0.23, -0.28, 0.67, 0.23], [0.28, 0, -0.23, 0.34, 0.67, 0.23]],
+      slots: [[0.05, 0.73, 0, ['desk'], 0, true], [0, 0, 0.55, ['chair'], Math.PI, false]] };
+  },
+  whiteboard(b) {
+    b.box(0, 1.55, 0, 2.2, 1.1, 0.05, 0xffffff); b.box(0, 1.55, -0.01, 2.3, 1.2, 0.04, 0x8a94a8);
+    b.box(0, 0.98, 0.06, 2.0, 0.04, 0.1, 0x8a94a8); for (const [x, y, c] of [[-0.6, 1.8, 0x3ea6ff], [0.2, 1.6, 0xff5a5f], [-0.2, 1.35, 0x4cd964]]) b.box(x, y, 0.028, 0.6, 0.04, 0.005, c, { out: false });
+    return { w: 2.3, d: 0.1, solids: [], slots: [] };
+  },
+  lockers(b, o) {
+    const n = o.n || 4, w = n * 0.5, C = [0x3ea6ff, 0xff5a5f, 0xffcc00, 0x4cd964];
+    for (let i = 0; i < n; i++) { const x = -w / 2 + 0.25 + i * 0.5, c = o.col || C[i % 4]; b.box(x, 0.95, 0, 0.48, 1.9, 0.5, c); for (const y of [1.6, 1.5, 1.4]) b.box(x, y, 0.252, 0.3, 0.03, 0.01, INK, { out: false }); b.box(x + 0.16, 1.0, 0.26, 0.04, 0.12, 0.02, 0xd9dee8, { out: false }); }
+    return { w, d: 0.5, solids: [[-w / 2, 0, -0.25, w / 2, 1.9, 0.25]], slots: [] };
+  },
+  labbench(b) {
+    b.box(0, 0.44, 0, 2.0, 0.88, 0.8, 0xe8eef8); b.box(0, 0.9, 0, 2.04, 0.05, 0.84, 0x2a2a35);
+    b.cyl(0.85, 1.05, -0.3, 0.02, 0.02, 0.3, 0xc8d0dc);
+    return { w: 2.0, d: 0.8, solids: [[-1, 0, -0.4, 1, 0.92, 0.4]], slots: [[-0.6, 0.92, 0, ['lab', 'desk'], 0, true], [0.1, 0.92, 0, ['lab', 'desk'], 0, true], [0, 0, 0.65, ['chair'], Math.PI, false], [-0.7, 0, 0.65, ['chair'], Math.PI, false]] };
+  },
+  cafetable(b) {
+    b.box(0, 0.73, 0, 2.4, 0.05, 0.8, 0x6fc3ff); for (const x of [-1.05, 1.05]) b.box(x, 0.36, 0, 0.08, 0.72, 0.6, 0x8a94a8);
+    for (const z of [-0.68, 0.68]) b.box(0, 0.22, z, 2.4, 0.44, 0.34, 0xff8c42);
+    return { w: 2.4, d: 1.7, solids: [[-1.2, 0.7, -0.4, 1.2, 0.76, 0.4], [-1.1, 0, -0.3, -1.0, 0.7, 0.3], [1.0, 0, -0.3, 1.1, 0.7, 0.3], [-1.2, 0, -0.85, 1.2, 0.44, -0.51], [-1.2, 0, 0.51, 1.2, 0.44, 0.85]],
+      slots: [[-0.75, 0.76, 0, ['table'], 0, true], [0, 0.76, 0, ['table'], 0, true], [0.75, 0.76, 0, ['table'], 0, true], [-0.6, 0.44, -0.68, ['school'], 0, true], [0.6, 0.44, 0.68, ['school'], Math.PI, true]] };
+  },
+  bleachers(b, o) {
+    const w = o.w || 3.0, D = 0.55, H = [0.4, 0.8, 1.2], d = D * 3;
+    const solids = [], slots = [];
+    for (let i = 0; i < 3; i++) {
+      const z1 = d / 2 - D * i;
+      b.box(0, H[i] / 2, (z1 - d / 2) / 2, w, H[i], z1 + d / 2, i % 2 ? 0xd9a066 : 0xe9b97a);
+      solids.push([-w / 2, 0, -d / 2, w / 2, H[i], z1]);
+      for (const x of [-1, 0, 1]) slots.push([x * w / 3.2, H[i], z1 - D / 2, ['gym'], 0, true]);
+    }
+    return { w, d, solids, slots };
+  },
+  hoop(b) {
+    b.box(0, 2.35, 0.05, 1.2, 0.75, 0.05, 0xffffff); b.box(0, 2.2, 0.08, 0.4, 0.3, 0.01, 0xff5a5f, { out: false }); b.tor(0, 2.05, 0.32, 0.2, 0.02, 0xff6a1a, { rx: Math.PI / 2 });
+    return { w: 1.2, d: 0.1, solids: [], slots: [] };
+  },
+  gymmat(b, o) {
+    b.box(0, 0.06, 0, 2.0, 0.12, 1.2, o.col || 0x3e6dff);
+    return { w: 2.0, d: 1.2, solids: [[-1, 0, -0.6, 1, 0.12, 0.6]], slots: [[-0.5, 0.12, 0, ['gym'], 0, true], [0.5, 0.12, 0, ['gym'], 0, true]] };
+  },
+  // ---- grocery
+  gondola(b, o) {
+    const L = o.len || 3.0, cats = o.cats || ['store'], col = o.col || 0xf4f1ea, tag = o.tag || 0xff5a5f;
+    b.box(0, 0.1, 0, L, 0.2, 0.9, col); b.box(0, 0.85, 0, L, 1.3, 0.06, col, { shade: 0.92 });
+    for (const s of [-1, 1]) { b.box(s * (L / 2 - 0.02), 0.75, 0, 0.04, 1.5, 0.9, col, { shade: 0.85 }); }
+    const boards = [0.75, 1.3];
+    for (const y of boards) for (const s of [-1, 1]) { b.box(0, y, s * 0.24, L - 0.08, 0.04, 0.42, col); b.box(0, y - 0.04, s * 0.45, L - 0.08, 0.06, 0.01, tag, { out: false }); }
+    b.box(0, 1.62, 0, L, 0.2, 0.08, tag);
+    const solids = [[-L / 2, 0, -0.45, L / 2, 0.2, 0.45], [-L / 2, 0, -0.03, L / 2, 1.5, 0.03], [-L / 2, 0, -0.45, -L / 2 + 0.04, 1.5, 0.45], [L / 2 - 0.04, 0, -0.45, L / 2, 1.5, 0.45]];
+    for (const y of boards) for (const s of [-1, 1]) solids.push([-L / 2, y - 0.02, s > 0 ? 0.03 : -0.45, L / 2, y + 0.02, s > 0 ? 0.45 : -0.03]);
+    const slots = [];
+    const n = Math.floor((L - 0.2) / 0.62);
+    for (const s of [-1, 1]) for (const y of [0.2, ...boards.map((v) => v + 0.02)]) for (let i = 0; i < n; i++) slots.push([(i - (n - 1) / 2) * 0.62, y, s * 0.25, cats, s > 0 ? 0 : Math.PI, false]);
+    return { w: L, d: 0.9, solids, slots };
+  },
+  produce(b) {
+    b.box(0, 0.4, 0, 1.8, 0.8, 1.0, 0x9a6436); for (const x of [-0.6, 0, 0.6]) b.box(x, 0.84, 0, 0.56, 0.08, 0.96, 0xd9a066);
+    b.box(0, 1.25, -0.45, 1.8, 0.3, 0.05, 0x4cd964); b.box(0, 1.0, -0.45, 0.06, 0.5, 0.05, 0x9a6436, { out: false });
+    const slots = []; for (const x of [-0.6, 0, 0.6]) for (const z of [-0.22, 0.24]) slots.push([x, 0.88, z, ['produce'], 0, true]);
+    return { w: 1.8, d: 1.0, solids: [[-0.9, 0, -0.5, 0.9, 0.88, 0.5]], slots };
+  },
+  freezer(b) {
+    b.box(0, 0.42, 0, 2.0, 0.84, 0.8, 0xf4f8ff); b.box(0, 0.86, 0, 1.9, 0.04, 0.7, 0x9fe4ff, { out: false });
+    for (const [x, c] of [[-0.6, 0xff6ec7], [0, 0xffd23f], [0.55, 0x8fd3ff]]) b.box(x, 0.8, 0, 0.4, 0.06, 0.5, c, { out: false });
+    return { w: 2.0, d: 0.8, solids: [[-1, 0, -0.4, 1, 0.88, 0.4]], slots: [] };
+  },
+  checkout(b) {
+    b.box(0, 0.42, 0, 2.0, 0.84, 0.7, 0x3e6dff); b.box(-0.2, 0.86, 0, 1.6, 0.04, 0.55, 0x2a2a35);
+    b.box(0.8, 1.05, 0, 0.35, 0.35, 0.4, 0xd9dee8); b.box(0.8, 1.3, -0.1, 0.3, 0.2, 0.04, 0x2a3a4a); b.cyl(0.8, 1.9, 0, 0.03, 0.03, 0.8, 0x8a94a8); b.box(0.8, 2.35, 0, 0.3, 0.3, 0.06, 0xffd23f);
+    return { w: 2.0, d: 0.7, solids: [[-1, 0, -0.35, 1, 0.88, 0.35], [0.6, 0.88, -0.2, 1.0, 1.25, 0.2]], slots: [[-0.7, 0.88, 0, ['store', 'counter'], 0, true], [0, 0.88, 0, ['store', 'counter'], 0, true]] };
+  },
+  pallet(b) {
+    b.box(0, 0.07, 0, 1.2, 0.14, 1.0, 0xc98f55); b.box(-0.3, 0.44, 0, 0.56, 0.6, 0.9, 0xc8945a); b.box(-0.3, 0.92, 0.1, 0.5, 0.36, 0.6, 0xb8844a);
+    return { w: 1.2, d: 1.0, solids: [[-0.6, 0, -0.5, 0.6, 0.14, 0.5], [-0.58, 0.14, -0.45, -0.02, 0.74, 0.45], [-0.55, 0.74, -0.2, -0.05, 1.1, 0.4]], slots: [[0.3, 0.14, 0, ['storage'], 0, true]] };
+  },
+  bakerycase(b) {
+    b.box(0, 0.4, 0, 1.8, 0.8, 0.7, 0xf6c78a); b.box(0, 0.82, 0, 1.84, 0.04, 0.74, 0xffffff);
+    b.box(0, 0.6, 0.352, 1.6, 0.3, 0.01, 0xbfe9ff, { out: false });
+    return { w: 1.8, d: 0.7, solids: [[-0.9, 0, -0.35, 0.9, 0.84, 0.35]], slots: [[-0.55, 0.84, 0, ['bakery'], 0, true], [0, 0.84, 0, ['bakery'], 0, true], [0.55, 0.84, 0, ['bakery'], 0, true]] };
+  },
 };
 
 // ---------------------------------------------------------------------------------------------- rooms
@@ -172,12 +260,83 @@ const ROOMS = {
     ['w', 'desk', 0, 2.8, { col: WOOD }], ['w', 'bookshelf', 1, -3.4], ['w', 'bookshelf', 1, -2.3], ['w', 'bookshelf', 3, 3.4], ['w', 'sofa', 2, 2.8, { w: 1.7, col: 0xff8c42 }],
     ['f', 'rug', -2.2, -2.4, 0, { w: 2.2, d: 2.2, col: 0x3ea6ff, col2: 0xffe2b8 }], ['s', -4.3, -4.3, ['floor', 'lamp'], true], ['s', 4.3, 4.3, ['floor'], true], ['s', -4.3, 1.8, ['floor'], true],
   ] },
+  // ---- school
+  classroom: { name: 'Classroom', wall: 0xd8f0ff, floor: 0xe8d8b8, tile: true, items: [
+    ['w', 'whiteboard', 0, -2.7], ['w', 'desk', 0, 2.9, { col: 0xc98f55 }], ['w', 'bookshelf', 3, -3.0, { cats: ['shelf'] }], ['w', 'bookshelf', 1, 3.2],
+    ...[[-3.2, 1.0], [-1.7, 1.0], [1.7, 1.0], [3.2, 1.0], [-3.2, 2.9], [-1.7, 2.9], [1.7, 2.9], [3.2, 2.9]].map(([x, z]) => ['f', 'schooldesk', x, z, 0, {}]),
+    ['s', -4.3, -1.6, ['floor', 'school'], true], ['s', 4.3, -1.6, ['floor', 'school'], true], ['s', -4.3, 4.3, ['floor', 'school'], true], ['s', 4.3, 4.3, ['floor', 'floor2'], true],
+  ] },
+  library: { name: 'Library', wall: 0xf3e2c8, floor: 0xb07a48, items: [
+    ['w', 'bookshelf', 0, -3.6], ['w', 'bookshelf', 0, -2.5], ['w', 'bookshelf', 0, 2.5], ['w', 'bookshelf', 0, 3.6], ['w', 'bookshelf', 1, -3.0], ['w', 'bookshelf', 3, 3.0],
+    ['f', 'table', -2.6, 2.6, 0, { w: 1.4, d: 0.8, chairs: true, cats: ['table', 'desk'] }], ['f', 'table', 2.6, 2.6, 0, { w: 1.4, d: 0.8, chairs: true, cats: ['table', 'desk'] }],
+    ['f', 'rug', 0, 2.6, 0, { w: 2.0, d: 3.0, col: 0x9a3a4a, col2: 0xd85a6a }], ['s', -4.3, -1.5, ['floor'], true], ['s', 4.3, 1.5, ['floor', 'school'], true],
+  ] },
+  cafeteria: { name: 'Cafeteria', wall: 0xfff0b8, floor: 0xd8e4f0, tile: true, items: [
+    ['w', 'counter', 0, -2.9, { len: 3.0, col: 0xb8c4d8 }], ['w', 'counter', 0, 2.9, { len: 3.0, col: 0xb8c4d8, stove: true }],
+    ['f', 'cafetable', -2.6, 1.6, 0], ['f', 'cafetable', 2.6, 1.6, 0], ['f', 'cafetable', -2.6, 3.7, 0], ['f', 'cafetable', 2.6, 3.7, 0],
+    ['s', -4.3, -1.5, ['floor'], true], ['s', 4.3, -1.5, ['floor', 'floor2'], true],
+  ] },
+  gym: { name: 'Gym', wall: 0xffd8b0, floor: 0xe0b070, items: [
+    ['w', 'bleachers', 0, -2.9], ['w', 'bleachers', 0, 2.9], ['w', 'hoop', 2, -2.8], ['w', 'hoop', 2, 2.8],
+    ['f', 'gymmat', -2.6, 2.0, 0, {}], ['f', 'gymmat', 2.6, 2.0, 0, { col: 0xff5a5f }],
+    ['s', -4.2, 0.0, ['gym'], true], ['s', 4.2, 0.0, ['gym'], true], ['s', -3.6, 4.2, ['gym'], true], ['s', 3.6, 4.2, ['gym'], true], ['s', -1.6, 4.2, ['gym'], true], ['s', 1.6, 4.2, ['gym'], true], ['s', -4.2, 2.4, ['gym'], true],
+  ] },
+  lab: { name: 'Science Lab', wall: 0xd8ffe8, floor: 0xeaf3f8, tile: true, items: [
+    ['f', 'labbench', -2.6, -2.2, 0], ['f', 'labbench', 2.6, -2.2, 0], ['f', 'labbench', -2.6, 2.2, 0], ['f', 'labbench', 2.6, 2.2, 0],
+    ['w', 'counter', 0, -3.4, { len: 2.4, sink: true, col: 0xe8eef8 }], ['w', 'bookshelf', 1, 3.4, { col: 0x8a94a8, cats: ['shelf', 'lab'] }],
+    ['s', 4.3, -4.3, ['floor'], true], ['s', -4.3, 4.3, ['floor', 'floor2'], true],
+  ] },
+  principal: { name: "Principal's Office", wall: 0xe4d8ff, floor: 0x9a6436, items: [
+    ['w', 'desk', 0, 2.8, { col: WOOD_D }], ['w', 'bookshelf', 1, -3.4], ['w', 'bookshelf', 1, -2.3], ['w', 'sofa', 2, -2.8, { w: 1.8, col: 0x6a4aa8 }], ['w', 'dresser', 3, 3.0, {}],
+    ['f', 'rug', 2.4, -2.4, 0, { w: 2.4, d: 2.0, col: 0x9a3a4a, col2: 0xffd08a }], ['s', -4.3, -4.3, ['floor'], true], ['s', 4.3, 4.3, ['floor'], true],
+  ] },
+  hall: { name: 'Locker Hall', wall: 0xffe8d0, floor: 0xd8d0e8, tile: true, items: [
+    ['w', 'lockers', 0, -3.1, { n: 4 }], ['w', 'lockers', 0, 3.1, { n: 4 }], ['w', 'lockers', 2, -3.1, { n: 4 }], ['w', 'lockers', 2, 3.1, { n: 4 }],
+    ['w', 'lockers', 1, -3.1, { n: 3 }], ['w', 'lockers', 3, 3.1, { n: 3 }],
+    ['s', -4.2, -0.9 - 0.6, ['floor', 'school'], true], ['s', 4.2, 1.5, ['floor', 'school', 'floor2'], true], ['s', -2.0, 3.6, ['floor', 'school'], true], ['s', 2.0, -3.6, ['floor', 'school'], true], ['s', 1.4, 2.0, ['floor2'], true],
+  ] },
+  art: { name: 'Art Room', wall: 0xffd8ec, floor: 0xd8c8a8, items: [
+    ['f', 'table', -2.6, -2.4, 0, { w: 1.8, d: 1.0, chairs: true, col: 0xff8ab0 }], ['f', 'table', 2.6, 2.4, 0, { w: 1.8, d: 1.0, chairs: true, col: 0x8fd6ff }],
+    ['w', 'bookshelf', 2, -3.0, { col: 0xffcc00 }], ['w', 'bookshelf', 0, 3.0, { col: 0x7ed957 }], ['w', 'counter', 1, -2.9, { len: 2.4, sink: true, col: 0xffd08a }],
+    ['f', 'rug', 2.6, 2.4, 0, { w: 3.0, d: 2.4, col: 0x7ed957, col2: 0xffe14a }], ['s', -4.3, 4.3, ['floor', 'school'], true], ['s', 4.3, -4.3, ['floor'], true],
+  ] },
+  // ---- grocery
+  aisle: { name: 'Aisle', wall: 0xdff0ff, floor: 0xf4f1ea, tile: true, items: [
+    ['f', 'gondola', -2.6, -2.75, 1, {}], ['f', 'gondola', 2.6, -2.75, 1, {}], ['f', 'gondola', -2.6, 2.75, 1, {}], ['f', 'gondola', 2.6, 2.75, 1, {}],
+    ['s', -1.2, -4.3, ['floor3'], true], ['s', 1.2, 4.3, ['floor3'], true], ['s', 4.3, 0.9, ['floor3'], true],
+  ] },
+  bakeryaisle: { name: 'Bakery', wall: 0xffe8c8, floor: 0xf4e4d0, tile: true, items: [
+    ['w', 'bakerycase', 0, -2.9], ['w', 'bakerycase', 0, 2.9], ['f', 'gondola', -2.6, 2.75, 1, { cats: ['bakery'], tag: 0xff8c42, col: 0xf6c78a }], ['f', 'gondola', 2.6, 2.75, 1, { cats: ['bakery'], tag: 0xff8c42, col: 0xf6c78a }],
+    ['w', 'bakerycase', 1, -2.9], ['s', -4.3, -1.5, ['floor3'], true], ['s', 4.3, 4.3, ['floor3'], true],
+  ] },
+  produce: { name: 'Produce', wall: 0xe0ffd0, floor: 0xe8f0d8, tile: true, items: [
+    ['f', 'produce', -2.6, -2.4, 0], ['f', 'produce', 2.6, -2.4, 0], ['f', 'produce', -2.6, 2.4, 2], ['f', 'produce', 2.6, 2.4, 2],
+    ['s', -4.3, 0.9, ['floor2', 'floor3'], true], ['s', 4.3, -0.9, ['floor2', 'floor3'], true], ['s', -1.2, 4.3, ['floor2'], true], ['s', 1.2, -4.3, ['floor2'], true], ['s', 4.3, 4.3, ['floor2'], true],
+  ] },
+  checkouts: { name: 'Checkout', wall: 0xfff0b8, floor: 0xf4f1ea, tile: true, items: [
+    ['f', 'checkout', -2.6, -2.4, 0], ['f', 'checkout', 2.6, -2.4, 0], ['f', 'checkout', -2.6, 2.4, 0], ['f', 'checkout', 2.6, 2.4, 0],
+    ['s', -4.3, -4.3, ['floor3'], true], ['s', 4.3, -4.3, ['floor3'], true], ['s', -4.3, 4.3, ['floor3', 'floor'], true], ['s', 1.5, 4.3, ['floor3'], true], ['s', -1.4, -1.3, ['floor3'], true],
+  ] },
+  storage: { name: 'Stock Room', wall: 0xd8d8e0, floor: 0xa9a9b8, items: [
+    ['f', 'pallet', -2.8, -2.6, 0], ['f', 'pallet', 2.8, 2.6, 1], ['f', 'pallet', -2.8, 2.8, 2], ['w', 'rack', 0, 2.9, {}], ['w', 'rack', 1, -3.0, {}],
+    ['s', -4.2, 0.9, ['storage', 'floor'], true], ['s', 4.2, 0.9, ['storage', 'floor'], true], ['s', 1.4, -4.2, ['storage', 'floor'], true], ['s', -1.4, 4.2, ['storage'], true], ['s', 4.2, -4.2, ['storage', 'floor3'], true],
+  ] },
+  frozen: { name: 'Frozen Foods', wall: 0xd0f0ff, floor: 0xf4f8ff, tile: true, items: [
+    ['f', 'freezer', -2.6, -2.4, 0], ['f', 'freezer', 2.6, -2.4, 0], ['f', 'freezer', -2.6, 2.4, 0], ['f', 'gondola', 2.6, 2.75, 1, { tag: 0x3ea6ff }],
+    ['s', -4.3, 4.3, ['floor3'], true], ['s', 1.3, 1.0, ['floor3'], true], ['s', -4.3, -4.3, ['floor3'], true],
+  ] },
 };
 
 export const MAPS = {
   house: { name: 'Cozy House', cols: 3, rows: 2, required: ['living', 'kitchen', 'bedroom', 'bath'], extra: ['dining', 'kids', 'garage', 'office'], extraDoors: 2,
     kinds: ['toaster', 'kettle', 'mug', 'microwave', 'fruitbowl', 'plant', 'floorlamp', 'tablelamp', 'books', 'box', 'trash', 'chair', 'teddy', 'clock', 'vase', 'duck', 'laundry', 'pillow'],
     outside: 0xe8a07a, sky: [0xffd7a8, 0x8fd0ff], fill: 0.5 },
+  school: { name: 'School', cols: 3, rows: 3, required: ['classroom', 'classroom', 'library', 'cafeteria', 'gym', 'lab', 'principal', 'hall', 'art'], extra: [], extraDoors: 4,
+    kinds: ['books', 'globe', 'backpack', 'ball', 'cone', 'microscope', 'chair', 'plant', 'trash', 'clock', 'mug', 'box', 'wetfloor', 'fruitbowl', 'vase'],
+    outside: 0xd86a4a, sky: [0xffe2b8, 0x9ad8ff], fill: 0.5 },
+  grocery: { name: 'Grocery Store', cols: 4, rows: 2, required: ['aisle', 'aisle', 'produce', 'checkouts', 'bakeryaisle', 'frozen', 'storage', 'aisle'], extra: [], extraDoors: 99, door: 5.6,
+    kinds: ['can', 'cereal', 'bottle', 'bread', 'melon', 'pumpkin', 'basket', 'wetfloor', 'box', 'trash', 'microwave', 'kettle', 'toaster'],
+    outside: 0x6fb0e0, sky: [0xffe8c8, 0x8fd8ff], fill: 0.42 },
 };
 export const MAP_IDS = Object.keys(MAPS);
 
@@ -223,7 +382,8 @@ export function makeLevel(rng, mapId) {
       const door = nb >= 0 && A.doors.find((d) => (d.a === nb && d.b === A.i) || (d.b === nb && d.a === A.i));
       const ext = nb < 0;
       const e = ext ? W2 : 0;               // exterior walls also reach outwards (outer face painted separately)
-      const segs = door ? [[-hw, -DOOR / 2], [DOOR / 2, hw]] : [[-hw - e, hw + e]];
+      const DW = M.door || DOOR;
+      const segs = door ? [[-hw, -DW / 2], [DW / 2, hw]] : [[-hw - e, hw + e]];
       for (const [u0, u1] of segs) {
         if (side === 0) wall(A.x + u0, A.z - hw - e, A.x + u1, A.z - hw + W2, A.def.wall);
         if (side === 2) wall(A.x + u0, A.z + hw - W2, A.x + u1, A.z + hw + e, A.def.wall);
@@ -237,7 +397,7 @@ export function makeLevel(rng, mapId) {
         if (side === 3) geo.box(A.x - o2, WH / 2, A.z, 0.02, WH, L, M.outside, { out: false });
         if (side === 1) geo.box(A.x + o2, WH / 2, A.z, 0.02, WH, L, M.outside, { out: false });
       }
-      if (door) { // door frame trim (white) on this room's side
+      if (door && !M.door) { // door frame trim (white) on this room's side
         const dc = 0xfffaf0;
         if (side === 0 || side === 2) { const zz = side === 0 ? A.z - hw + W2 : A.z + hw - W2; for (const s of [-1, 1]) geo.box(A.x + s * (DOOR / 2 + 0.05), 1.1, zz, 0.1, 2.2, 0.05, dc, { out: false }); geo.box(A.x, 2.25, zz, DOOR + 0.2, 0.1, 0.05, dc, { out: false }); geo.box(A.x, 2.53, zz - (side === 0 ? 0.075 : -0.075), DOOR, 0.55, WT / 2, A.def.wall); }
         else { const xx = side === 3 ? A.x - hw + W2 : A.x + hw - W2; for (const s of [-1, 1]) geo.box(xx, 1.1, A.z + s * (DOOR / 2 + 0.05), 0.05, 2.2, 0.1, dc, { out: false }); geo.box(xx, 2.25, A.z, 0.05, 0.1, DOOR + 0.2, dc, { out: false }); geo.box(xx - (side === 3 ? 0.075 : -0.075), 2.53, A.z, WT / 2, 0.55, DOOR, A.def.wall); }
