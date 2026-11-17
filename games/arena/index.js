@@ -2,7 +2,8 @@
 // Netcode (unchanged from the original): host-authoritative 60 Hz sim with lag compensation; compact binary
 // snapshots (net.js) on the unreliable channel at 20 Hz; binary inputs; client prediction + interpolation.
 // ctx.net: raw host→all = snapshots, raw client→host = inputs; JSON {t:'fx'} {t:'emote'} {t:'chars'}.
-import { Sim, CHARS, ARENA_R, WINS_TO_WIN, DASH_CD, MAPS, MAP_KEYS, MAP, setMap, integrate, applyDash, zoneNextIn, clampTo, TELEPORT_MAX, BOMB_RANGE, WELL_RANGE, MUTATORS, MUT_KEYS, MUT, BOO_CD, cdRate } from './sim.js';
+import './tuning.js';
+import { Sim, CHARS, CHAR_KEYS, ARENA_R, WINS_TO_WIN, MOVE, MAPS, MAP_KEYS, MAP, setMap, integrate, applyDash, zoneNextIn, clampTo, TELEPORT_MAX, BOMB_RANGE, WELL_RANGE, MUTATORS, MUT_KEYS, MUT, BOO_CD, cdRate } from './sim.js';
 import { botInput } from './bots.js';
 import { Renderer, cssColor } from './render.js';
 import { encodeSnapshot, decodeSnapshot, encodeInput, decodeInput } from './net.js';
@@ -41,6 +42,10 @@ const CSS = `
 .ar-board td{background:rgba(10,20,80,.35);border-top:3px solid var(--ink);border-bottom:3px solid var(--ink)}
 .ar-board td:first-child{border-left:3px solid var(--ink);border-radius:12px 0 0 12px}.ar-board td:last-child{border-right:3px solid var(--ink);border-radius:0 12px 12px 0}
 .ar-board tr.win td{background:linear-gradient(180deg,#ffe680,var(--yellow))}
+.ar-board .charrow{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:10px}
+.ar-board .charbtn{font-family:var(--font);font-size:.85rem;color:#fff;text-shadow:var(--stroke);background:rgba(10,20,80,.45);border:3px solid var(--ink);border-radius:12px;padding:6px 10px;cursor:pointer}
+.ar-board .charbtn:hover{background:rgba(10,20,80,.7)}
+.ar-board .charbtn.sel{background:var(--yellow);color:var(--ink);text-shadow:none}
 .pip{display:inline-block;width:14px;height:14px;border-radius:50%;border:3px solid var(--ink);background:#2a3a8a;margin:0 2px;vertical-align:-2px}.pip.on{background:var(--yellow)}
 .ar-hp{width:300px;background:var(--pill);border:3px solid var(--ink);border-radius:16px;padding:6px 12px 8px;text-shadow:var(--stroke)}
 .ar-hp .bighp{position:relative;height:20px;background:#3b1b2a;border:3px solid var(--ink);border-radius:9px;overflow:hidden;margin-top:4px}
@@ -192,6 +197,14 @@ export async function start(ctx) {
     if (m.t === 'emote' && isHost() && sim) sim.fx.push({ k: 'emote', id: from, e: Math.max(0, Math.min(3, m.e | 0)) });
     else if (m.t === 'fx' && !isHost()) for (const e of m.fx) handleFx(e);
     else if (m.t === 'chars' && !isHost()) for (const [id, c] of Object.entries(m.c)) { const p = lobby.find((q) => q.id === id); if (p && CHARS[c]) p.char = c; }
+    else if (m.t === 'pickChar' && isHost() && sim) {
+      const sp = sim.players.get(from);
+      if (sp && CHARS[m.c] && sim.phase === 'roundEnd') {
+        sp.char = m.c;
+        const lp = lobby.find((q) => q.id === from); if (lp) lp.char = m.c;
+        net.toAll({ t: 'chars', c: { [from]: m.c } }, false);
+      }
+    }
   });
   ctx.on('leave', (id) => { if (isHost() && sim) { sim.removePlayer(id); inputs.delete(id); } feedNote(`${ctx.player(id)?.name || 'Someone'} left`); });
   ctx.on('hostchange', ({ amHost, oldHost }) => {
@@ -337,7 +350,7 @@ export async function start(ctx) {
       if (me.speedT > 0) buffs.push(`⚡ ${Math.ceil(me.speedT)}s`); if (me.dmgT > 0) buffs.push(`🔥 ${Math.ceil(me.dmgT)}s`); if (me.shield > 0) buffs.push(`🛡 ${Math.ceil(me.shield * 10)}`);
       hpEl.lastChild.textContent = buffs.join('  ');
       const gh = !me.alive && me.ghost;
-      const dashF = Math.max(0, me.dashCd / DASH_CD), spF = gh ? 1 : Math.max(0, me.spCd / CHARS[me.char].spCd);
+      const dashF = Math.max(0, me.dashCd / MOVE.DASH_CD), spF = gh ? 1 : Math.max(0, me.spCd / CHARS[me.char].spCd);
       ui.abilities([
         { key: 'Shift', label: 'Dash', cd: dashF, ready: dashF <= 0 },
         { key: 'LMB', label: gh ? 'Boo!' : CHARS[me.char].attack, cd: gh ? Math.max(0, me.spCd / BOO_CD) : 1 - Math.min(1, me.ammo), ready: me.ammo >= 1 },
@@ -353,6 +366,21 @@ export async function start(ctx) {
     if (v.phase === 'roundEnd' && v.phaseT >= 4.3) { bannerText = v.roundWinner ? `${nameOf(v.roundWinner)} wins the round!` : 'Draw!'; bannerT = 0.1; }
     if (showBoard) renderBoard(v);
   }
+  function pickChar(key) {
+    if (ctx.spectator || !CHARS[key]) return;
+    const mine = lobby.find((p) => p.id === myId);
+    if (!mine || mine.char === key) return;
+    mine.char = key;   // optimistic; the host confirms (or the Shuffle mutator may override next round)
+    net.toHost({ t: 'pickChar', c: key });
+  }
+  ctx.listen(boardEl, 'click', (e) => { const b = e.target.closest('.charbtn'); if (b) pickChar(b.dataset.c); });
+  function charRow(v) {
+    if (v.phase !== 'roundEnd' || ctx.spectator || opts.mut === 'shuffle') return '';
+    const mine = lobby.find((p) => p.id === myId);
+    if (!mine) return '';
+    const btns = CHAR_KEYS.map((k) => `<button type="button" class="charbtn${k === mine.char ? ' sel' : ''}" data-c="${k}">${esc(CHARS[k].name)}</button>`).join('');
+    return `<div class="ph-sub" style="margin:10px 0 2px">Pick your character for next round</div><div class="charrow">${btns}</div>`;
+  }
   let hudBanner = '';
   function boardRows(v, isMatch) {
     return [...v.players].sort((a, b) => b.wins - a.wins || b.kills - a.kills).map((p) => {
@@ -364,7 +392,7 @@ export async function start(ctx) {
   function renderBoard(v) {
     const isMatch = v.phase === 'matchEnd';
     const title = isMatch ? `🏆 ${nameOf(v.matchWinner)} WINS THE MATCH!` : v.roundWinner ? `${nameOf(v.roundWinner)} wins round ${v.round}` : `Round ${v.round}: draw`;
-    const html = `<h2 style="color:var(--yellow)">${esc(title)}</h2><table><tr><th></th><th>Player</th><th>Class</th><th>Rounds</th><th>KOs</th></tr>${boardRows(v, isMatch)}</table><div class="ph-sub">${isMatch ? 'Final results coming up…' : `Next round in ${Math.max(0, Math.ceil(v.phaseT))}s`}</div>`;
+    const html = `<h2 style="color:var(--yellow)">${esc(title)}</h2><table><tr><th></th><th>Player</th><th>Class</th><th>Rounds</th><th>KOs</th></tr>${boardRows(v, isMatch)}</table>${isMatch ? '' : charRow(v)}<div class="ph-sub">${isMatch ? 'Final results coming up…' : `Next round in ${Math.max(0, Math.ceil(v.phaseT))}s`}</div>`;
     if (boardEl.innerHTML !== html) boardEl.innerHTML = html;
   }
   ui.setScoreboard(() => { const v = lastView || latest?.s; return v ? `<table class="ph-table"><tr><th></th><th>Player</th><th>Class</th><th>Rounds</th><th>KOs</th></tr>${boardRows(v, false)}</table>` : ''; });

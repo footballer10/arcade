@@ -11,6 +11,7 @@ export const C = {
   HX: 1.1, HY: 0.5, HZ: 1.55, REST: 0.86,   // car hitbox half extents (x width, y height, z length), ride height
   DRIVE_MAX: 25, MAX: 42, SUPER: 38,         // top speed on throttle / absolute cap / supersonic (demolishes)
   THROTTLE: 40, BRAKE: 45, COAST: 6, GRIP: 14, STICK: 9,
+  TURN_RATE: 4.5, STEER_RAMP: 5.5,           // ground turn rate at low speed / how fast a held steer key reaches full lock
   BOOST_ACC: 30, BOOST_USE: 33, BOOST_START: 34,
   JUMP_V: 8.6, JUMP_HOLD: 26, JUMP_HOLD_T: 0.2, DJ_WINDOW: 1.45, DODGE_V: 11.5, FLIP_T: 0.62,
   PITCH: 5.2, YAW: 3.6, ROLL: 3.2, AIR_RESP: 9,
@@ -152,9 +153,9 @@ function stepCar(W, c, i) {
       // steering: turn the car and its velocity about the surface normal
       const sp = Math.abs(vf), dir = vf < -0.5 ? -1 : vf > 0.5 ? 1 : t || 1;
       // steering ramps up over ~0.3 s (taps = small, precise corrections, a held key = full lock) and lets go quickly
-      c.st += (inp.x - c.st) * Math.min(1, (inp.x === 0 || inp.x * c.st < 0 ? 16 : wantSkid ? 14 : 5.5) * DT);
+      c.st += (inp.x - c.st) * Math.min(1, (inp.x === 0 || inp.x * c.st < 0 ? 16 : wantSkid ? 14 : C.STEER_RAMP) * DT);
       if (Math.abs(c.st) < 0.002) c.st = 0;
-      let rate = -c.st * dir * Math.min(1, (sp + 2) / 4) * (4.5 - Math.min(sp, C.MAX) * 0.05);
+      let rate = -c.st * dir * Math.min(1, (sp + 2) / 4) * (C.TURN_RATE - Math.min(sp, C.MAX) * 0.05);
       if (skid) rate = -c.st * 6.8;
       if (rate) { qpre(c, nx, ny, nz, rate * DT); rotVel(c, nx, ny, nz, rate * DT * (skid ? 0.3 : 1)); }
       // tyre grip kills sideways sliding

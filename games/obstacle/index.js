@@ -9,6 +9,7 @@
 // The host adopts a client's state when it is close to its own and otherwise forces a correction (auth
 // counter). Bumps, grabs, tiles, qualifying and eliminations are decided by the host.
 export { manifest } from './manifest.js';
+import './tuning.js';
 import { C, EV, setPoses, stepPlayer, separate, knock, newPlayer, syncCounters, encodeSnap, decodeSnap, groundAt, isDown } from './world.js';
 import { STAGES, planMatch, buildStage, makeWorld, spawnOf, respawnOf, quota, progressOf } from './stages.js';
 import { HostSim, standingsOf, INTRO_T } from './host.js';

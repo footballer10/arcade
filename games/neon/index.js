@@ -8,6 +8,7 @@
 // so a new host after migration continues from the last one it saw.
 import * as THREE from 'three';
 import { buildTrack, clearTrackCache, TRACK_IDS, TRACKS, worldPos, wrapS } from './tracks.js';
+import './tuning.js';
 import { FIXED, C, KEYS, EV, CLASSES, newShip, step, collide, order, lapOf, tierOf, TIER_AT, chainMult, NO_INPUT } from './physics.js';
 import { newBrain, botInput } from './bots.js';
 import { createWorld } from './render.js';

@@ -8,7 +8,7 @@ export const T = { INTRO: 4, HIDE: 20, POST: 7, HUNT: { short: 100, normal: 155,
 export const R = {
   HP: 100, WRONG: 10, FIND_HP: 20, REACH: 3.1, BONK_CD: 0.55, EYE: 1.45,
   FIND: 15, SWEEP: 10, SURVIVE: 10, SURV_EVERY: 5, TAUNT: 3, DARING: 5, DARING_R: 7, TAUNT_CD: 10,
-  FORCED_AT: [90, 45], FORCED_WARN: 5, SNIFF_CD: 22, SNIFF_T: 4,
+  FORCE_EVERY: 45, FORCED_WARN: 5,   // a hider who stays silent this long is forced to taunt; any taunt resets the clock SNIFF_CD: 22, SNIFF_T: 4,
   SPEED: { H: 4.2, S: 4.4 }, SPRINT: 1.5,
 };
 export const TAUNTS = ['kazoo', 'quack', 'honk', 'slide', 'boing', 'cuckoo'];
@@ -36,7 +36,7 @@ export function standingsOf(ids, score) {
   return g;
 }
 
-const newP = (id) => ({ id, role: 'H', x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, gr: true, yaw: 0, pitch: 0, kind: -1, rot: 0, locked: false, alive: true, hp: R.HP, ep: 0, moving: 0, lastTaunt: -99, bonkAt: -9, sniffAt: -99, sAcc: 0, r: BEAN.r, h: BEAN.h });
+const newP = (id) => ({ id, role: 'H', x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, gr: true, yaw: 0, pitch: 0, kind: -1, rot: 0, locked: false, alive: true, hp: R.HP, ep: 0, moving: 0, lastTaunt: -99, fz: R.FORCE_EVERY, bonkAt: -9, sniffAt: -99, sAcc: 0, r: BEAN.r, h: BEAN.h });
 
 // snapshot row: [id, x, y, z, yaw, pitch, kind, rot, flags, hp, ep]
 export function rowOf(p) {
@@ -54,7 +54,7 @@ export class HostSim {
     this.players = new Map(cfg.ids.map((id) => [id, newP(id)]));
     this.score = Object.fromEntries(cfg.ids.map((id) => [id, 0]));
     this.stats = Object.fromEntries(cfg.ids.map((id) => [id, { finds: 0, taunts: 0, surv: 0, wrong: 0 }]));
-    this.round = -1; this.phase = 'wait'; this.pt = 0; this.t = 0; this.forcedIdx = 0; this.warned = -1; this.done = false;
+    this.round = -1; this.phase = 'wait'; this.pt = 0; this.t = 0; this.done = false;
     this.brains = new Map();
     this.timeScale = 1;
   }
@@ -75,7 +75,6 @@ export class HostSim {
     this.brains.clear();
     for (const id of this.ids) if (this.cfg.isBot(id)) this.brains.set(id, this.cfg.makeBrain(id, this));
     this.setPhase('intro', T.INTRO);
-    this.forcedIdx = 0; this.warned = -1;
     this.lastProp = null; this.hidersAtStart = this.alive('H');
     this.mult = this.cfg.plan.length > 1 && k === this.cfg.plan.length - 1 ? 2 : 1;   // final round: double points (comeback)
     this.cfg.ev('round', { r: k, mult: this.mult });
@@ -108,17 +107,17 @@ export class HostSim {
     for (const p of this.players.values()) if (!this.brains.has(p.id)) p.moving = Math.max(0, p.moving - dt);
     switch (this.phase) {
       case 'intro': if (this.pt <= 0) { this.setPhase('hide', T.HIDE); this.cfg.ev('phase', { ph: 'hide' }); } break;
-      case 'hide': if (this.pt <= 0) { this.setPhase('hunt', this.cfg.hunt); this.cfg.ev('phase', { ph: 'hunt' }); } break;
+      case 'hide': if (this.pt <= 0) { this.setPhase('hunt', this.cfg.hunt); for (const p of this.players.values()) p.fz = R.FORCE_EVERY; this.cfg.ev('phase', { ph: 'hunt' }); } break;
       case 'hunt': {
         for (const p of this.players.values()) if (p.alive && p.role === 'H') {
           p.sAcc += dt * (p.id === this.lastProp ? 2 : 1); this.stats[p.id].surv += dt;
           while (p.sAcc >= R.SURV_EVERY) { p.sAcc -= R.SURV_EVERY; this.add(p.id, 1); }
         }
-        const at = R.FORCED_AT.filter((s) => s < this.cfg.hunt - 15);
-        const next = at[this.forcedIdx];
-        if (next != null) {
-          if (this.pt <= next + R.FORCED_WARN && this.warned !== this.forcedIdx) { this.warned = this.forcedIdx; this.cfg.ev('fwarn', { in: R.FORCED_WARN }); }
-          if (this.pt <= next) { this.forcedIdx++; for (const p of this.players.values()) if (p.alive && p.role === 'H' && this.t - p.lastTaunt > 15) this.taunt(p, true); }
+        // forced taunts: each hider has their own clock that any taunt (forced or chosen) resets
+        for (const p of this.players.values()) if (p.alive && p.role === 'H') {
+          const before = p.fz; p.fz -= dt;
+          if (before > R.FORCED_WARN && p.fz <= R.FORCED_WARN) this.cfg.ev('fwarn', { id: p.id, in: R.FORCED_WARN });
+          if (p.fz <= 0) this.taunt(p, true);
         }
         if (!this.lastProp && this.hidersAtStart >= 2 && this.alive('H') === 1) { this.lastProp = [...this.players.values()].find((p) => p.alive && p.role === 'H').id; this.cfg.ev('lastprop', { id: this.lastProp }); }
         if (this.alive('H') === 0) this.endRound('S');
@@ -167,7 +166,7 @@ export class HostSim {
     }
   }
   taunt(p, forced) {
-    p.lastTaunt = this.t; (this.heard ||= []).push({ id: p.id, x: p.x, y: p.y, z: p.z, t: this.t }); if (this.heard.length > 12) this.heard.shift(); this.stats[p.id].taunts++;
+    p.lastTaunt = this.t; p.fz = R.FORCE_EVERY; (this.heard ||= []).push({ id: p.id, x: p.x, y: p.y, z: p.z, t: this.t }); if (this.heard.length > 12) this.heard.shift(); this.stats[p.id].taunts++;
     let near = Infinity; for (const q of this.players.values()) if (q.alive && q.role === 'S') near = Math.min(near, Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z));
     const daring = !forced && near <= R.DARING_R && this.phase === 'hunt';
     const pts = forced || this.phase !== 'hunt' ? 0 : R.TAUNT + (daring ? R.DARING : 0);
@@ -222,18 +221,18 @@ export class HostSim {
     p.x = x; p.y = Math.max(0, y); p.z = z;
   }
   snapshot() {
-    const ft = (() => { const at = R.FORCED_AT.filter((s) => s < this.cfg.hunt - 15)[this.forcedIdx]; return this.phase === 'hunt' && at != null ? +(this.pt - at).toFixed(1) : -1; })();
-    return { t: 's', r: this.round, ph: this.phase, lp: this.lastProp, mu: this.mult || 1, hs: this.hidersAtStart || 0, pt: +Math.max(0, this.pt).toFixed(2), ft, sc: this.score, st: this.stats, p: [...this.players.values()].map(rowOf), fi: this.forcedIdx };
+    const fz = {}; if (this.phase === 'hunt') for (const p of this.players.values()) if (p.alive && p.role === 'H') fz[p.id] = +Math.max(0, p.fz).toFixed(1);
+    return { t: 's', r: this.round, ph: this.phase, lp: this.lastProp, mu: this.mult || 1, hs: this.hidersAtStart || 0, pt: +Math.max(0, this.pt).toFixed(2), fz, sc: this.score, st: this.stats, p: [...this.players.values()].map(rowOf) };
   }
   standings() { return standingsOf(this.ids, this.score); }
   // host migration: continue from the last snapshot this client saw
   static fromSnap(cfg, s) {
     const sim = new HostSim(cfg);
     if (!s || s.r < 0) return sim;
-    sim.round = s.r; sim.phase = s.ph === 'wait' ? 'wait' : s.ph; sim.lastProp = s.lp || null; sim.mult = s.mu || 1; sim.hidersAtStart = s.hs || 0; sim.pt = s.pt; sim.forcedIdx = s.fi || 0; sim.warned = sim.forcedIdx - 1;
+    sim.round = s.r; sim.phase = s.ph === 'wait' ? 'wait' : s.ph; sim.lastProp = s.lp || null; sim.mult = s.mu || 1; sim.hidersAtStart = s.hs || 0; sim.pt = s.pt;
     Object.assign(sim.score, s.sc || {});
     for (const id of cfg.ids) if (s.st?.[id]) sim.stats[id] = { ...sim.stats[id], ...s.st[id] };
-    for (const r of s.p) { const p = sim.players.get(r[0]); if (!p) continue; applyRow(p, r); Object.assign(p, bodySize(p.kind)); p.lastTaunt = -99; p.ep++; }
+    for (const r of s.p) { const p = sim.players.get(r[0]); if (!p) continue; applyRow(p, r); Object.assign(p, bodySize(p.kind)); p.lastTaunt = -99; p.fz = s.fz?.[p.id] ?? R.FORCE_EVERY; p.ep++; }
     for (const id of cfg.ids) if (cfg.isBot(id)) sim.brains.set(id, cfg.makeBrain(id, sim));
     return sim;
   }

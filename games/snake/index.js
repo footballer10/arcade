@@ -6,6 +6,7 @@
 // rebuild bodies from the head paths they see, predict their own snake (input replay + smoothed correction) and
 // get orb spawns / eats / deaths as reliable batched messages.
 export { manifest } from './manifest.js';
+import './tuning.js';
 import { C, Trail, stepHead, radiusOf, lengthOf, ringAt, arenaCfg, spawnOf, initialOrbs, orbGoal, wrapA, standingsOf, encodeSnap, decodeSnap, encodeInput, decodeInput, makeRocks, inRock } from './sim.js';
 import { HostSim } from './host.js';
 import { makeBot, botThink } from './bots.js';
