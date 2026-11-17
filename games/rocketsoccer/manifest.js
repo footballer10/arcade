@@ -19,6 +19,7 @@ export const manifest = {
   controlsHelp: [
     ['W / S', 'Drive / reverse · in the air: tilt the nose'],
     ['A / D', 'Steer · in the air: turn (the car levels itself)'],
+    ['S + A / D while driving', 'Brake-turn: skid round on the spot'],
     ['Space', 'Jump · press again for a double jump'],
     ['Space + direction', 'Second press while holding a direction: dodge flip (a power hit)'],
     ['Shift (hold)', 'Boost · in the air: full flying control (pitch, turn, roll)'],
