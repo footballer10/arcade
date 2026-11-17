@@ -67,12 +67,13 @@ export function createRenderer(renderer) {
   // distant mountain range that travels with the camera
   const backdrop = new THREE.Group();
   // smooth, rounded snowy massifs (soft-shaded, not faceted), fading into the haze; a few pointier peaks
-  const mtnMat = new THREE.MeshLambertMaterial({ vertexColors: true, fog: false });
+  // emissive lifts the shaded sides so distant ranges stay pale and hazy instead of going dark grey
+  const mtnMat = new THREE.MeshLambertMaterial({ vertexColors: true, fog: false, emissive: HORIZON, emissiveIntensity: 0.4 });
   let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const rockC = new THREE.Color(0x6f7d93), snowC = new THREE.Color(0xe8edf4), farC = new THREE.Color(HORIZON);
   for (let ring = 0; ring < 2; ring++) for (let i = 0; i < 22; i++) {
     const a = (i / 22) * Math.PI * 2 + rnd() * 0.25 + ring * 0.14, dist = (ring ? 1750 : 1250) + rnd() * 250;
-    const hgt = (ring ? 520 : 300) + rnd() * 380, rad = 300 + rnd() * 320;
+    const hgt = (ring ? 360 : 200) + rnd() * 260, rad = 300 + rnd() * 320;
     const sharp = rnd() < 0.3 ? 1.5 + rnd() * 0.6 : 0.75 + rnd() * 0.35; // >1 = pointy peak, <1 = rounded dome
     const ph1 = rnd() * 6.28, ph2 = rnd() * 6.28;
     const g = new THREE.SphereGeometry(1, 30, 14, 0, Math.PI * 2, 0, Math.PI / 2);
@@ -156,7 +157,7 @@ export function createRenderer(renderer) {
       sun.color.set(t.sun[0]); sun.intensity = t.sun[1];
       hemi.color.set(t.hemi[0]); hemi.groundColor.set(t.hemi[1]); hemi.intensity = t.hemi[2];
       renderer.toneMappingExposure = t.exposure;
-      mtnMat.color.set(t.mtn);
+      mtnMat.color.set(t.mtn); mtnMat.emissive.set(t.fog[0]); mtnMat.emissiveIntensity = t.night ? 0.25 : 0.4;
       clouds.visible = !t.night; cloudMat.opacity = t.snow > 1000 ? 0.75 : 0.5; cloudMat.color.set(t.fog[0]).lerp(new THREE.Color(0xffffff), 0.6);
       mistMat.color.set(t.fog[0]).lerp(new THREE.Color(0xffffff), t.night ? 0 : 0.35); mistMat.opacity = t.night ? 0.35 : 0.6;
       bloom.strength = t.bloom[0]; bloom.radius = t.bloom[1]; bloom.threshold = t.bloom[2];
@@ -252,7 +253,7 @@ function snowTexture() {
   const g = c.getContext('2d');
   const img = g.createImageData(256, 256);
   for (let i = 0; i < 256 * 256; i++) {
-    const n = 240 + Math.random() * 12 - (Math.random() < 0.015 ? 14 : 0);
+    const n = 244 + Math.random() * 6 - (Math.random() < 0.01 ? 8 : 0);
     img.data[i * 4] = n; img.data[i * 4 + 1] = n + 1; img.data[i * 4 + 2] = Math.min(255, n + 6); img.data[i * 4 + 3] = 255;
   }
   g.putImageData(img, 0, 0);
@@ -368,9 +369,9 @@ export function buildCourse(course) {
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec2 vGroom;')
       .replace('#include <color_fragment>', `#include <color_fragment>
         float cph = vGroom.y / 0.34;
-        float cfade = clamp(1.0 - fwidth(cph) * 1.6, 0.0, 1.0);
-        float cline = 0.5 + 0.5 * cos(cph * 6.2831853);
-        diffuseColor.rgb *= 1.0 - vGroom.x * cfade * cline * 0.085;`);
+        float cfade = clamp(1.0 - fwidth(cph) * 1.4, 0.0, 1.0);
+        float cline = pow(0.5 + 0.5 * cos(cph * 6.2831853), 3.0);
+        diffuseColor.rgb *= 1.0 - vGroom.x * cfade * cline * 0.13;`);
   };
   terrainMat.customProgramCacheKey = () => 'dh-terrain-cord';
   const terrain = new THREE.Mesh(geo, terrainMat);
@@ -660,7 +661,10 @@ export function buildCourse(course) {
   const outlineM = new THREE.MeshBasicMaterial({ color: 0x14181f });
   for (const sg of course.signs) {
     const sz = sg.small ? 0.65 : 1;
-    const mat = new THREE.MeshBasicMaterial({ map: textTexture(sg.text, sg.small ? { bg: sg.bg, fg: sg.fg, w: 384, h: 110, font: 'italic 800 46px system-ui' } : { bg: sg.bg, fg: sg.fg }), side: THREE.DoubleSide });
+    // understated boards: dark charcoal with the section colour as the lettering (dark-bg signs keep their own text colour)
+    const darkBg = new THREE.Color(sg.bg).getHSL({}).l < 0.2;
+    const bg = sg.small ? sg.bg : '#1f2630', fg = sg.small || darkBg ? sg.fg : sg.bg;
+    const mat = new THREE.MeshBasicMaterial({ map: textTexture(sg.text, sg.small ? { bg, fg, w: 384, h: 110, font: 'italic 800 46px system-ui' } : { bg, fg, font: 'italic 900 72px system-ui' }), side: THREE.DoubleSide });
     if (sg.banner) {
       const w = HW * 2 + 2, y = groundH(sg.x, sg.z);
       const back = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.6 + 0.3, 2.5), outlineM);
