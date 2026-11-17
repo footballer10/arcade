@@ -463,6 +463,7 @@ export function kickoff(W, rng) {
   }
   W.pads.fill(0);
   W.phase = PH.KICK; W.pt = KICK_T; W.lastTouch = -1;
+  W.kickN = (W.kickN || 0) + 1;   // host-only counter: lets bots pick a fresh kickoff plan each time
 }
 
 // --------------------------------------------------------------------- pack / unpack (snapshots, replays)
