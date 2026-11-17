@@ -6,21 +6,23 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 // Per-map look: sky, light, fog, bloom, weather, tree colours
+// Muted, hazy, semi-realistic palette (Cork7-style): pale blue skies fading to a grey-blue haze, cool grey-white snow
+// with blue shadows, low saturation, soft light. treeKind: 'fir' = snow-loaded spruce, 'pine' = tall bare-trunk pine.
 export const THEMES = {
-  alpine: { top: 0x4f8ad8, mid: 0xa5c8ec, bottom: 0xd6e6f5, fog: [0xd6e6f5, 120, 520], sun: [0xfff1dc, 2.4], sunDir: [-0.45, 0.55, 0.7],
-    hemi: [0xd8ecff, 0x8ea3bd, 1.25], exposure: 1.0, mtn: 0xffffff, bloom: [0.22, 0.4, 0.92], snow: 0, night: 0, tree: [0.36, 0.45, 0.2], sunGlow: 1 },
-  park: { top: 0x030716, mid: 0x0d1a3c, bottom: 0x22325a, fog: [0x1b2746, 90, 460], sun: [0xa9c0ff, 0.9], sunDir: [0.35, 0.75, -0.45],
-    hemi: [0x5a72b0, 0x151b2a, 1.0], exposure: 1.25, mtn: 0x2f4268, bloom: [0.45, 0.4, 0.88], snow: 900, night: 1, tree: [0.42, 0.35, 0.15], sunGlow: 0 },
-  powder: { top: 0x93a3b6, mid: 0xbcc7d4, bottom: 0xd6dde6, fog: [0xd1d8e1, 30, 290], sun: [0xffffff, 0.9], sunDir: [-0.3, 0.8, 0.4],
-    hemi: [0xe8eef6, 0x9aa6b6, 1.75], exposure: 1.0, mtn: 0xd0d8e4, bloom: [0.08, 0.3, 0.97], snow: 2600, night: 0, tree: [0.4, 0.3, 0.16], sunGlow: 0.2 },
-  glacier: { top: 0x23366e, mid: 0xd98a6c, bottom: 0xffc590, fog: [0xf2c3a4, 160, 680], sun: [0xffc08a, 2.4], sunDir: [-0.25, 0.2, 0.95],
-    hemi: [0xdfe4ff, 0x5d6d96, 1.2], exposure: 1.05, mtn: 0xffd9c4, bloom: [0.35, 0.5, 0.85], snow: 0, night: 0, tree: [0.33, 0.4, 0.18], sunGlow: 1.4 },
+  alpine: { top: 0x3f6aa8, mid: 0x86a2c6, bottom: 0xc9d3df, fog: [0xc6d0dc, 70, 430], sun: [0xfff4e6, 1.9], sunDir: [-0.45, 0.6, 0.65],
+    hemi: [0xdbe6f4, 0x7c8aa3, 1.45], exposure: 0.95, mtn: 0xe9eef5, bloom: [0.06, 0.3, 0.96], snow: 260, night: 0, tree: [0.36, 0.2, 0.16], treeKind: 'fir', sunGlow: 0.5 },
+  park: { top: 0x23284a, mid: 0x4a4670, bottom: 0x6d6a8e, fog: [0x575a80, 55, 380], sun: [0xb9c4ff, 0.55], sunDir: [0.35, 0.75, -0.45],
+    hemi: [0x8a93c4, 0x2a2f4c, 1.15], exposure: 1.1, mtn: 0x5b6188, bloom: [0.22, 0.45, 0.85], snow: 700, night: 1, tree: [0.42, 0.25, 0.1], treeKind: 'fir', sunGlow: 0 },
+  powder: { top: 0x4c6c96, mid: 0x9aaec6, bottom: 0xcfd6df, fog: [0xc9d0d9, 35, 300], sun: [0xfff6ea, 1.35], sunDir: [-0.3, 0.8, 0.4],
+    hemi: [0xe2e8f0, 0x7f8b9e, 1.6], exposure: 0.95, mtn: 0xd6dde6, bloom: [0.04, 0.3, 0.97], snow: 1800, night: 0, tree: [0.3, 0.28, 0.2], treeKind: 'pine', sunGlow: 0.2 },
+  glacier: { top: 0x3a4a78, mid: 0xa98fa6, bottom: 0xe2c2b4, fog: [0xd9c3bd, 110, 560], sun: [0xffd2a8, 1.8], sunDir: [-0.25, 0.25, 0.95],
+    hemi: [0xe2e0f0, 0x6c7290, 1.3], exposure: 0.95, mtn: 0xf0dfd8, bloom: [0.12, 0.45, 0.9], snow: 150, night: 0, tree: [0.33, 0.22, 0.15], treeKind: 'fir', sunGlow: 0.8 },
 };
 const HW_DEFAULT = 16;
 
 export const COLORS = [0xff4d4d, 0x3e9bff, 0x30c46c, 0xffb020, 0xb44dff, 0xff6fd0, 0x20d0d0, 0xf0f0f0];
 
-const HORIZON = 0xd6e6f5;
+const HORIZON = 0xc9d3df;
 const W0 = (r) => r.domElement.parentElement?.clientWidth || window.innerWidth, H0 = (r) => r.domElement.parentElement?.clientHeight || window.innerHeight;
 
 // ---------------- Renderer, sky, lights, backdrop ----------------
@@ -44,7 +46,8 @@ export function createRenderer(renderer) {
     fragmentShader: `uniform vec3 top; uniform vec3 mid; uniform vec3 bottom; uniform vec3 sun; uniform float night; uniform float glow; varying vec3 vDir;
       float hash(vec3 p){ return fract(sin(dot(p, vec3(12.9898,78.233,45.164))) * 43758.5453); }
       void main(){ float h = vDir.y; vec3 c = mix(bottom, mid, smoothstep(-0.02, 0.18, h)); c = mix(c, top, smoothstep(0.18, 0.75, h));
-        float s = max(dot(normalize(vDir), sun), 0.0); c += vec3(1.0,0.92,0.78) * glow * (pow(s, 600.0) * 1.5 + pow(s, 10.0) * 0.22);
+        float s = max(dot(normalize(vDir), sun), 0.0); c += vec3(1.0,0.95,0.86) * glow * (pow(s, 900.0) * 0.8 + pow(s, 8.0) * 0.18);
+        c = mix(c, bottom, (1.0 - smoothstep(-0.05, 0.12, h)) * 0.6);
         if (night > 0.5) { vec3 q = floor(normalize(vDir) * 420.0); float st = step(0.9975, hash(q)) * smoothstep(0.05, 0.3, h); c += vec3(st) * (0.6 + 0.4 * hash(q + 1.0));
           c += vec3(0.85,0.9,1.0) * pow(s, 900.0) * 2.0; }
         gl_FragColor = vec4(c, 1.0); }`,
@@ -63,34 +66,43 @@ export function createRenderer(renderer) {
 
   // distant mountain range that travels with the camera
   const backdrop = new THREE.Group();
-  const mtnMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, fog: false });
+  // smooth, rounded snowy massifs (soft-shaded, not faceted), fading into the haze; a few pointier peaks
+  const mtnMat = new THREE.MeshLambertMaterial({ vertexColors: true, fog: false });
   let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  const rockC = new THREE.Color(0x93a8c4), snowC = new THREE.Color(0xf2f6fc), farC = new THREE.Color(HORIZON);
+  const rockC = new THREE.Color(0x6f7d93), snowC = new THREE.Color(0xe8edf4), farC = new THREE.Color(HORIZON);
   for (let ring = 0; ring < 2; ring++) for (let i = 0; i < 22; i++) {
     const a = (i / 22) * Math.PI * 2 + rnd() * 0.25 + ring * 0.14, dist = (ring ? 1750 : 1250) + rnd() * 250;
-    const hgt = (ring ? 520 : 300) + rnd() * 380, rad = 280 + rnd() * 280;
-    const g = new THREE.ConeGeometry(rad, hgt, 11, 6).toNonIndexed();
+    const hgt = (ring ? 520 : 300) + rnd() * 380, rad = 300 + rnd() * 320;
+    const sharp = rnd() < 0.3 ? 1.5 + rnd() * 0.6 : 0.75 + rnd() * 0.35; // >1 = pointy peak, <1 = rounded dome
+    const ph1 = rnd() * 6.28, ph2 = rnd() * 6.28;
+    const g = new THREE.SphereGeometry(1, 30, 14, 0, Math.PI * 2, 0, Math.PI / 2);
     const pa = g.attributes.position, cols = new Float32Array(pa.count * 3);
-    // jitter vertices (same position -> same offset so faces stay closed)
-    const jit = (x, y, z) => { const k = Math.sin(x * 0.013 + y * 0.021 + z * 0.017 + i * 3.1) * 43758.5; return (k - Math.floor(k)) - 0.5; };
     for (let v = 0; v < pa.count; v++) {
-      const x = pa.getX(v), y = pa.getY(v), z = pa.getZ(v), t = (y + hgt / 2) / hgt;
-      const amp = (1 - t) * rad * 0.22 * (t > 0.98 ? 0 : 1);
-      pa.setXYZ(v, x + jit(x, y, z) * amp, y + jit(z, x, y) * hgt * 0.06 * (t < 0.02 || t > 0.98 ? 0 : 1), z + jit(y, z, x) * amp);
+      const x = pa.getX(v), y = pa.getY(v), z = pa.getZ(v), ang = Math.atan2(z, x);
+      const lump = 1 + 0.12 * Math.sin(ang * 3 + ph1) + 0.07 * Math.sin(ang * 7 + ph2) * (1 - y); // ridges and shoulders
+      pa.setXYZ(v, x * rad * lump, Math.pow(y, sharp) * hgt, z * rad * lump);
     }
     g.computeVertexNormals();
-    for (let f = 0; f < pa.count; f += 3) {
-      const ty = (pa.getY(f) + pa.getY(f + 1) + pa.getY(f + 2)) / 3 / hgt + 0.5;
-      const ny = g.attributes.normal.getY(f);
-      const snowy = ty > 0.55 - ny * 0.25 + jit(f, ty, i) * 0.1;
-      const c = (snowy ? snowC : rockC).clone().lerp(farC, ring ? 0.55 : 0.3);
-      for (let k = 0; k < 3; k++) cols.set([c.r, c.g, c.b], (f + k) * 3);
+    const nr = g.attributes.normal;
+    for (let v = 0; v < pa.count; v++) {
+      const ty = pa.getY(v) / hgt, ny = nr.getY(v);
+      const rock = Math.max(0, Math.min(1, (0.55 - ny) * 3)) * (1 - ty * 0.6) * (ty > 0.04 ? 1 : 0); // bare rock only on steep faces
+      const c = snowC.clone().lerp(rockC, rock * 0.85).lerp(farC, (ring ? 0.6 : 0.38) + (1 - ty) * 0.15);
+      cols.set([c.r, c.g, c.b], v * 3);
     }
     g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
     const m = new THREE.Mesh(g, mtnMat);
-    m.position.set(Math.sin(a) * dist, hgt / 2 - 60, Math.cos(a) * dist); m.rotation.y = rnd() * 6;
+    m.position.set(Math.sin(a) * dist, -60, Math.cos(a) * dist); m.rotation.y = rnd() * 6;
     backdrop.add(m);
   }
+  // low mist banks lying in the valleys in front of the ranges
+  const mistMat = new THREE.SpriteMaterial({ map: dotTexture(), transparent: true, opacity: 0.55, depthWrite: false, fog: false });
+  const mist = new THREE.Group();
+  for (let i = 0; i < 34; i++) {
+    const a = rnd() * Math.PI * 2, d = 980 + rnd() * 600, sp = new THREE.Sprite(mistMat);
+    sp.position.set(Math.sin(a) * d, -10 + rnd() * 70, Math.cos(a) * d); sp.scale.set(520 + rnd() * 520, 60 + rnd() * 50, 1); mist.add(sp);
+  }
+  backdrop.add(mist);
   // soft clouds (hidden at night)
   const cloudMat = new THREE.SpriteMaterial({ map: dotTexture(), transparent: true, opacity: 0.5, depthWrite: false, fog: false });
   const clouds = new THREE.Group();
@@ -146,6 +158,7 @@ export function createRenderer(renderer) {
       renderer.toneMappingExposure = t.exposure;
       mtnMat.color.set(t.mtn);
       clouds.visible = !t.night; cloudMat.opacity = t.snow > 1000 ? 0.75 : 0.5; cloudMat.color.set(t.fog[0]).lerp(new THREE.Color(0xffffff), 0.6);
+      mistMat.color.set(t.fog[0]).lerp(new THREE.Color(0xffffff), t.night ? 0 : 0.35); mistMat.opacity = t.night ? 0.35 : 0.6;
       bloom.strength = t.bloom[0]; bloom.radius = t.bloom[1]; bloom.threshold = t.bloom[2];
       riderLight.intensity = t.night ? 6 : 0;
       snowfall.setCount(t.snow);
@@ -239,12 +252,12 @@ function snowTexture() {
   const g = c.getContext('2d');
   const img = g.createImageData(256, 256);
   for (let i = 0; i < 256 * 256; i++) {
-    const n = 232 + Math.random() * 23 - (Math.random() < 0.02 ? 25 : 0);
-    img.data[i * 4] = n; img.data[i * 4 + 1] = n + 2; img.data[i * 4 + 2] = 255; img.data[i * 4 + 3] = 255;
+    const n = 240 + Math.random() * 12 - (Math.random() < 0.015 ? 14 : 0);
+    img.data[i * 4] = n; img.data[i * 4 + 1] = n + 1; img.data[i * 4 + 2] = Math.min(255, n + 6); img.data[i * 4 + 3] = 255;
   }
   g.putImageData(img, 0, 0);
   // soft wind ripples
-  g.globalAlpha = 0.06; g.strokeStyle = '#7f9cc0';
+  g.globalAlpha = 0.035; g.strokeStyle = '#8a9cb6';
   for (let i = 0; i < 40; i++) { g.beginPath(); const y = Math.random() * 256; g.moveTo(0, y); g.bezierCurveTo(80, y + 10, 170, y - 10, 256, y + Math.random() * 6); g.lineWidth = 1 + Math.random() * 2; g.stroke(); }
   const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
   return t;
@@ -261,7 +274,18 @@ function merge(geos) {
   out.setAttribute('position', new THREE.BufferAttribute(pos, 3)); out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   return out;
 }
-const cone = (r, h, y, seg = 8) => { const g = new THREE.ConeGeometry(r, h, seg, 1); g.translate(0, y, 0); return g; };
+// a branch shelf: the cone's bottom rim becomes a star of drooping tips, and the underside is tucked up (hollow, dark)
+const spikyCone = (r, h, y, droop = 0.3, star = 0.6, seg = 12) => {
+  const g = new THREE.ConeGeometry(r, h, seg, 1), p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), yy = p.getY(i), z = p.getZ(i);
+    if (yy > -h / 2 + 1e-4) continue;
+    if (Math.hypot(x, z) < 1e-4) { p.setY(i, yy + h * 0.2); continue; }
+    const k = Math.round(Math.atan2(z, x) / (Math.PI * 2) * seg), tip = ((k % 2) + 2) % 2 === 0;
+    p.setXYZ(i, x * (tip ? 1 : star), yy - droop * h * (tip ? 1 : 0.3), z * (tip ? 1 : star));
+  }
+  g.computeVertexNormals(); g.translate(0, y, 0); return g;
+};
 
 export function buildCourse(course) {
   const group = new THREE.Group();
@@ -276,6 +300,7 @@ export function buildCourse(course) {
   const pos = new Float32Array(rows * (cols + 1) * 3);
   const col = new Float32Array(rows * (cols + 1) * 3);
   const uv = new Float32Array(rows * (cols + 1) * 2);
+  const groom = new Float32Array(rows * (cols + 1) * 2); // (groomed weight, metres across the piste) -> shader corduroy
   const idx = [];
   let p = 0, q2 = 0;
   for (let r = 0; r < rows; r++) {
@@ -285,17 +310,19 @@ export function buildCourse(course) {
       const u = -1 + (2 * c) / cols, x = cx + W * (0.18 * u + 0.82 * u * u * u * u * u); // denser near the runs
       const y = groundH(x, z);
       pos[p] = x; pos[p + 1] = y; pos[p + 2] = z;
-      uv[q2] = x / 9; uv[q2 + 1] = z / 9; q2 += 2;
+      uv[q2] = x / 9; uv[q2 + 1] = z / 9;
       const info = course.corridor(x, z);
+      const lat = x - course.cxMain(z);
+      groom[q2] = info.groomed && !info.pipe ? Math.min(1, Math.max(0, (HW - Math.abs(lat)) / 2)) * (1 - course.mogulW(z)) : 0;
+      groom[q2 + 1] = lat; q2 += 2;
       let cr, cg, cb;
-      if (info.pipe) { const k = Math.min(1, Math.abs(x - course.cxMain(z)) / HW); cr = 0.9 - 0.12 * k; cg = 0.97 - 0.04 * k; cb = 1.0; }
+      if (info.pipe) { const k = Math.min(1, Math.abs(lat) / HW); cr = 0.86 - 0.1 * k; cg = 0.9 - 0.07 * k; cb = 0.96 - 0.03 * k; }
       else if (info.groomed) {
-        const edge = Math.max(0, 1 - Math.abs(Math.abs(x - course.cxMain(z)) - HW) / 2.5); // darker edge line
-        const cord = (Math.floor((x - course.cxMain(z)) / 1.6) % 2) ? 0.015 : 0;              // corduroy
-        cr = 1 - cord - edge * 0.08; cg = 1 - cord - edge * 0.06; cb = 1;
+        const edge = Math.max(0, 1 - Math.abs(Math.abs(lat) - HW) / 3.5); // soft edge where groomer meets powder
+        cr = 0.92 - edge * 0.05; cg = 0.94 - edge * 0.04; cb = 0.97 - edge * 0.02;
       }
-      else if (info.shortcut) { cr = 0.97; cg = 0.96; cb = 0.93; }
-      else { const k = Math.min(1, info.d / 45); cr = 0.93 - 0.18 * k; cg = 0.95 - 0.13 * k; cb = 1.0 - 0.04 * k; }
+      else if (info.shortcut) { cr = 0.88; cg = 0.9; cb = 0.94; }
+      else { const k = Math.min(1, info.d / 45); cr = 0.86 - 0.14 * k; cg = 0.89 - 0.12 * k; cb = 0.95 - 0.06 * k; }
       col[p] = cr; col[p + 1] = cg; col[p + 2] = cb;
       p += 3;
     }
@@ -308,6 +335,7 @@ export function buildCourse(course) {
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setAttribute('groom', new THREE.BufferAttribute(groom, 2));
   geo.setIndex(idx); geo.computeVertexNormals();
   { // exposed rock on steep faces (cliffs), not in the pipe
     const nrm = geo.attributes.normal, rock = new THREE.Color(0x5d6675);
@@ -333,18 +361,43 @@ export function buildCourse(course) {
       col[i * 3 + 2] = Math.max(0, Math.min(1, col[i * 3 + 2] - shade * 0.42));
     }
   }
-  const terrain = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, map: snowTexture(), roughness: 0.82, metalness: 0, side: THREE.DoubleSide }));
+  const terrainMat = new THREE.MeshStandardMaterial({ vertexColors: true, map: snowTexture(), roughness: 0.95, metalness: 0, side: THREE.DoubleSide });
+  terrainMat.onBeforeCompile = (sh) => { // groomer corduroy: fine lines along the piste, faded out where they'd shimmer
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec2 groom;\nvarying vec2 vGroom;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGroom = groom;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec2 vGroom;')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        float cph = vGroom.y / 0.34;
+        float cfade = clamp(1.0 - fwidth(cph) * 1.6, 0.0, 1.0);
+        float cline = 0.5 + 0.5 * cos(cph * 6.2831853);
+        diffuseColor.rgb *= 1.0 - vGroom.x * cfade * cline * 0.085;`);
+  };
+  terrainMat.customProgramCacheKey = () => 'dh-terrain-cord';
+  const terrain = new THREE.Mesh(geo, terrainMat);
   terrain.receiveShadow = true;
   group.add(terrain);
 
-  // ---- Trees: three tiers of foliage with snow on top, instanced
+  // ---- Trees: tall spiky spruces (many drooping branch tiers, snow-loaded on top) or bare-trunk pines, instanced
   const trees = [...course.forest, ...course.obstacles.filter(o => o.type === 'tree')];
-  const foliageG = merge([cone(2.0, 3.4, 2.9), cone(1.6, 3.0, 4.6), cone(1.1, 2.6, 6.2)]);
-  const snowG = merge([cone(1.55, 1.3, 3.95), cone(1.2, 1.2, 5.5), cone(0.75, 1.2, 7.0)]);
-  const trunkG = new THREE.CylinderGeometry(0.28, 0.4, 2.0, 6); trunkG.translate(0, 1.0, 0);
-  const fol = new THREE.InstancedMesh(foliageG, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true }), trees.length);
-  const snw = new THREE.InstancedMesh(snowG, new THREE.MeshStandardMaterial({ color: 0xf6f9ff, roughness: 0.75, flatShading: true }), trees.length);
-  const trk = new THREE.InstancedMesh(trunkG, new THREE.MeshStandardMaterial({ color: 0x5b3d27, roughness: 1 }), trees.length);
+  const pine = theme.treeKind === 'pine';
+  const tiers = (n, y0, y1, r0, r1, hk, droop, star) => {
+    const out = [];
+    for (let i = 0; i < n; i++) { const f = i / (n - 1); out.push(spikyCone(r0 + (r1 - r0) * f, hk * (r0 + (r1 - r0) * f), y0 + (y1 - y0) * f, droop, star)); }
+    return out;
+  };
+  let foliageG, snowG, trunkG;
+  if (pine) { // tall bare trunk, a clumpy crown of a few uneven tiers, light snow dusting
+    foliageG = merge(tiers(5, 6.2, 10.6, 1.9, 0.6, 0.8, 0.35, 0.55));
+    snowG = merge(tiers(5, 6.45, 10.85, 1.25, 0.38, 0.32, 0.2, 0.55));
+    trunkG = new THREE.CylinderGeometry(0.16, 0.3, 9.6, 7); trunkG.translate(0, 4.8, 0);
+  } else { // spruce: short trunk, eight drooping spiky tiers, heavy snow on each shelf
+    foliageG = merge(tiers(8, 1.7, 9.0, 2.3, 0.45, 0.75, 0.3, 0.62));
+    snowG = merge(tiers(8, 1.9, 9.2, 2.05, 0.38, 0.42, 0.22, 0.62));
+    trunkG = new THREE.CylinderGeometry(0.16, 0.3, 2.4, 7); trunkG.translate(0, 1.2, 0);
+  }
+  const fol = new THREE.InstancedMesh(foliageG, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, flatShading: true }), trees.length);
+  const snw = new THREE.InstancedMesh(snowG, new THREE.MeshStandardMaterial({ color: 0xe9eef5, roughness: 0.9, flatShading: true }), trees.length);
+  const trk = new THREE.InstancedMesh(trunkG, new THREE.MeshStandardMaterial({ color: pine ? 0x6a4a35 : 0x4a3a30, roughness: 1 }), trees.length);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), v = new THREE.Vector3(), cc = new THREE.Color();
   const yAxis = new THREE.Vector3(0, 1, 0);
   trees.forEach((t, i) => {
@@ -353,7 +406,7 @@ export function buildCourse(course) {
     m.compose(v.set(t.x, groundH(t.x, t.z) - 0.3, t.z), q, s.set(sc, sc * (0.9 + ((t.x * 3.3) % 1 + 1) % 1 * 0.3), sc));
     fol.setMatrixAt(i, m); snw.setMatrixAt(i, m); trk.setMatrixAt(i, m);
     const k = ((t.z * 1.7 + t.x) % 1 + 1) % 1;
-    fol.setColorAt(i, cc.setHSL(theme.tree[0] + k * 0.06, theme.tree[1] + k * 0.15, theme.tree[2] + k * 0.08));
+    fol.setColorAt(i, cc.setHSL(theme.tree[0] + k * 0.04, theme.tree[1] + k * 0.08, theme.tree[2] + k * 0.06));
   });
   for (const im of [fol, snw, trk]) { im.castShadow = true; im.receiveShadow = true; }
   group.add(fol, snw, trk);
@@ -450,7 +503,7 @@ export function buildCourse(course) {
 
   // ---- Chairlift: towers, cables and chairs
   if (course.lifts.length > 1) {
-    const tw = new THREE.MeshStandardMaterial({ color: 0x59606c, roughness: 0.6, metalness: 0.6 });
+    const tw = new THREE.MeshStandardMaterial({ color: 0x34506f, roughness: 0.55, metalness: 0.5 });
     const pts = [];
     for (const l of course.lifts) {
       const gy = groundH(l.x, l.z), H = 13;
@@ -492,21 +545,36 @@ export function buildCourse(course) {
     }
   }
 
-  // ---- Orange safety netting along park sections and cliffs
+  // ---- Blue mesh safety netting along park sections and cliffs (see-through net ribbon on thin posts)
   {
-    const netPts = [], postPts = [];
+    const pos = [], uvs = [], postPts = [], NET_H = 1.4;
     for (const sct of course.sections) {
       if (!['jumpline', 'rails', 'cliff', 'halfpipe'].includes(sct.type)) continue;
-      for (const sgn of [-1, 1]) for (let z = sct.z0 - 10; z < sct.z0 + sct.len + 10; z += 5) {
-        const x0 = course.cxMain(z) + sgn * (HW + 1.5), x1 = course.cxMain(z + 5) + sgn * (HW + 1.5);
-        const y0 = groundH(x0, z), y1 = groundH(x1, z + 5);
-        netPts.push(x0, y0 + 1.1, z, x1, y1 + 1.1, z + 5, x0, y0 + 0.5, z, x1, y1 + 0.5, z + 5);
-        postPts.push(x0, y0, z, x0, y0 + 1.2, z);
+      for (const sgn of [-1, 1]) {
+        let u = 0;
+        for (let z = sct.z0 - 10; z < sct.z0 + sct.len + 10; z += 5) {
+          const x0 = course.cxMain(z) + sgn * (HW + 1.5), x1 = course.cxMain(z + 5) + sgn * (HW + 1.5);
+          const y0 = groundH(x0, z) + 0.1, y1 = groundH(x1, z + 5) + 0.1;
+          const du = Math.hypot(x1 - x0, 5) / NET_H;
+          pos.push(x0, y0, z, x1, y1, z + 5, x1, y1 + NET_H, z + 5, x0, y0, z, x1, y1 + NET_H, z + 5, x0, y0 + NET_H, z);
+          uvs.push(u, 0, u + du, 0, u + du, 1, u, 0, u + du, 1, u, 1);
+          postPts.push(x0, y0 - 0.1, z, x0, y0 + NET_H + 0.05, z);
+          u += du;
+        }
       }
     }
-    if (netPts.length) {
-      const ng = new THREE.BufferGeometry(); ng.setAttribute('position', new THREE.Float32BufferAttribute([...netPts, ...postPts], 3));
-      group.add(new THREE.LineSegments(ng, new THREE.LineBasicMaterial({ color: 0xff6a00 })));
+    if (pos.length) {
+      const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+      g.strokeStyle = 'rgba(40,120,220,0.95)'; g.lineWidth = 3;
+      for (let i = 0; i <= 64; i += 16) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 64); g.moveTo(0, i); g.lineTo(64, i); g.stroke(); }
+      g.fillStyle = 'rgba(40,120,220,0.95)'; g.fillRect(0, 0, 64, 6); // top cord
+      const tex = new THREE.CanvasTexture(c); tex.wrapS = THREE.RepeatWrapping; tex.repeat.set(1, 1); tex.colorSpace = THREE.SRGBColorSpace;
+      const ng = new THREE.BufferGeometry();
+      ng.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); ng.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      ng.computeVertexNormals();
+      group.add(new THREE.Mesh(ng, new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide })));
+      const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.Float32BufferAttribute(postPts, 3));
+      group.add(new THREE.LineSegments(pg, new THREE.LineBasicMaterial({ color: 0x1d4f8f })));
     }
   }
 
@@ -616,24 +684,32 @@ export function buildCourse(course) {
     }
   }
 
-  // ---- Start + finish arches (inflatable-style)
-  const arch = (z, text, bg, color) => {
+  // ---- Start + finish gates: timber posts and a heavy beam (alpine lodge style), with the banner on the beam
+  const woodM = new THREE.MeshStandardMaterial({ color: 0x5a3c27, roughness: 0.9 });
+  const woodDarkM = new THREE.MeshStandardMaterial({ color: 0x3b271a, roughness: 0.95 });
+  const arch = (z, text, bg) => {
     const cx = course.cxMain(z), w = HW * 2 + 2, y = groundH(cx, z);
-    const tubeM = new THREE.MeshStandardMaterial({ color, roughness: 0.45 });
     for (const sgn of [-1, 1]) {
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.1, 9, 12), tubeM);
-      post.position.set(cx + sgn * w / 2, groundH(cx + sgn * w / 2, z) + 4.5, z); post.castShadow = true; group.add(post);
+      const px = cx + sgn * w / 2, py = groundH(px, z);
+      const post = new THREE.Mesh(new THREE.BoxGeometry(1.1, 10, 1.1), woodM);
+      post.position.set(px, py + 5, z); post.castShadow = true; group.add(post);
+      const brace = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3.6, 0.5), woodDarkM); // diagonal knee brace
+      brace.position.set(px - sgn * 1.2, y + 8.1, z); brace.rotation.z = sgn * 0.75; group.add(brace);
     }
-    const beam = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.0, w, 14), tubeM);
-    beam.rotation.z = Math.PI / 2; beam.position.set(cx, y + 9, z); beam.castShadow = true; group.add(beam);
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(w + 2.4, 1.6, 1.4), woodM);
+    beam.position.set(cx, y + 9.6, z); beam.castShadow = true; group.add(beam);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(w + 3.2, 0.35, 1.9), woodDarkM); // snow-shedding cap board
+    cap.position.set(cx, y + 10.55, z); group.add(cap);
+    const snowCap = new THREE.Mesh(new THREE.BoxGeometry(w + 3.0, 0.3, 1.7), new THREE.MeshStandardMaterial({ color: 0xe9eef5, roughness: 0.9 }));
+    snowCap.position.set(cx, y + 10.85, z); group.add(snowCap);
     const tex = textTexture(text, { bg, w: 1024, h: 128, font: 'italic 900 88px system-ui' });
-    for (const zz of [z - 1.05, z + 1.05]) {
-      const ban = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.7, 1.9), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
-      ban.position.set(cx, y + 9, zz); ban.rotation.y = zz < z ? Math.PI : 0; group.add(ban);
+    for (const zz of [z - 0.72, z + 0.72]) {
+      const ban = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.7, 1.35), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
+      ban.position.set(cx, y + 9.6, zz); ban.rotation.y = zz < z ? Math.PI : 0; group.add(ban);
     }
   };
-  arch(0, 'DOWNHILL RUSH  ·  START', '#1b3f8f', 0x2b5fd9);
-  arch(course.L, 'FINISH', '#c01f3b', 0xe5484d);
+  arch(0, 'DOWNHILL RUSH  ·  START', '#22344f');
+  arch(course.L, 'FINISH', '#8f2a35');
   {
     const c = document.createElement('canvas'); c.width = 256; c.height = 32;
     const g = c.getContext('2d');
@@ -675,8 +751,8 @@ export function makeRider(cls, color, name, ghost = false, hat = null) {
   const dark = new THREE.MeshStandardMaterial({ color: 0x151a24, roughness: 0.6 });
   const white = new THREE.MeshStandardMaterial({ color: 0xf4f6fa, roughness: 0.5 });
   const skin = new THREE.MeshStandardMaterial({ color: 0xf2c6a2, roughness: 0.8 });
-  const bright = new THREE.MeshStandardMaterial({ color: col.clone().lerp(new THREE.Color(0xffffff), 0.25), roughness: 0.4, emissive: col.clone().multiplyScalar(0.25) });
-  const goggleM = new THREE.MeshStandardMaterial({ color: 0xffa22e, roughness: 0.1, metalness: 0.7, emissive: 0x803000, emissiveIntensity: 0.6 });
+  const bright = new THREE.MeshStandardMaterial({ color: col.clone().lerp(new THREE.Color(0xffffff), 0.2), roughness: 0.45, emissive: col.clone().multiplyScalar(0.08) });
+  const goggleM = new THREE.MeshStandardMaterial({ color: 0xe8952e, roughness: 0.15, metalness: 0.7, emissive: 0x803000, emissiveIntensity: 0.25 });
 
   // legs: thigh + shin so knees can bend
   const mkLeg = (x) => {

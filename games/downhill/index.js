@@ -18,7 +18,7 @@ const ordinal = (n) => n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['t
 const CSS = `
 .dh-layer{position:absolute;inset:0;pointer-events:none;font-family:var(--font);color:#fff;text-shadow:var(--stroke)}
 .dh-layer canvas.lines{position:absolute;inset:0;width:100%;height:100%}
-.dh-vig{position:absolute;inset:0;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 55%,rgba(5,10,30,.38) 100%)}
+.dh-vig{position:absolute;inset:0;background:linear-gradient(to top,rgba(14,22,38,.42),rgba(14,22,38,0) 32%),radial-gradient(ellipse at center,rgba(0,0,0,0) 60%,rgba(10,16,32,.28) 100%)}
 .dh-msg{position:absolute;top:30%;left:50%;transform:translateX(-50%);font-size:2rem;white-space:nowrap;transition:opacity .3s}
 .dh-live{position:absolute;top:19%;left:50%;transform:translateX(-50%);text-align:center;font-size:1.6rem;color:#ffe27a;transition:opacity .15s;white-space:nowrap}
 .dh-live small{display:block;font-size:1rem;color:#fff}
