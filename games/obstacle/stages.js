@@ -187,7 +187,7 @@ const MODS = {
     for (const wz of [z + 8, z + 18]) {
       B.add(box(0, y + 1.6, wz, HALF, 1.6, 0.35, { look: 'bwall' }));
       const xs = r.shuffle([-4.6, 0, 4.6]);
-      const pads = xs.map((x) => B.add(box(x, y + 0.08, wz - 2.3, 1.25, 0.08, 1.25, { bounce: 15.5, look: 'pad' })));
+      const pads = xs.map((x) => B.add(box(x, y - 0.08, wz - 2.3, 1.25, 0.08, 1.25, { bounce: 15.5, look: 'pad' })));   // pads are flush with the floor: no lip to trip on
       B.node({ padAlts: pads.map((p) => p.idx), y, z: wz - 2.3, r: 1.0 });
       B.node({ x: 0, y, z: wz + 2.4, w: 3, r: 2 });
     }

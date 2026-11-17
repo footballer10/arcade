@@ -178,8 +178,8 @@ export function createView(ctx) {
       case 'lift': m = cake(s, 0x8ff5d2, 0x22b893, T.arrows, 1.8); break;
       case 'blink': { m = cake(s, th.acc2, shade(th.acc2, -0.35), T.star, 3.3); m.traverse((o) => { if (o.material && o.material !== ink) { o.material.transparent = true; } }); blinks.push(m); break; }
       case 'pad': {
-        m = new THREE.Mesh(rbox(s.hx * 2, 0.3, s.hz * 2, 0.12), SM(plastic(0x58e05a, { map: T.arrows, emissive: 0x2a8a10, emissiveIntensity: 0.5 }))); m.position.y = 0; outline(m, 0.05, [s.hx * 2, 0.3, s.hz * 2]);
-        const ring = new THREE.Mesh(geo('padring', () => new THREE.TorusGeometry(1, 0.08, 8, 32)), SM(new THREE.MeshBasicMaterial({ color: new THREE.Color(0xb6ff7a).multiplyScalar(1.8), transparent: true, opacity: 0.8 }))); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.2; m.add(ring);
+        m = new THREE.Mesh(rbox(s.hx * 2, 0.16, s.hz * 2, 0.07), SM(plastic(0x58e05a, { map: T.arrows, emissive: 0x2a8a10, emissiveIntensity: 0.5 }))); outline(m, 0.04, [s.hx * 2, 0.16, s.hz * 2]);
+        const ring = new THREE.Mesh(geo('padring', () => new THREE.TorusGeometry(1, 0.08, 8, 32)), SM(new THREE.MeshBasicMaterial({ color: new THREE.Color(0xb6ff7a).multiplyScalar(1.8), transparent: true, opacity: 0.8 }))); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.1; m.add(ring);
         pads.push({ m, ring, s }); break;
       }
       case 'beam': {

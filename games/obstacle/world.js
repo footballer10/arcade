@@ -212,12 +212,6 @@ function collide(p, W, dt, wasGr) {
         const rise = s.anim ? Math.max(0, s.y - s.q.y) : 0;
         const tol = Math.max(0.28, -p.vy * dt + 0.12) + rise + (wasGr === i ? 0.25 : 0);
         if (footIn && p.vy <= 0.5 + rise / dt && p.y >= top - tol) { p.y = top; if (p.vy < 0) p.vy = 0; p.gr = i; continue; }
-        // step up small ledges
-        if ((wasGr >= 0 || p.coy > 0) && top - p.y <= C.STEP_UP && top > p.y && s.door < 0 && p.vy <= 0.5 && !s.hit) {
-          const sx = nlx * s.c + nlz * s.sn, sz = -nlx * s.sn + nlz * s.c, k = s.shape === 'cyl' ? 0 : Math.max(0, d - R * 0.5);
-          if (s.shape !== 'cyl') { p.x -= sx * k; p.z -= sz * k; }
-          p.y = top; p.vy = 0; p.gr = i; continue;
-        }
         // bump head
         if (footIn && p.vy > 0 && p.y + H - bot < 0.45 && p.y < bot) { p.y = bot - H; p.vy = 0; p.jumping = false; continue; }
         if (p.y >= top - 0.05) continue;          // level with the top: a seam between platforms, not a wall
