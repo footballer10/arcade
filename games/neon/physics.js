@@ -6,13 +6,13 @@
 //   yaw (heading relative to the track tangent), vf / vl (velocity in the ship's heading frame: forward / lateral)
 //   drift (-1/0/1), dch (drift charge, tiers at 1/2/3), dlink (this drift continues a chain), chain, chainT
 //   meter (0..100 boost flux), mini (mini-boost timer), pad (boost-strip timer), ...
-import { wrapS, scalar, extent, gapAt, idxAt, mainS, ENTRY } from './tracks.js';
+import { wrapS, scalar, extent, gapAt, idxAt, mainS, ENTRY, SC_LEAD } from './tracks.js';
 
 export const FIXED = 1 / 60;
 export const C = {
   VMAX: 60, VPAD: 80, VBOOST: 86, ACC: 30, ACC_BOOST: 75, BRAKE: 60, COAST: 7, REV: 14,
   TURN_LO: 2.3, TURN_HI: 1.2, GRIP: 9, AIR_GRIP: 0.6,
-  DRIFT_MINV: 22, DRIFT_K: 0.025, DRIFT_KADJ: 0.0135, DRIFT_GRIP: 8, CHARGE: 1.7,
+  DRIFT_MINV: 22, DRIFT_K: 0.016, DRIFT_KADJ: 0.009, DRIFT_MAXYAW: 0.55, DRIFT_GRIP: 8, CHARGE: 1.7,
   CHAIN_WIN: 1.25, CHAIN_MAX: 5, DRAIN: 30, G: 42, SHIP_HW: 1.1, DRAFT_ON: 0.6, OVERHEAT: 1.3, UNDERDOG: 0.35,
 };
 export const TIER_AT = [0, 0.85, 2.2, 3.7];      // drift charge needed for each tier
@@ -80,8 +80,13 @@ export function step(sh, inp, dt, env) {
   // ---- yaw
   const vn = clamp(sh.vf / C.VMAX, 0, 1.4);
   let rate;
-  if (sh.drift) rate = sh.drift * (C.DRIFT_K + C.DRIFT_KADJ * sh.st * sh.drift) * K.turn * Math.max(18, sh.vf);   // drift = pick a turn radius (≈26..87)
-  else rate = sh.st * (C.TURN_LO + (C.TURN_HI - C.TURN_LO) * Math.min(1, vn)) * K.turn * Math.min(1, Math.abs(sh.vf) / 7) * (sh.vf < -0.5 ? -1 : 1);
+  if (sh.drift) {
+    rate = sh.drift * (C.DRIFT_K + C.DRIFT_KADJ * sh.st * sh.drift) * K.turn * Math.max(18, sh.vf);   // drift = pick a turn radius (≈26..87)
+    // the slide saturates: ease the turn-in rate toward 0 as the car's nose nears DRIFT_MAXYAW off the track
+    // tangent, so holding a drift through a straight or a gentle bend doesn't run away into a wall -- it just
+    // settles at a fixed, dramatic slide angle. Steering back the other way is never throttled.
+    if (Math.sign(rate) === Math.sign(sh.yaw) || sh.yaw === 0) rate *= 1 - clamp(Math.abs(sh.yaw) / C.DRIFT_MAXYAW, 0, 1);
+  } else rate = sh.st * (C.TURN_LO + (C.TURN_HI - C.TURN_LO) * Math.min(1, vn)) * K.turn * Math.min(1, Math.abs(sh.vf) / 7) * (sh.vf < -0.5 ? -1 : 1);
   if (air) rate *= 0.35;
   const dyaw = rate * dt;
   sh.yaw += dyaw;
@@ -169,19 +174,30 @@ export function step(sh, inp, dt, env) {
   const i = idxAt(path, sh.s);
   for (const side of [-1, 1]) {
     const ext = extent(path, sh.s, side), lim = ext - C.SHIP_HW, dd = sh.d * side;
+    // shortcuts: catch you well before the literal edge, so finding one doesn't require hugging the wall.
+    // (only loosened for *entering* from the main track -- the exit check below stays strict, so cruising
+    // the narrow shortcut lane doesn't flap you back onto the main track from ordinary lateral noise.)
+    if (path === tr.main && dd > ext * 0.6 && transfer(sh, tr, path, side)) { path = tr.paths[sh.path]; break; }
     if (dd <= lim) continue;
     const wall = side < 0 ? path.wl[i] : path.wr[i];
     if (wall) {
       sh.d = lim * side;
       const into = vR * side;
       if (into > 0) {
+        // redirect velocity away from the wall and straighten the heading back toward it every frame
+        // (so a car pinned against a wall self-corrects and stops plowing further in), but only take the
+        // speed penalty and fire the event/sound once per contact -- otherwise a sustained scrape (e.g.
+        // riding the inside wall through a drift) reapplies the loss dozens of times a second and the
+        // car stops dead almost instantly, which is exactly what made drifting feel like "just crashing".
         const bvR = -side * into * 0.25;
         sh.vf = vT * cy + bvR * sy; sh.vl = -vT * sy + bvR * cy;
-        sh.vf *= 1 - Math.min(0.45, into * 0.011);
         if (Math.abs(sh.yaw) < 1.4) sh.yaw *= 1 - Math.min(0.6, into * 0.03);
-        if (into > 7 && sh.wallT <= 0) {
-          sh.ev |= EV.WALL; sh.wallT = 0.4; sh.impact = into;
-          if (into > 13 && sh.drift) fizzle(sh, true);
+        if (sh.wallT <= 0) {
+          sh.vf *= 1 - Math.min(0.32, into * 0.0085);
+          if (into > 7) {
+            sh.ev |= EV.WALL; sh.wallT = 0.4; sh.impact = into;
+            if (into > 19 && sh.drift) fizzle(sh, true);
+          }
         }
       }
     } else if (transfer(sh, tr, path, side)) { path = tr.paths[sh.path]; break; }
@@ -228,7 +244,7 @@ function release(sh) {
 }
 function fizzle(sh, wall) {
   sh.drift = 0; sh.dch = 0; sh.dlink = 0; sh.dlock = 1; sh.chain = 0; sh.heat = 0;
-  sh.ev |= EV.FIZZLE; if (wall) sh.vf *= 0.9;
+  sh.ev |= EV.FIZZLE;   // (wall: the normal wall-bounce physics above already costs speed; no extra penalty here)
 }
 
 // leaving the surface sideways: hop onto / off a shortcut lane
@@ -237,9 +253,12 @@ function transfer(sh, tr, path, side) {
     for (const sc of tr.main.shortcuts) {
       if (sc.side !== side) continue;
       let rel = sh.s - sc.a; if (rel < -tr.main.L / 2) rel += tr.main.L;
-      if (rel < 0 || rel > ENTRY - 3) continue;
+      // SC_LEAD: the wall is already open a bit before the shortcut's own 's=0', so a player who
+      // pushes wide early still gets caught (clamped onto the start of the shortcut lane) instead
+      // of sailing past the opening into open air.
+      if (rel < -SC_LEAD || rel > ENTRY - 3) continue;
       const hwM = scalar(tr.main, tr.main.hw, sh.s);
-      sh.path = sc.path; sh.s = rel; sh.d -= side * (hwM + sc.hwSc);
+      sh.path = sc.path; sh.s = Math.max(0, rel); sh.d -= side * (hwM + sc.hwSc);
       sh.ev |= EV.SHORTCUT;
       return true;
     }
