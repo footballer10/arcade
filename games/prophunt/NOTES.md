@@ -75,3 +75,25 @@ play the host's own player. `__prophunt.stats` counts snapshots, finds and taunt
 - **Sound:** cozy lounge loop (electric-piano chords, walking bass, brushes) that turns into a ticking clock during
   the blindfold and speeds up for the last 30 s or a Last Prop Standing; positional taunts (kazoo, quack, honk,
   slide whistle, boing, cuckoo), hopping-prop "tok tok" footsteps, squeaky hammer, sad trombone when you're found.
+
+## Update: easier disguising, richer maps, nicer graphics, smarter seekers
+- **Picking what to become:** aim assist picks the object closest to the crosshair (or to the mouse cursor when the
+  mouse isn't locked) inside a generous cone, within 4.6 m and not behind a wall; it sticks to the current pick so it
+  doesn't flicker. A bouncing yellow label ("E 🍞 Toaster") floats over it, and **E or left click** disguises.
+  The third-person camera sits over your right shoulder so your own body never covers the crosshair.
+- **Jumping as a prop:** disguised players hop higher (~1.4 m vs 1.06 m) to reach counters, tables and shelves;
+  Space while locked unlocks and hops.
+- **Maps:** the house comes in 3×2, 4×2 or 3×3; new rooms (Game Room with pool table + glowing arcade cabinets,
+  Laundry Room, Music Room with piano and drum kit, Computer Lab, Toy Aisle, Café); rooms are randomly mirrored as well
+  as rotated; framed paintings / school posters / store signs on the walls; new objects to become: guitar, computer,
+  cactus, watering can, gift box.
+- **Graphics:** procedural textured floors (wood planks, tiles, carpet, concrete), wainscoting with rails and crown
+  trim, soft contact shadows along walls, warm light pools under flush ceiling lamps, a gradient sky with drifting
+  clouds and rolling hills.
+- **Seeker bots:** fixed bots freezing next to furniture (the walker could never "arrive" at a spot inside furniture
+  or on top of it). They now walk only to standable spots, give up on unreachable goals, approach a suspect from a
+  free spot that can see it, sweep rooms by visiting spots next to furniture, pause to look left and right, glance at
+  objects as they pass and sprint after moving props. In a headless check, stalled time dropped from ~1860 s to ~70 s
+  over 12 bot games.
+- **Hammer:** carried in the seeker's right hand; the whole arm winds up and smashes down. The first-person view
+  shows your sleeve and hand gripping it with the same wind-up/smash.

@@ -102,7 +102,7 @@ const FURN = {
     const w = o.w || 1.3, col = o.col || 0xe9b97a;
     b.box(0, 0.73, 0, w, 0.06, 0.65, col); b.box(-w / 2 + 0.22, 0.35, 0, 0.42, 0.7, 0.6, col, { shade: 0.88 }); b.box(w / 2 - 0.03, 0.35, 0, 0.05, 0.7, 0.6, col, { shade: 0.88 });
     return { w, d: 0.65, solids: [[-w / 2, 0.7, -0.33, w / 2, 0.76, 0.33], [-w / 2, 0, -0.3, -w / 2 + 0.43, 0.7, 0.3], [w / 2 - 0.06, 0, -0.3, w / 2, 0.7, 0.3]],
-      slots: [[-w / 2 + 0.3, 0.76, 0, ['desk', 'table'], 0, true], [w / 2 - 0.3, 0.76, 0, ['desk', 'table'], 0, true], [0.1, 0, 0.6, ['chair'], Math.PI, false]] };
+      slots: [[-w / 2 + 0.3, 0.76, 0, o.cats || ['desk', 'table', 'computer'], 0, true], [w / 2 - 0.3, 0.76, 0, o.cats || ['desk', 'table', 'computer'], 0, true], [0.1, 0, 0.6, ['chair'], Math.PI, false]] };
   },
   tub(b) {
     const c = 0xf4f8ff;
@@ -221,6 +221,36 @@ const FURN = {
     b.box(0, 0.6, 0.352, 1.6, 0.3, 0.01, 0xbfe9ff, { out: false });
     return { w: 1.8, d: 0.7, solids: [[-0.9, 0, -0.35, 0.9, 0.84, 0.35]], slots: [[-0.55, 0.84, 0, ['bakery'], 0, true], [0, 0.84, 0, ['bakery'], 0, true], [0.55, 0.84, 0, ['bakery'], 0, true]] };
   },
+  // ---- fun set pieces
+  piano(b) {
+    b.box(0, 0.62, -0.05, 1.5, 1.24, 0.55, 0x2a2140); b.box(0, 0.74, 0.27, 1.46, 0.06, 0.22, 0x2a2140);
+    for (let i = 0; i < 14; i++) b.box(-0.65 + i * 0.1, 0.79, 0.3, 0.09, 0.03, 0.16, 0xffffff, { out: false });
+    for (let i = 0; i < 13; i++) if (i % 7 !== 2 && i % 7 !== 6) b.box(-0.6 + i * 0.1, 0.81, 0.27, 0.05, 0.03, 0.1, 0x111111, { out: false });
+    b.box(0, 0.25, 0.42, 0.9, 0.48, 0.32, 0x2a2140, { shade: 1.3 });
+    return { w: 1.5, d: 0.9, solids: [[-0.75, 0, -0.33, 0.75, 1.24, 0.38], [-0.45, 0, 0.26, 0.45, 0.49, 0.58]], slots: [[-0.45, 1.24, -0.05, ['shelf', 'night'], 0, false], [0.45, 1.24, -0.05, ['shelf', 'night'], 0, false]] };
+  },
+  drums(b) {
+    b.cyl(0, 0.3, 0, 0.32, 0.32, 0.5, 0xff4d5e, { rx: Math.PI / 2, seg: 20 }); b.cyl(0, 0.3, 0.26, 0.29, 0.29, 0.02, 0xffffff, { rx: Math.PI / 2, out: false, seg: 20 });
+    for (const [x, z, r, h] of [[-0.45, 0.25, 0.17, 0.62], [0.45, 0.25, 0.19, 0.55], [-0.2, -0.05, 0.14, 0.75], [0.22, -0.05, 0.14, 0.75]]) { b.cyl(x, h - 0.1, z, r, r, 0.2, 0xff4d5e); b.cyl(x, h / 2 - 0.1, z, 0.015, 0.015, h - 0.2, 0xc8d0dc, { out: false }); }
+    for (const x of [-0.6, 0.62]) { b.cyl(x, 0.5, -0.25, 0.012, 0.012, 1.0, 0xc8d0dc, { out: false }); b.cyl(x, 1.0, -0.25, 0.22, 0.22, 0.01, 0xffd23f); }
+    return { w: 1.4, d: 0.9, solids: [[-0.65, 0, -0.4, 0.65, 0.8, 0.45]], slots: [] };
+  },
+  pooltable(b) {
+    b.box(0, 0.6, 0, 2.2, 0.2, 1.2, 0x7a3a1f); b.box(0, 0.705, 0, 2.0, 0.02, 1.0, 0x2f9a55, { out: false });
+    for (const [x, z] of [[-0.95, -0.45], [0.95, -0.45], [-0.95, 0.45], [0.95, 0.45]]) b.box(x, 0.25, z, 0.14, 0.5, 0.14, 0x5a2a14);
+    for (const [x, z, c] of [[0.3, 0, 0xffffff], [-0.4, 0.1, 0xff4d5e], [-0.48, -0.05, 0xffcc00], [-0.48, 0.25, 0x3ea6ff], [-0.56, 0.1, 0x111111]]) b.sph(x, 0.75, z, 0.04, c, { out: false });
+    b.cyl(0.2, 0.75, -0.3, 0.012, 0.018, 1.3, 0xe9b97a, { rz: Math.PI / 2 - 0.05, ry: 0.3, out: false });
+    return { w: 2.2, d: 1.2, solids: [[-1.1, 0.5, -0.6, 1.1, 0.71, 0.6], [-1.02, 0, -0.52, -0.88, 0.5, -0.38], [0.88, 0, -0.52, 1.02, 0.5, -0.38], [-1.02, 0, 0.38, -0.88, 0.5, 0.52], [0.88, 0, 0.38, 1.02, 0.5, 0.52]], slots: [] };
+  },
+  arcade(b, o) {
+    const c = o.col || 0x9b6bff;
+    b.box(0, 0.9, -0.05, 0.75, 1.8, 0.6, c); b.box(0, 1.25, 0.26, 0.6, 0.45, 0.02, 0x101826, { out: false }); b.box(0, 1.75, 0.26, 0.65, 0.18, 0.02, 0xffd23f, { out: false });
+    b.box(0, 0.92, 0.32, 0.7, 0.08, 0.3, c, { shade: 0.8 }); b.cyl(-0.15, 0.99, 0.33, 0.015, 0.015, 0.08, 0x2a2a35, { out: false }); b.sph(-0.15, 1.04, 0.33, 0.035, 0xff4d5e, { out: false });
+    for (const x of [0.05, 0.15, 0.25]) b.cyl(x, 0.97, 0.36, 0.03, 0.03, 0.02, [0x3ea6ff, 0x4cd964, 0xffcc00][Math.round(x * 10) % 3], { out: false });
+    return { w: 0.75, d: 0.7, solids: [[-0.38, 0, -0.35, 0.38, 1.8, 0.48]], slots: [], glow: [0, 1.25, 0.3], screen: true };
+  },
+  beanbag(b, o) { b.sph(0, 0.25, 0, 0.45, o.col || 0xff8c42, { sy: 0.6 }); b.sph(0, 0.3, -0.25, 0.32, o.col || 0xff8c42, { sy: 0.8, shade: 0.9 }); return { w: 0.9, d: 0.9, solids: [[-0.4, 0, -0.4, 0.4, 0.4, 0.4]], slots: [[0, 0.4, 0.05, ['sofa', 'toy'], 0, true]] }; },
+  shelfunit(b, o) { return FURN.bookshelf(b, { w: o.w || 1.2, col: o.col, cats: o.cats || ['shelf'] }); },
 };
 
 // ---------------------------------------------------------------------------------------------- rooms
@@ -325,22 +355,73 @@ const ROOMS = {
     ['f', 'freezer', -2.6, -2.4, 0], ['f', 'freezer', 2.6, -2.4, 0], ['f', 'freezer', -2.6, 2.4, 0], ['f', 'gondola', 2.6, 2.75, 1, { tag: 0x3ea6ff }],
     ['s', -4.3, 4.3, ['floor3'], true], ['s', 1.3, 1.0, ['floor3'], true], ['s', -4.3, -4.3, ['floor3'], true],
   ] },
+  // ---- added rooms
+  gameroom: { name: 'Game Room', wall: 0xc8b8ff, floor: 0x5a4a8a, carpet: true, items: [
+    ['f', 'pooltable', 0, -2.6, 0], ['w', 'arcade', 1, -3.4, { col: 0xff4d6a }], ['w', 'arcade', 1, -2.5, { col: 0x3ea6ff }], ['w', 'sofa', 2, 2.8, { col: 0x2f9a55 }],
+    ['f', 'beanbag', 2.6, 2.3, 0, {}], ['f', 'beanbag', -2.8, 2.6, 0, { col: 0x3ea6ff }], ['w', 'bookshelf', 3, 3.3, { cats: ['shelf', 'toy'] }],
+    ['s', -4.3, -4.3, ['floor', 'lamp'], true], ['s', 4.3, 4.3, ['floor', 'toy'], true], ['s', -1.6, 4.3, ['toy'], true],
+  ] },
+  laundry: { name: 'Laundry Room', wall: 0xd0f0ff, floor: 0xeaf3f8, tile: true, items: [
+    ['w', 'washer', 0, -3.8], ['w', 'washer', 0, -3.1], ['w', 'washer', 0, -2.4], ['w', 'counter', 1, -2.9, { len: 2.4, sink: true, col: 0xffffff }], ['w', 'shelfunit', 2, 2.9, { cats: ['shelf', 'bath', 'storage'] }],
+    ['w', 'shelfunit', 3, 3.0, { cats: ['shelf', 'bath'] }], ['s', 1.6, -4.2, ['bath', 'floor'], true], ['s', -4.2, -1.5, ['bath', 'floor'], true], ['s', 4.2, 4.2, ['floor', 'storage'], true], ['s', -1.4, 2.6, ['bath'], true],
+  ] },
+  music: { name: 'Music Room', wall: 0xffe0f0, floor: 0xc98f55, items: [
+    ['w', 'piano', 0, -2.8], ['f', 'drums', 2.8, 2.6, 2], ['w', 'bookshelf', 1, -3.2, { cats: ['shelf', 'music'] }],
+    ...[[-3.0, 1.6], [-1.8, 1.6], [-3.0, 3.2], [-1.8, 3.2]].map(([x, z]) => ['s', x, z, ['chair'], false]),
+    ['s', 4.3, -1.5, ['music'], true], ['s', -4.3, -1.5, ['music', 'floor'], true], ['s', 1.4, 4.3, ['music'], true], ['s', 4.3, 0.9, ['floor'], true],
+  ] },
+  complab: { name: 'Computer Lab', wall: 0xd8e8ff, floor: 0x8a94a8, carpet: true, items: [
+    ['w', 'desk', 0, -3.0, { col: 0xe8eef8, cats: ['computer', 'desk'] }], ['w', 'desk', 0, 3.0, { col: 0xe8eef8, cats: ['computer', 'desk'] }], ['w', 'desk', 2, -3.0, { col: 0xe8eef8, cats: ['computer', 'desk'] }], ['w', 'desk', 2, 3.0, { col: 0xe8eef8, cats: ['computer', 'desk'] }],
+    ['w', 'desk', 1, -3.0, { col: 0xe8eef8, cats: ['computer', 'desk'] }], ['w', 'desk', 3, 3.0, { col: 0xe8eef8, cats: ['computer', 'desk'] }],
+    ['s', -4.3, 4.3, ['floor', 'school'], true], ['s', 4.3, -4.3, ['floor'], true],
+  ] },
+  toyaisle: { name: 'Toy Aisle', wall: 0xffe8f4, floor: 0xf4f1ea, tile: true, items: [
+    ['f', 'gondola', -2.6, -2.75, 1, { cats: ['toys'], tag: 0xff6ec7, col: 0xfff0f8 }], ['f', 'gondola', 2.6, -2.75, 1, { cats: ['toys'], tag: 0xffcc00, col: 0xfff8e0 }],
+    ['f', 'gondola', -2.6, 2.75, 1, { cats: ['toys'], tag: 0x3ea6ff, col: 0xe8f4ff }], ['f', 'gondola', 2.6, 2.75, 1, { cats: ['store'] }],
+    ['s', -1.2, -4.3, ['floor3', 'toys'], true], ['s', 1.2, 4.3, ['floor3'], true], ['s', 4.3, 0.9, ['toys'], true],
+  ] },
+  cafe: { name: 'Café', wall: 0xffe2c8, floor: 0xb07a48, items: [
+    ['w', 'counter', 0, -2.9, { len: 3.2, col: 0x6b4a3a, top: 0xf2ede4 }], ['w', 'counter', 0, 2.9, { len: 3.2, col: 0x6b4a3a, top: 0xf2ede4, stove: true }],
+    ['f', 'table', -2.6, 2.2, 0, { w: 1.0, d: 0.8, chairs: true }], ['f', 'table', 2.6, 2.2, 0, { w: 1.0, d: 0.8, chairs: true }], ['f', 'table', 2.6, -1.6, 0, { w: 1.0, d: 0.8, chairs: true }],
+    ['s', -4.3, 4.3, ['floor'], true], ['s', 4.3, 4.3, ['floor3'], true],
+  ] },
 };
 
 export const MAPS = {
-  house: { name: 'Cozy House', cols: 3, rows: 2, required: ['living', 'kitchen', 'bedroom', 'bath'], extra: ['dining', 'kids', 'garage', 'office'], extraDoors: 2,
-    kinds: ['toaster', 'kettle', 'mug', 'microwave', 'fruitbowl', 'plant', 'floorlamp', 'tablelamp', 'books', 'box', 'trash', 'chair', 'teddy', 'clock', 'vase', 'duck', 'laundry', 'pillow'],
+  house: { name: 'Cozy House', sizes: [[3, 2], [4, 2], [3, 3]], required: ['living', 'kitchen', 'bedroom', 'bath'], extra: ['dining', 'kids', 'garage', 'office', 'gameroom', 'laundry'], extraDoors: 2,
+    kinds: ['toaster', 'kettle', 'mug', 'microwave', 'fruitbowl', 'plant', 'floorlamp', 'tablelamp', 'books', 'box', 'trash', 'chair', 'teddy', 'clock', 'vase', 'duck', 'laundry', 'pillow', 'cactus', 'monitor', 'wcan', 'gift', 'guitar'], art: 'paint',
     outside: 0xe8a07a, sky: [0xffd7a8, 0x8fd0ff], fill: 0.5 },
-  school: { name: 'School', cols: 3, rows: 3, required: ['classroom', 'classroom', 'library', 'cafeteria', 'gym', 'lab', 'principal', 'hall', 'art'], extra: [], extraDoors: 4,
-    kinds: ['books', 'globe', 'backpack', 'ball', 'cone', 'microscope', 'chair', 'plant', 'trash', 'clock', 'mug', 'box', 'wetfloor', 'fruitbowl', 'vase'],
+  school: { name: 'School', cols: 3, rows: 3, required: ['classroom', 'library', 'cafeteria', 'gym', 'lab', 'hall'], extra: ['classroom', 'principal', 'art', 'music', 'complab'], extraDoors: 4,
+    kinds: ['books', 'globe', 'backpack', 'ball', 'cone', 'microscope', 'chair', 'plant', 'trash', 'clock', 'mug', 'box', 'wetfloor', 'fruitbowl', 'vase', 'monitor', 'guitar', 'cactus'], art: 'poster',
     outside: 0xd86a4a, sky: [0xffe2b8, 0x9ad8ff], fill: 0.5 },
-  grocery: { name: 'Grocery Store', cols: 4, rows: 2, required: ['aisle', 'aisle', 'produce', 'checkouts', 'bakeryaisle', 'frozen', 'storage', 'aisle'], extra: [], extraDoors: 99, door: 5.6,
-    kinds: ['can', 'cereal', 'bottle', 'bread', 'melon', 'pumpkin', 'basket', 'wetfloor', 'box', 'trash', 'microwave', 'kettle', 'toaster'],
+  grocery: { name: 'Grocery Store', cols: 4, rows: 2, required: ['aisle', 'produce', 'checkouts', 'bakeryaisle', 'storage'], extra: ['aisle', 'aisle', 'frozen', 'toyaisle', 'cafe'], extraDoors: 99, door: 5.6,
+    kinds: ['can', 'cereal', 'bottle', 'bread', 'melon', 'pumpkin', 'basket', 'wetfloor', 'box', 'trash', 'microwave', 'kettle', 'toaster', 'gift', 'teddy', 'duck', 'ball', 'mug', 'chair', 'fruitbowl', 'plant', 'wcan'], art: 'sign',
     outside: 0x6fb0e0, sky: [0xffe8c8, 0x8fd8ff], fill: 0.42 },
 };
 export const MAP_IDS = Object.keys(MAPS);
 
 // ---------------------------------------------------------------------------------------------- generation
+const shade = (c, k) => { const r = ((c >> 16) & 255) * k, g = ((c >> 8) & 255) * k, b = (c & 255) * k; return (Math.min(255, r) << 16) | (Math.min(255, g) << 8) | Math.min(255, b); };
+// mirrored copy of a room template entry (x -> -x), doubles the layout variety
+function mirrorItem(it) {
+  if (it[0] === 's') return ['s', -it[1], it[2], it[3], it[4]];
+  if (it[0] === 'w') { const side = it[2] === 1 ? 3 : it[2] === 3 ? 1 : it[2]; return ['w', it[1], side, side === 0 || side === 2 ? -it[3] : it[3], it[4]]; }
+  return ['f', it[1], -it[2], it[3], (4 - it[4]) % 4, it[5]];
+}
+// a framed picture / poster / sign on a wall (local front = +z)
+const ART = [0xff5a5f, 0x3ea6ff, 0x4cd964, 0xffcc00, 0xb57bff, 0xff8c42, 0x2ee6d6, 0xff6ec7];
+function wallArt(b, kind, rng) {
+  const c1 = rng.pick(ART), c2 = rng.pick(ART);
+  if (kind === 'sign') { b.box(0, 0.05, 0, 1.1, 0.4, 0.04, c1); b.box(0, 0.05, 0.022, 0.9, 0.12, 0.005, 0xffffff, { out: false }); b.box(-0.2, 0.05, 0.026, 0.3, 0.06, 0.004, c2, { out: false }); return; }
+  if (kind === 'poster') { const w = 0.55, h = 0.75; b.box(0, 0, 0, w, h, 0.015, 0xffffff); b.box(0, 0.12, 0.009, w - 0.1, 0.35, 0.004, c1, { out: false }); b.sph(0, 0.12, 0.012, 0.1, c2, { sz: 0.05, out: false }); for (let i = 0; i < 3; i++) b.box(0, -0.15 - i * 0.07, 0.009, w - 0.16 - i * 0.06, 0.03, 0.004, 0x8a94a8, { out: false }); return; }
+  const w = 0.75 + rng() * 0.3, h = 0.5 + rng() * 0.15;
+  b.box(0, 0, 0, w + 0.08, h + 0.08, 0.04, rng.pick([0x9a6436, 0xffcc33, 0xfffaf0, 0x2a2140]));
+  b.box(0, 0, 0.021, w, h, 0.005, rng.pick([0xbfe9ff, 0xfff0c8, 0xffd8ec]), { out: false });
+  b.box(0, -h * 0.25, 0.024, w, h * 0.5, 0.004, c1, { out: false });
+  b.sph(w * 0.22, h * 0.15, 0.025, h * 0.15, rng.pick([0xffd23f, 0xffffff]), { sz: 0.05, out: false });
+  b.cone(-w * 0.15, -h * 0.05, 0.026, h * 0.28, h * 0.4, c2, { sz: 0.05, out: false });
+}
+
 function rot(x, z, a) { const c = Math.cos(a), s = Math.sin(a); return [x * c + z * s, -x * s + z * c]; }
 function rotBox(bx, a, ox, oz) {
   const [x0, y0, z0, x1, y1, z1] = bx;
@@ -350,11 +431,11 @@ function rotBox(bx, a, ox, oz) {
 
 export function makeLevel(rng, mapId) {
   const M = MAPS[mapId] || MAPS.house;
-  const cols = M.cols, rows = M.rows, n = cols * rows;
+  const [cols, rows] = M.sizes ? rng.pick(M.sizes) : [M.cols, M.rows], n = cols * rows;
   const types = [...M.required, ...rng.shuffle([...M.extra])].slice(0, n);
   rng.shuffle(types);
   const ox = -(cols * CELL) / 2, oz = -(rows * CELL) / 2;
-  const rooms = types.map((t, i) => { const c = i % cols, r = Math.floor(i / cols); return { i, type: t, def: ROOMS[t], name: ROOMS[t].name, c, r, x: ox + (c + 0.5) * CELL, z: oz + (r + 0.5) * CELL, q: rng.int(0, 3), doors: [] }; });
+  const rooms = types.map((t, i) => { const c = i % cols, r = Math.floor(i / cols); return { i, type: t, def: ROOMS[t], name: ROOMS[t].name, c, r, x: ox + (c + 0.5) * CELL, z: oz + (r + 0.5) * CELL, q: rng.int(0, 3), mir: rng.chance(0.5), doors: [] }; });
   // doors: random spanning tree + a few extra loops
   const edges = [];
   for (const rm of rooms) { if (rm.c < cols - 1) edges.push([rm.i, rm.i + 1]); if (rm.r < rows - 1) edges.push([rm.i, rm.i + cols]); }
@@ -373,7 +454,7 @@ export function makeLevel(rng, mapId) {
   const geo = new Batch(0.03);
   // floors, ceilings are drawn by the renderer from rooms; walls here
   const wall = (x0, z0, x1, z1, col) => { solids.push({ x0, z0, x1, z1, y0: 0, y1: WH }); geo.at(0, 0, 0).box((x0 + x1) / 2, WH / 2, (z0 + z1) / 2, x1 - x0, WH, z1 - z0, col, { t: 0.02 }); geo.box((x0 + x1) / 2, WH + 0.04, (z0 + z1) / 2, x1 - x0 + 0.02, 0.08, z1 - z0 + 0.02, 0x6b4a3a, { out: false }); };
-  const windows = [];   // glowing panes (drawn by the renderer): {x, y, z, w, h, ry}
+  const windows = [], screens = [];   // glowing panes (drawn by the renderer): {x, y, z, w, h, ry}
   const W2 = WT / 2;
   for (const A of rooms) {
     const hw = CELL / 2;
@@ -390,7 +471,22 @@ export function makeLevel(rng, mapId) {
         if (side === 2) wall(A.x + u0, A.z + hw - W2, A.x + u1, A.z + hw + e, A.def.wall);
         if (side === 3) wall(A.x - hw - e, A.z + u0, A.x - hw + W2, A.z + u1, A.def.wall);
         if (side === 1) wall(A.x + hw - W2, A.z + u0, A.x + hw + e, A.z + u1, A.def.wall);
+        // wainscoting (darker lower band + rail) on the room side
+        const v0 = Math.max(u0, -hw + W2), v1 = Math.min(u1, hw - W2), len = v1 - v0, mid = (v0 + v1) / 2;
+        if (len > 0.05) {
+          const dark = shade(A.def.wall, 0.86), fi = hw - W2 - 0.012;
+          if (side === 0 || side === 2) { const zz = A.z + (side === 0 ? -fi : fi); geo.box(A.x + mid, 0.5, zz, len, 1.0, 0.02, dark, { out: false }); geo.box(A.x + mid, 1.0, zz + (side === 0 ? 0.01 : -0.01), len, 0.06, 0.04, 0xfffaf0, { out: false }); geo.box(A.x + mid, WH - 0.06, zz + (side === 0 ? 0.01 : -0.01), len, 0.1, 0.05, 0xfffaf0, { out: false }); }
+          else { const xx = A.x + (side === 3 ? -fi : fi); geo.box(xx, 0.5, A.z + mid, 0.02, 1.0, len, dark, { out: false }); geo.box(xx + (side === 3 ? 0.01 : -0.01), 1.0, A.z + mid, 0.04, 0.06, len, 0xfffaf0, { out: false }); geo.box(xx + (side === 3 ? 0.01 : -0.01), WH - 0.06, A.z + mid, 0.05, 0.1, len, 0xfffaf0, { out: false }); }
+        }
       }
+      // wall art high up (paintings / posters / store signs), clear of doors and windows
+      for (const u of [-3.85, 3.85]) {
+        if (!rng.chance(0.55)) continue;
+        const fi = hw - W2 - 0.03, ry = side === 0 ? 0 : side === 2 ? Math.PI : side === 3 ? Q : -Q;
+        const px = side === 0 || side === 2 ? A.x + u : A.x + (side === 3 ? -fi : fi), pz = side === 0 || side === 2 ? A.z + (side === 0 ? -fi : fi) : A.z + u;
+        wallArt(geo.at(px, 2.18, pz, ry), M.art, rng);
+      }
+      geo.at(0, 0, 0);
       if (ext) { // outside paint + roof-line trim
         const L = CELL + WT, o2 = hw + W2 + 0.01;
         if (side === 0) geo.box(A.x, WH / 2, A.z - o2, L, WH, 0.02, M.outside, { out: false });
@@ -420,7 +516,8 @@ export function makeLevel(rng, mapId) {
     for (const s of [-1, 1]) { geo.box(A.x, 0.06, A.z + s * (hw - W2 - 0.02), CELL - 0.6, 0.12, 0.04, bb, { out: false }); geo.box(A.x + s * (hw - W2 - 0.02), 0.06, A.z, 0.04, 0.12, CELL - 0.6, bb, { out: false }); }
     // furniture + slots
     const a = A.q * Q;
-    for (const it of A.def.items) {
+    for (const it0 of A.def.items) {
+      const it = A.mir ? mirrorItem(it0) : it0;
       if (it[0] === 's') { const [lx, lz] = rot(it[1], it[2], a); slots.push({ x: A.x + lx, y: 0, z: A.z + lz, cats: it[3], ry: a, free: !!it[4], room: A.i }); continue; }
       let lx, lz, ry, f = FURN[it[1]], o;
       const tmp = new Batch(0.025); // measure: build once to get w/d (cheap: furniture is small)
@@ -437,7 +534,7 @@ export function makeLevel(rng, mapId) {
       const out = f(geo, o);
       for (const s of out.solids) solids.push(rotBox(s, wr, A.x + wx, A.z + wz));
       for (const [sx, sy, sz, cats, sry, free] of out.slots) { const [px, pz] = rot(sx, sz, wr); slots.push({ x: A.x + wx + px, y: sy, z: A.z + wz + pz, cats, ry: wr + sry, free, room: A.i }); }
-      if (out.glow) { const [gx, gz] = rot(out.glow[0], out.glow[2], wr); glows.push({ x: A.x + wx + gx, y: out.glow[1], z: A.z + wz + gz }); }
+      if (out.glow) { const [gx, gz] = rot(out.glow[0], out.glow[2], wr); (out.screen ? screens : glows).push({ x: A.x + wx + gx, y: out.glow[1], z: A.z + wz + gz, ry: wr }); }
     }
   }
   geo.at(0, 0, 0);
@@ -459,7 +556,7 @@ export function makeLevel(rng, mapId) {
   const seekRoom = rng.int(0, n - 1);
   const free = rooms.filter((r) => r.i !== seekRoom);
   return {
-    mapId: mapId in MAPS ? mapId : 'house', map: M, rooms, doors, solids, slots: usable, decoys, present, glows, windows, cols, rows, seekRoom,
+    mapId: mapId in MAPS ? mapId : 'house', map: M, rooms, doors, solids, slots: usable, decoys, present, glows, windows, screens, cols, rows, seekRoom,
     geo: built, ox, oz, w: cols * CELL, d: rows * CELL,
     seekerSpawn: (i) => { const r = rooms[seekRoom]; const a = i * 2.1; return [r.x + Math.sin(a) * 0.9, r.z + Math.cos(a) * 0.9]; },
     hiderSpawn: (i) => { const r = free[i % free.length]; const a = Math.floor(i / free.length) * 2.4 + 0.5; return [r.x + Math.sin(a) * 0.8, r.z + Math.cos(a) * 0.8]; },
@@ -473,12 +570,12 @@ export function roomAt(L, x, z) {
 }
 
 // ---------------------------------------------------------------------------------------------- physics
-export const PHYS = { G: 22, JUMP: 7.0, STEP: 0.36, ACC: 16, AIR: 5 };
+export const PHYS = { G: 22, JUMP: 7.0, PROP_JUMP: 8.0, STEP: 0.36, ACC: 16, AIR: 5 };   // props hop higher (~1.45 m) to reach shelves and counters
 // body: {x,y,z,vx,vy,vz,gr,r,h}. inp: {mx,mz (world, |m|<=1), speed, jump (bool edge)}
 export function stepBody(p, inp, dt, L) {
   const tx = inp.mx * inp.speed, tz = inp.mz * inp.speed, k = Math.min(1, dt * (p.gr ? PHYS.ACC : PHYS.AIR));
   p.vx += (tx - p.vx) * k; p.vz += (tz - p.vz) * k;
-  if (inp.jump && p.gr) { p.vy = PHYS.JUMP; p.gr = false; }
+  if (inp.jump && p.gr) { p.vy = inp.jumpV || PHYS.JUMP; p.gr = false; }
   p.vy -= PHYS.G * dt;
   const S = L.solids, r = p.r;
   p.x += p.vx * dt; collideAxis(p, S, r, 0);
