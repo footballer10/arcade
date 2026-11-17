@@ -58,6 +58,8 @@ export async function start(ctx) {
   }
   const gfx = createView(ctx);
   const snd = createSound(ctx);
+  api.input = () => [myInput.mx, myInput.mz];
+  api.ground = (nx, ny) => { const p = myState(); const g = p && gfx.ground(nx, ny, p.y); return g && p ? [g.x - p.x, g.z - p.z] : null; };   // test hook
   ctx.on('resize', gfx.resize);
   gfx.intro(3.2);                                    // swoop over the stack during the hub's 3-2-1
   ctx.on('settings', (k) => { if (k === 'quality') gfx.applyQ(); });
@@ -100,9 +102,26 @@ export async function start(ctx) {
   const livingNow = (id) => (net.isHost && sim ? sim.byId.get(id)?.alive : view.get(id)?.alive) !== false;
   const myState = () => (net.isHost && sim ? sim.byId.get(ctx.myId) : me);
   const amAlive = () => !ctx.spectator && !!myState()?.alive;
+  // Steering. Mouse: hold a button and you run towards the cursor (any angle; slower when it's close, for precise
+  // footwork). Keys: the heading turns quickly but smoothly, so tapping a second key curves between the 8 directions.
+  let head = null;
   function readInput(dt) {
     const ax = input.axis();
-    myInput.mx = ax.x; myInput.mz = ax.y;
+    const p0 = myState();
+    let mx = 0, mz = 0;
+    if ((input.down('primary') || input.down('secondary')) && p0?.alive && !ctx.spectator) {
+      const g = gfx.ground(input.mouse.nx, input.mouse.ny, p0.y);
+      if (g) { const dx = g.x - p0.x, dz = g.z - p0.z, d = Math.hypot(dx, dz); if (d > 0.25) { const k = Math.min(1, (d - 0.25) / 2); mx = (dx / d) * k; mz = (dz / d) * k; } gfx.marker(g.x, p0.y, g.z); }
+      head = null;
+    } else if (ax.x || ax.y) {
+      const want = Math.atan2(ax.x, ax.y), len = Math.min(1, Math.hypot(ax.x, ax.y));
+      if (head === null) head = want;
+      let dA = Math.atan2(Math.sin(want - head), Math.cos(want - head));
+      if (Math.abs(dA) > 2.4) head = want;                      // reversing: turn on the spot
+      else head += Math.sign(dA) * Math.min(Math.abs(dA), 9 * dt);
+      mx = Math.sin(head) * len; mz = Math.cos(head) * len;
+    } else head = null;
+    myInput.mx = mx; myInput.mz = mz;
     myInput.j = input.presses('jump'); myInput.d = input.presses('boost');
     const p = myState();
     if (api.autopilot && p?.alive && level) {
@@ -154,7 +173,7 @@ export async function start(ctx) {
   if (net.isHost) sim = new HostSim(cfg());
   ctx.on('hostchange', ({ amHost }) => { if (amHost && !sim) becomeHost(); });
   ctx.on('join', (id) => { if (net.isHost && sim) net.to(id, fullSync()); });
-  ctx.on('go', () => { if (net.isHost && sim) sim.go(); snd.music(true); });
+  ctx.on('go', () => { if (net.isHost && sim) sim.go(); snd.music(true); if (!ctx.spectator) ctx.setTimeout(() => ui.toast('Tip: hold the mouse button to run towards the cursor', '', 3500), 1200); });
 
   let snapAcc = 0;
   ctx.tick((dt) => {

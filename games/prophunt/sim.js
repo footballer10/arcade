@@ -2,7 +2,7 @@
 // everyone else only renders snapshots. Players move themselves (clients are authoritative for their own body,
 // with sanity checks) because there is no player-vs-player physics: what matters is decided here.
 import { KINDS } from './props.js';
-import { stepBody, bodySize, kindBox, rayBox, rayWorld, roomAt, BEAN } from './level.js';
+import { stepBody, bodySize, kindBox, rayBox, rayWorld, roomAt, BEAN, PHYS } from './level.js';
 
 export const T = { INTRO: 4, HIDE: 20, POST: 7, HUNT: { short: 100, normal: 155, long: 215 } };
 export const R = {
@@ -98,7 +98,7 @@ export class HostSim {
       const it = b.update(dt0, this);
       if (!it) continue;
       if (this.canMove(p) && !p.locked) {
-        const land = stepBody(p, { mx: it.mx, mz: it.mz, speed: R.SPEED[p.role] * (it.sprint ? R.SPRINT : 1), jump: it.jump }, dt0, L);
+        const land = stepBody(p, { mx: it.mx, mz: it.mz, speed: R.SPEED[p.role] * (it.sprint ? R.SPRINT : 1), jump: it.jump, jumpV: p.kind >= 0 ? PHYS.PROP_JUMP : PHYS.JUMP }, dt0, L);
         p.moving = Math.hypot(p.vx, p.vz) > 0.4 ? 0.3 : Math.max(0, p.moving - dt0);
         void land;
       } else { p.vx = p.vz = 0; p.moving = Math.max(0, p.moving - dt0); }

@@ -7,7 +7,7 @@ export const manifest = {
   howTo: [
     "A game show in rounds: race through obstacle courses or survive the hazards to qualify.",
     "Fewer players qualify each round. If you don't qualify, you're out.",
-    "In the final round, grab the crown to win the show.",
+    "The final is Crown Summit (grab the crown first) or Bean Arena (be the last one standing).",
     "Jump with Space, dive with Shift, and hold E to grab other players or a ledge.",
   ],
   minPlayers: 1,

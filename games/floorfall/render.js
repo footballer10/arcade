@@ -9,6 +9,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { C, LAYER_COLORS, layerOf, tileAt, solid } from './world.js';
 
+const ray = new THREE.Raycaster(), MV = new THREE.Vector2(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), HIT = new THREE.Vector3();
 const TMP = new THREE.Object3D(), COL = new THREE.Color(), WHITE = new THREE.Color(0xffffff), INK = 0x1d1633;
 // shared (module-level, never disposed): tile geometries
 const tileGeo = new THREE.CylinderGeometry(0.9, 0.9, 0.44, 6); tileGeo.rotateY(Math.PI / 6); tileGeo.translate(0, -0.22, 0);
@@ -178,6 +179,11 @@ export function createView(ctx) {
     const s = new THREE.Mesh(shadowGeo, shadowMat); s.renderOrder = 2; scene.add(s); shadows.set(p.id, s);
   }
 
+  // mouse-steering target ring (shown while a mouse button is held)
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, depthWrite: false });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.42, 24), ringMat); ring.rotation.x = -Math.PI / 2; ring.visible = false; ring.renderOrder = 4; scene.add(ring);
+  let ringT = 0;
+
   // ---------------------------------------------------------------- camera
   const cam = { x: 0, y: 0, z: 0, shake: 0, intro: 0, introLen: 1, introA: 0 };
   function resize() {
@@ -262,6 +268,7 @@ export function createView(ctx) {
     // the void breathes: glowing motes drifting up out of it
     if (Math.random() < dt * (q0.effects ? 30 : 12)) emit(st.focus.x + (Math.random() - 0.5) * 40, C.KILL_Y - 8, st.focus.z + (Math.random() - 0.5) * 30, Math.random() < 0.5 ? 0x9fe8ff : 0xc58bff, 1, { speed: 0.3, up: -6, size: 0.6, life: 3.5, grav: -1.2, spread: 2 });
     stepParticles(dt);
+    ringT -= dt; ring.visible = ringT > 0; ring.scale.setScalar(1 + Math.sin(now / 120) * 0.12);
     // camera
     const f = st.focus, k = Math.min(1, dt * 5);
     cam.x += (f.x - cam.x) * k; cam.z += (f.z - cam.z) * k; cam.y += (f.y - cam.y) * Math.min(1, dt * 3.2);
@@ -291,6 +298,12 @@ export function createView(ctx) {
   return {
     renderer, scene, camera, cam, buildLevel, frame, resize, applyQ,
     shake(a) { cam.shake = Math.min(1.2, cam.shake + a); },
+    // where the mouse points on the horizontal plane at height y (for mouse steering)
+    ground(nx, ny, y) {
+      ray.setFromCamera(MV.set(nx, ny), camera); plane.constant = -y;
+      return ray.ray.intersectPlane(plane, HIT) ? HIT : null;
+    },
+    marker(x, y, z) { ring.position.set(x, y + 0.1, z); ringT = 0.12; },
     intro(sec) { cam.intro = cam.introLen = sec; cam.introA = Math.random() * Math.PI * 2; },
     burst(x, y, z, color, n = 16) { emit(x, y, z, color, n, { speed: 5, up: 3, size: 0.4, life: 0.6, grav: 8, spread: 0.4 }); },
     project(x, y, z, out) { const v = new THREE.Vector3(x, y, z).project(camera); out.x = (v.x * 0.5 + 0.5) * (ctx.container.clientWidth || innerWidth); out.y = (-v.y * 0.5 + 0.5) * (ctx.container.clientHeight || innerHeight); out.vis = v.z < 1; return out; },
@@ -301,7 +314,7 @@ export function createView(ctx) {
       shadowGeo.dispose(); shadowMat.dispose(); lineMat.dispose();
       for (const d of debris) d.m.removeFromParent();
       for (const m of debrisMats) m.dispose();
-      voidTex.dispose(); crackTex.dispose(); killFx();
+      voidTex.dispose(); crackTex.dispose(); killFx(); ring.geometry.dispose(); ringMat.dispose();
       points.removeFromParent(); pGeo.dispose(); pMat.dispose();
       ctx.three.dispose(scene, KEEP);
     },
