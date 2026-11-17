@@ -103,9 +103,9 @@ export class HostSim {
     });
     // erosion: rims crumble on their own; upper layers shrink fastest; the collapse speeds everything up
     const L = lv.L, ct = C.COLLAPSE_AT / turbo;
-    const ramp = 1 + Math.max(0, this.t * turbo - 25) / 25;
+    const ramp = 1 + Math.max(0, this.t * turbo - 40) / 40;
     for (let h = 0; h < L; h++) {
-      let rate = (0.12 + 0.5 * (h / Math.max(1, L - 1))) * ramp * turbo;
+      let rate = (0.07 + 0.3 * (h / Math.max(1, L - 1))) * ramp * turbo;
       if (this.t > ct) rate += (1.5 + (this.t - ct) * 0.25 * turbo) * (0.6 + 0.4 * (h / Math.max(1, L - 1))) * turbo;
       this.erode[h] += rate * dt;
       while (this.erode[h] >= 1) {
