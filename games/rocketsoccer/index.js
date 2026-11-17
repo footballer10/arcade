@@ -115,7 +115,7 @@ export async function start(ctx) {
   let lastSnap = null, lastSnapTick = -1;
   const rec = [];                        // replay recording: packed snapshots at 30 Hz
   let replay = null, skips = new Set(), mySkip = false;
-  let ballCam = (() => { try { return localStorage.getItem('partyhub.rs.ballcam') !== '0'; } catch { return true; } })();
+  let ballCam = (() => { try { return localStorage.getItem('partyhub.rs.ballcam2') === '1'; } catch { return false; } })();   // car cam by default: steering always matches the screen
   const hooks = window.__rs = { autopilot: false, turbo: 1, get W() { return W; }, get phase() { return W.phase; }, get score() { return [W.sA, W.sB]; }, roster, lag: 0, err: { car: 0, ball: 0, n: 0, carMax: 0, ballMax: 0 } };
   let autoBot = null;
   const brain = (i) => { let b = bots.get(i); if (!b) { b = newBot(ctx.bots.level, ctx.rng(0xb07 + i)); bots.set(i, b); } return b; };
@@ -134,7 +134,7 @@ export async function start(ctx) {
     return myInput;
   }
   input.on('press', (a) => {
-    if (a === 'secondary') { ballCam = !ballCam; try { localStorage.setItem('partyhub.rs.ballcam', ballCam ? '1' : '0'); } catch { /* */ } ui.toast(ballCam ? '🎥 Ball cam ON' : '🎥 Ball cam OFF', '', 1000); }
+    if (a === 'secondary') { ballCam = !ballCam; try { localStorage.setItem('partyhub.rs.ballcam2', ballCam ? '1' : '0'); } catch { /* */ } ui.toast(ballCam ? '🎥 Ball cam ON' : '🎥 Ball cam OFF', '', 1000); }
     if (a === 'jump' && W.phase === PH.REPLAY && !mySkip && !ctx.spectator) { mySkip = true; net.toHost({ t: 'skip' }); ui.toast('⏭ Voted to skip the replay', '', 1400); }
   });
 
@@ -549,6 +549,7 @@ export async function start(ctx) {
     view.update(dt, Math.min(1.3, cheer + (ctx.started ? dangerC * 0.35 : 0.1)));
     // ball streak at speed, tinted by the team that last hit it
     const bsrc = replay ? Wr2.ball : W.ball, bsp = speedOf(bsrc);
+    { const lt0 = (replay ? Wr2 : W).lastTouch; view.ball.setGlow(Math.max(0, Math.min(1, (bsp - 14) / 40)), lt0 >= 0 && roster[lt0] ? TEAM[roster[lt0].team].glow : null, dt); }
     if (bsp > 30 && view.ball.root.visible) {
       const lt = (replay ? Wr2 : W).lastTouch, tint = lt >= 0 && roster[lt] ? TEAM[roster[lt].team].glow : 0xffffff;
       for (let k = 0; k < (bsp > 48 ? 3 : 1); k++) fx.emit(ballPos.x + (Math.random() - 0.5) * 2.4, ballPos.y + (Math.random() - 0.5) * 2.4, ballPos.z + (Math.random() - 0.5) * 2.4, 0, 0, 0, Math.random() < 0.5 ? 0xffffff : tint, 0.4, 1.3, 0);
