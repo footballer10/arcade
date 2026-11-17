@@ -26,7 +26,11 @@ const FLIP_LIM = 0.95;   // max over/under-rotation on a flip (~55°)
 const GRAB_MIN = 0.3;    // seconds a grab must be held to count
 const MIN_TRICK_AIR = 0.75; // a flat-ground ollie can't reach this, a kicker can
 export const GRAB_KEYS = ['R', 'F', 'T', 'G', 'C', 'V'];
-export const ITEMS = [null, { name: 'Rocket', icon: '🚀' }, { name: 'Snowball', icon: '❄️' }, { name: 'Shield', icon: '🛡️' }];
+export const ITEMS = [null, { name: 'Rocket', icon: '🚀' }, { name: 'Snowball', icon: '❄️' }, { name: 'Shield', icon: '🛡️' },
+  { name: 'Ice Trap', icon: '🧊' }, { name: 'Balloon', icon: '🎈' }];
+// catch-up weighting per item, by how far back you are (0 = leading, 1 = last): rockets favor the back of the pack,
+// shields favor the leader, ice traps/balloons stay roughly flat so they're always in the mix
+const ITEM_WEIGHT = [null, (rf) => 0.22 + 0.45 * rf, () => 0.3, (rf) => 0.22 - 0.14 * rf, () => 0.16, (rf) => 0.1 + 0.05 * rf];
 const hash01 = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 
 export function newEntity(id, cls, x, z, course) {
@@ -37,7 +41,7 @@ export function newEntity(id, cls, x, z, course) {
     stance: 0, grab: 0, gt: [0, 0, 0, 0, 0, 0], airSwitch: false, grind: -1, grindT: 0, slideAng: 0, gpts: 0, gname: 0,
     // style + party
     score: 0, bestPts: 0, bestName: '', lastTrick: '', tricks: 0, butterT: 0, butterCD: 0,
-    item: 0, itemCD: 0, shieldT: 0, hitT: 0, fireId: 0, pickups: 0, rankFrac: 0.5, handicap: 1,
+    item: 0, itemCD: 0, shieldT: 0, hitT: 0, fireId: 0, dropId: 0, pickups: 0, rankFrac: 0.5, handicap: 1,
     idh: [...String(id)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 9973, 7),
   };
 }
@@ -167,17 +171,29 @@ export function stepEntity(e, inp, dt, course) {
   // items: pick up from boxes, use with the item key
   if (!e.finished) {
     if (!e.item && e.itemCD <= 0) for (const b of course.itemsNear(e.z)) {
+      if (course.itemHidden && course.itemHidden(b.i)) continue;
       if (Math.abs(b.z - e.z) < 2.4 && Math.abs(b.x - e.x) < 2.2 && e.y - b.y < 4) {
-        const r = hash01(b.i * 31 + e.pickups * 17 + e.idh), wB = 0.25 + 0.5 * e.rankFrac, wS = 0.45, wSh = 0.3 - 0.2 * e.rankFrac;
-        e.item = r * (wB + wS + wSh) < wB ? 1 : r * (wB + wS + wSh) < wB + wS ? 2 : 3;
-        e.pickups++; e.itemCD = 0.4; say(e, `GOT ${ITEMS[e.item].name.toUpperCase()}!`, true);
+        const r = hash01(b.i * 31 + e.pickups * 17 + e.idh);
+        const w = ITEM_WEIGHT.slice(1).map((f) => f(e.rankFrac)); // index 0 = item id 1
+        let total = 0; for (const x of w) total += x;
+        let acc = 0, pick = w.length;
+        for (let k = 0; k < w.length; k++) { acc += w[k]; if (r * total < acc) { pick = k + 1; break; } }
+        e.item = pick;
+        e.pickups++; e.itemCD = 0.4; course.hideItem && course.hideItem(b.i); say(e, `GOT ${ITEMS[e.item].name.toUpperCase()}!`, true);
         break;
       }
     }
     if (inp.use && e.item && e.itemCD <= 0) {
       if (e.item === 1) { e.v = Math.min(VMAX, e.v + 11); e.boostT = 1.8; say(e, 'ROCKET!', true); }
       else if (e.item === 2) e.fireId++;
-      else { e.shieldT = 7; say(e, 'SHIELD UP', true); }
+      else if (e.item === 3) { e.shieldT = 7; say(e, 'SHIELD UP', true); }
+      else if (e.item === 4) { e.dropId++; say(e, 'ICE TRAP SET', true); }
+      else { // balloon: a big pop into the air regardless of terrain, for a trick or a recovery
+        e.vy = Math.max(e.vy, 0) + P.jumpV * 1.9;
+        if (!e.air) { e.air = true; e.airT = 0; }
+        e.spin = 0; e.flip = 0; e.grab = 0; e.gt = [0, 0, 0, 0, 0, 0]; e.airSwitch = e.stance !== 0;
+        say(e, 'BALLOON BOOST!', true);
+      }
       e.item = 0; e.itemCD = 1;
     }
   }
@@ -362,6 +378,14 @@ export function snowballHit(e) {
   if (e.state === 'wipe' || e.ghostT > 0 || e.finished) return false;
   if (e.shieldT > 0) { e.shieldT = 0; say(e, 'BLOCKED!', true); return true; }
   e.v *= 0.45; e.hitT = 0.9; e.boostT = 0; say(e, 'SNOWBALLED!', false);
+  return true;
+}
+
+// Ice trap hit (host only): a milder slip, not a full stop — a trap left behind to catch chasers
+export function iceHit(e) {
+  if (e.state === 'wipe' || e.ghostT > 0 || e.finished || e.air || e.hitT > 0) return false;
+  if (e.shieldT > 0) { e.shieldT = 0; say(e, 'BLOCKED!', true); return true; }
+  e.v *= 0.6; e.hitT = 0.6; say(e, 'SLIPPED ON ICE!', false);
   return true;
 }
 

@@ -537,28 +537,82 @@ export function buildCourse(course) {
       const flag = new THREE.Mesh(pennant, mat); flag.position.set(x, y + 3.35, gt.z); flag.scale.x = -sgn; flag.castShadow = true; group.add(flag);
     }
   }
-  // ---- Shortcut flags + section signs
-  const yMat = new THREE.MeshStandardMaterial({ color: 0xffd400, roughness: 0.6, side: THREE.DoubleSide });
+  // ---- Shortcut trail blazes: a small two-tone swallowtail marker + gold cap — a discreet confirmation,
+  // not a fence of identical flags down the whole lane
+  const postM = new THREE.MeshStandardMaterial({ color: 0x2a313d, roughness: 0.8 });
+  const ballCapG = new THREE.SphereGeometry(0.1, 8, 6);
+  const scPoleMat = new THREE.MeshStandardMaterial({ color: 0xcf9a2e, roughness: 0.35, metalness: 0.55 });
+  const swallow = new THREE.BufferGeometry();
+  swallow.setAttribute('position', new THREE.Float32BufferAttribute([
+    0, 0, 0, 1.4, -0.22, 0, 0.9, -0.5, 0,
+    0.9, -0.5, 0, 1.4, -0.78, 0, 0, -1.0, 0,
+  ], 3));
+  swallow.setAttribute('color', new THREE.Float32BufferAttribute([
+    1, 0.85, 0.25, 1, 0.85, 0.25, 1, 0.85, 0.25,
+    1, 1, 1, 1, 1, 1, 1, 1, 1,
+  ], 3));
+  swallow.computeVertexNormals();
+  const scFlagMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, side: THREE.DoubleSide, emissive: 0x332200, emissiveIntensity: 0.25 });
+  const blazeMat = new THREE.MeshStandardMaterial({ color: 0xffd400, roughness: 0.5, emissive: 0x6a4e00, emissiveIntensity: 0.4, side: THREE.DoubleSide });
+
+  // ---- Cliff-edge hazard markers: short striped posts under a sagging caution line, not a wall of pennants
+  const hazPoleG = new THREE.CylinderGeometry(0.05, 0.05, 1.1, 6); hazPoleG.translate(0, 0.55, 0);
+  const hazFlagG = new THREE.BufferGeometry();
+  hazFlagG.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, -0.45, 0, 0.7, -0.22, 0], 3)); hazFlagG.computeVertexNormals();
+  const hazMatA = new THREE.MeshStandardMaterial({ color: 0xff2d2d, roughness: 0.5, side: THREE.DoubleSide });
+  const hazMatB = new THREE.MeshStandardMaterial({ color: 0x15171c, roughness: 0.6, side: THREE.DoubleSide });
+  const hazTapeMat = new THREE.LineBasicMaterial({ color: 0xff3b3b });
+
+  let hazI = 0;
+  const hazGroups = new Map();
   for (const f of course.flags) {
     const y = groundH(f.x, f.z);
-    const pole = new THREE.Mesh(poleG, yMat); pole.position.set(f.x, y, f.z); group.add(pole);
-    const fl = new THREE.Mesh(pennant, yMat); fl.position.set(f.x, y + 3.35, f.z); fl.scale.setScalar(0.7); group.add(fl);
+    if (f.hazard) {
+      const key = Math.round(f.z); if (!hazGroups.has(key)) hazGroups.set(key, []); hazGroups.get(key).push(f);
+      const mat = (hazI++ % 2) ? hazMatA : hazMatB;
+      const pole = new THREE.Mesh(hazPoleG, postM); pole.position.set(f.x, y, f.z); group.add(pole);
+      const fl = new THREE.Mesh(hazFlagG, mat); fl.position.set(f.x, y + 0.95, f.z); fl.rotation.y = Math.PI / 2; group.add(fl);
+    } else if (f.blaze) {
+      const pole = new THREE.Mesh(hazPoleG, postM); pole.position.set(f.x, y, f.z); group.add(pole);
+      const mark = new THREE.Mesh(new THREE.CircleGeometry(0.22, 4), blazeMat);
+      mark.position.set(f.x, y + 1.0, f.z); mark.rotation.set(0, 0, Math.PI / 4); group.add(mark);
+    } else {
+      const pole = new THREE.Mesh(poleG, scPoleMat); pole.position.set(f.x, y, f.z); group.add(pole);
+      const cap = new THREE.Mesh(ballCapG, scPoleMat); cap.position.set(f.x, y + 3.42, f.z); group.add(cap);
+      const fl = new THREE.Mesh(swallow, scFlagMat); fl.position.set(f.x, y + 3.18, f.z); fl.scale.setScalar(0.72); group.add(fl);
+    }
   }
-  const postM = new THREE.MeshStandardMaterial({ color: 0x2a313d, roughness: 0.8 });
+  for (const [, grp] of hazGroups) { // the caution tape strung along the drop
+    grp.sort((a, b) => a.x - b.x);
+    const pts = grp.map((f) => new THREE.Vector3(f.x, groundH(f.x, f.z) + 0.95 + Math.sin(f.x * 0.9) * 0.08, f.z));
+    if (pts.length > 1) group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), hazTapeMat));
+  }
+
+  // ---- Section signs: ink-outline backer + a ball-capped post, cartoon trailhead style
+  const outlineM = new THREE.MeshBasicMaterial({ color: 0x14181f });
   for (const sg of course.signs) {
-    const mat = new THREE.MeshBasicMaterial({ map: textTexture(sg.text, { bg: sg.bg, fg: sg.fg }), side: THREE.DoubleSide });
+    const sz = sg.small ? 0.65 : 1;
+    const mat = new THREE.MeshBasicMaterial({ map: textTexture(sg.text, sg.small ? { bg: sg.bg, fg: sg.fg, w: 384, h: 110, font: 'italic 800 46px system-ui' } : { bg: sg.bg, fg: sg.fg }), side: THREE.DoubleSide });
     if (sg.banner) {
       const w = HW * 2 + 2, y = groundH(sg.x, sg.z);
+      const back = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.6 + 0.3, 2.5), outlineM);
+      back.position.set(sg.x, y + 7, sg.z + 0.05); back.rotation.y = Math.PI; group.add(back);
       const ban = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.6, 2.2), mat);
       ban.position.set(sg.x, y + 7, sg.z); ban.rotation.y = Math.PI; group.add(ban);
       for (const sgn of [-1, 1]) {
+        const px = sg.x + sgn * w * 0.3, py = groundH(px, sg.z);
         const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, 8, 0.5), postM);
-        post.position.set(sg.x + sgn * w * 0.3, groundH(sg.x + sgn * w * 0.3, sg.z) + 4, sg.z); post.castShadow = true; group.add(post);
+        post.position.set(px, py + 4, sg.z); post.castShadow = true; group.add(post);
+        const cap = new THREE.Mesh(ballCapG, postM); cap.scale.setScalar(3.2); cap.position.set(px, py + 8.15, sg.z); group.add(cap);
       }
     } else {
-      const sign = new THREE.Mesh(new THREE.PlaneGeometry(6, 1.6), mat);
-      sign.position.set(sg.x, groundH(sg.x, sg.z) + 3.2, sg.z); sign.rotation.y = Math.PI; group.add(sign);
-      const sp = new THREE.Mesh(poleG, postM); sp.position.set(sg.x, groundH(sg.x, sg.z), sg.z); group.add(sp);
+      const y0 = groundH(sg.x, sg.z), cy = y0 + 3.2 * sz + 0.1 * (1 - sz);
+      const back = new THREE.Mesh(new THREE.PlaneGeometry(6 * sz + 0.35, 1.6 * sz + 0.3), outlineM);
+      back.position.set(sg.x, cy, sg.z + 0.05); back.rotation.y = Math.PI; group.add(back);
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(6 * sz, 1.6 * sz), mat);
+      sign.position.set(sg.x, cy, sg.z); sign.rotation.y = Math.PI; group.add(sign);
+      const sp = new THREE.Mesh(poleG, postM); sp.scale.y = sz; sp.position.set(sg.x, y0, sg.z); group.add(sp);
+      const cap = new THREE.Mesh(ballCapG, postM); cap.position.set(sg.x, y0 + 3.4 * sz, sg.z); group.add(cap);
     }
   }
 
@@ -790,11 +844,12 @@ export function buildItemBoxes(course) {
   return im;
 }
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _s = new THREE.Vector3(1, 1, 1), _p = new THREE.Vector3();
-export function spinItemBoxes(im, t) {
+export function spinItemBoxes(im, course, t) {
   if (!im) return;
   im.userData.items.forEach((it, i) => {
+    const k = course.itemScale ? course.itemScale(i) : 1;
     _q.setFromEuler(_e.set(t * 1.3 + i, t * 1.9 + i * 2, 0));
-    _m.compose(_p.set(it.x, it.y + Math.sin(t * 2 + i) * 0.15, it.z), _q, _s); im.setMatrixAt(i, _m);
+    _m.compose(_p.set(it.x, it.y + Math.sin(t * 2 + i) * 0.15, it.z), _q, _s.set(k, k, k)); im.setMatrixAt(i, _m);
   });
   im.instanceMatrix.needsUpdate = true;
 }
@@ -806,6 +861,18 @@ export class Snowballs {
   }
   update(list, t) {
     this.meshes.forEach((m, i) => { const p = list[i]; m.visible = !!p; if (p) { m.position.set(p[0], p[1], p[2]); m.rotation.set(t * 9, t * 7, 0); } });
+  }
+}
+// ---- Ice traps: flat glassy patches left on the snow (party item hazard) ----
+export class IcePatches {
+  constructor(scene, n = 10) {
+    this.meshes = [];
+    const geo = new THREE.CircleGeometry(1.25, 14);
+    const mat = new THREE.MeshStandardMaterial({ color: 0xbdf2ff, transparent: true, opacity: 0.55, roughness: 0.1, metalness: 0.3, emissive: 0x6fd8ff, emissiveIntensity: 0.35, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 });
+    for (let i = 0; i < n; i++) { const m = new THREE.Mesh(geo, mat); m.visible = false; m.rotation.x = -Math.PI / 2; scene.add(m); this.meshes.push(m); }
+  }
+  update(list, groundH) {
+    this.meshes.forEach((m, i) => { const p = list[i]; m.visible = !!p; if (p) m.position.set(p[0], groundH(p[0], p[1]) + 0.04, p[1]); });
   }
 }
 
