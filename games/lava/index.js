@@ -8,6 +8,7 @@
 // adopts a client's state when it is close to its own (smooth, responsive jumps) and otherwise forces a
 // correction (auth counter). Knockback, heat, crumbling, deaths and scoring are decided by the host only.
 export { manifest } from './manifest.js';
+import './tuning.js';
 import { C, LAYOUTS, PATTERNS, makeLevel, roundPlan, makeSolids, updateSolids, newPlayer, stepPlayer, separate, lavaAt, surgeIn, encodeSnap, decodeSnap, syncCounters, groundAt } from './world.js';
 import { HostSim, INTRO_T, standingsOf } from './host.js';
 import { makeBot, botThink } from './bots.js';
@@ -25,7 +26,7 @@ const CSS = `
 .lv-meter .lava{position:absolute;left:0;right:0;bottom:0;border-radius:0 0 10px 10px;background:linear-gradient(180deg,#ffd166,#ff6a1a 30%,#c2200e);box-shadow:0 -4px 14px #ff7a1a}
 .lv-meter .dot{position:absolute;left:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;border:2px solid var(--ink);transition:opacity .3s}
 .lv-meter .dot.me{width:20px;height:20px;margin:-10px 0 0 -10px;border-width:3px;z-index:2}
-.lv-meter .lbl{position:absolute;left:34px;bottom:-4px;font:.8rem var(--font);color:#fff;text-shadow:var(--stroke);white-space:nowrap}
+.lv-meter .lbl{position:absolute;left:34px;bottom:-4px;width:max-content;font:.8rem var(--font);color:#fff;text-shadow:var(--stroke);white-space:nowrap}
 .lv-hint{position:absolute;left:50%;bottom:104px;transform:translateX(-50%);font:1.05rem var(--font);color:#fff;text-shadow:var(--stroke);pointer-events:none;white-space:nowrap}
 .lv-hot{position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 120px 30px rgba(255,80,20,0);transition:box-shadow .25s}
 `;
@@ -100,7 +101,7 @@ export async function start(ctx) {
     if (!amAlive() || phase !== 'play') return;
     if (a === 'jump') sfx.jump();
   });
-  input.on('wheel', (e) => { gfx.cam.dist = Math.max(6, Math.min(15, gfx.cam.dist + e.deltaY * 0.006)); });
+  input.on('wheel', (e) => { gfx.cam.dist = baseDist = Math.max(6, Math.min(15, gfx.cam.dist + e.deltaY * 0.006)); });
   function readInput(dt) {
     const ax = input.axis();
     const yaw = gfx.cam.yaw;
@@ -201,7 +202,7 @@ export async function start(ctx) {
   function onDie(m) {
     const last = info.deaths[info.deaths.length - 1];
     if (last && last.tm === m.tm) last.push(m.id); else { const g = [m.id]; g.tm = m.tm; info.deaths.push(g); }
-    gfx.fx.die(m.x, Math.max(m.y, lava), m.z);
+    gfx.fx.die(m.x, Math.max(m.y, lava), m.z); if (m.y <= lava + 0.5) gfx.fx.splash(m.x, lava, m.z);
     const mine = m.id === ctx.myId;
     sfx.burn(mine);
     const v = view.get(m.id); if (v) v.alive = false;
@@ -214,6 +215,7 @@ export async function start(ctx) {
   }
   function onRoundEnd(m) {
     info.wins = { ...m.wins }; info.pts = { ...m.pts }; info.ko = { ...(m.ko || {}) }; info.hist.push({ round: m.round, winners: m.winners });
+    victory.clear(); for (const id of m.winners) victory.add(id);
     const names = m.winners.map((id) => ctx.player(id)?.name || '?');
     const mine = m.winners.includes(ctx.myId);
     if (N === 1) ui.banner(`🔥 You lasted ${Math.round(m.t)} s`, 3000);
@@ -276,7 +278,7 @@ export async function start(ctx) {
   });
 
   // ---------------------------------------------------------------- frame: prediction, camera, render, HUD
-  let camFocus = ctx.myId;
+  let camFocus = ctx.myId, victoryT = 0; const victory = new Set(); let baseDist = gfx.cam.dist;
   let sendAcc = 0, predAcc = 0, lastPhase = 'wait', lastCount = 0, meterLbl = '';
   useRound(0);
   ctx.frame((dt, now) => {
@@ -301,7 +303,7 @@ export async function start(ctx) {
           lava = lavaAt(level.lv, ts); updateSolids(level, S, st, ts, lava, STEP);
           const inp = api.autopilot ? botThink({ S, st, lava, lv: level.lv, t: ts, players: [...ids.map((id) => (id === ctx.myId ? me : { ...view.get(id), id, gr: -1 }))], level }, me, myBot, STEP) : myInput;
           const ev = stepPlayer(me, inp, STEP, S);
-          if (ev & 2) sfx.dash();
+          if (ev & 2) { sfx.dash(); gfx.fx.kick(1); }
           if (ev & 4) { gfx.fx.shove(me.x, me.y, me.z, me.face, ctx.player(ctx.myId).colorHex); sfx.shove(false); }
           if (ev & 8) { sfx.land(Math.min(1, me.landed / 15)); gfx.fx.land(me.x, me.y, me.z, Math.min(1, me.landed / 15)); }
           for (const [id, v] of view) if (id !== ctx.myId && v.alive) separate(me, v, false);
@@ -326,7 +328,7 @@ export async function start(ctx) {
     if (host) {
       const mp = sim.byId.get(ctx.myId);
       if (mp) {
-        if (mp.dashT > 0 && !mp._dashFx) { mp._dashFx = true; sfx.dash(); } else if (mp.dashT <= 0) mp._dashFx = false;
+        if (mp.dashT > 0 && !mp._dashFx) { mp._dashFx = true; sfx.dash(); gfx.fx.kick(1); } else if (mp.dashT <= 0) mp._dashFx = false;
         if (mp.shoveT > 0 && !mp._shFx) { mp._shFx = true; gfx.fx.shove(mp.x, mp.y, mp.z, mp.face, ctx.player(ctx.myId).colorHex); sfx.shove(false); } else if (mp.shoveT <= 0) mp._shFx = false;
         if (mp.gr >= 0 && mp._air) { const k = Math.min(1, (mp._vy || 0) / 15); sfx.land(k); gfx.fx.land(mp.x, mp.y, mp.z, k); }
         mp._air = mp.gr < 0; if (mp.gr < 0) mp._vy = -mp.vy;
@@ -335,18 +337,25 @@ export async function start(ctx) {
     // --- phase cues (round intro countdown, GO)
     if (phase !== lastPhase) {
       if (phase === 'intro') { ui.banner(`ROUND ${round + 1}`, 1700); if (crown.size) ctx.setTimeout(() => ui.toast(`👑 ${[...crown].map((id) => ctx.player(id)?.name).join(' & ')} wear${crown.size > 1 ? '' : 's'} the Hot Crown: rocks heat faster under them!`, '', 3200), 1200); ui.toast(`${LAYOUTS[level.layout].name} · ${PATTERNS[level.pattern].icon} ${PATTERNS[level.pattern].name}`, 'gold', 2600); gfx.cam.intro = 1; }
+      if (phase === 'play') { gfx.fx.erupt(lava); sfx.erupt(); }
       if (phase === 'play' && lastPhase === 'intro') { ui.countdown(0); }
+      if (phase === 'post') victoryT = 0;
+      if (phase !== 'post') { victory.clear(); gfx.cam.dist = baseDist; gfx.cam.pitch = 0.5; }
       if (phase === 'play' && round === 0) { ui.toast(`${LAYOUTS[level.layout].name} · ${PATTERNS[level.pattern].icon} ${PATTERNS[level.pattern].name}`, 'gold', 2600); }
       lastPhase = phase;
     }
     if (phase === 'intro') { const c = Math.ceil(INTRO_T - phaseT); if (c >= 1 && c <= 3 && c !== lastCount) { lastCount = c; ui.countdown(c); } } else lastCount = 0;
     // --- camera
-    const focusId = camFocus = amAlive() ? ctx.myId : (spec && view.get(spec)?.alive ? spec : (spec = ids.find((id) => view.get(id)?.alive && id !== ctx.myId) || spec));
+    const vic = phase === 'post' && victory.size ? [...victory].find((id) => view.get(id)?.alive) : null;
+    const focusId = camFocus = vic ? vic : amAlive() ? ctx.myId : (spec && view.get(spec)?.alive ? spec : (spec = ids.find((id) => view.get(id)?.alive && id !== ctx.myId) || spec));
     const f = view.get(focusId) || view.get(ctx.myId) || [...view.values()][0];
     const cam = gfx.cam;
     if (f) { const k = Math.min(1, dt * 10); cam.x += (f.x - cam.x) * k; cam.z += (f.z - cam.z) * k; cam.y += (f.y - cam.y) * Math.min(1, dt * 6); }
-    if (input.mouse.locked) { const d = input.takeMouseDelta(ctx.settings.get('sens') || 1); cam.yaw -= d.x * 0.0032; cam.pitch = Math.max(0.12, Math.min(1.2, cam.pitch + d.y * 0.0026)); }
-    else if (f && Math.hypot(f.x, f.z) > 2.5) { const want = Math.atan2(-f.x, -f.z); let da = want - cam.yaw; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2; cam.yaw += Math.max(-1, Math.min(1, da)) * dt * 0.9; }
+    if (vic) { victoryT += dt; cam.yaw += dt * 0.7; cam.dist += (6.5 - cam.dist) * Math.min(1, dt * 2); cam.pitch += (0.3 - cam.pitch) * Math.min(1, dt * 2); input.takeMouseDelta(1); }
+    else if (input.mouse.locked) { const d = input.takeMouseDelta(ctx.settings.get('sens') || 1); cam.yaw -= d.x * 0.0032; cam.pitch = Math.max(0.12, Math.min(1.2, cam.pitch + d.y * 0.0026)); }
+    // No mouse lock: a chase camera that eases round to sit behind wherever you're facing (updated by your own
+    // WASD movement), instead of fighting your input by swinging to face the arena center.
+    else if (f && Number.isFinite(f.face)) { let da = f.face - cam.yaw; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2; cam.yaw += da * Math.min(1, dt * 2.6); }
     if (cam.intro > 0) cam.intro = Math.max(0, cam.intro - dt / (phase === 'intro' ? INTRO_T - 0.6 : 3.2));
     // --- audio bed
     const my = view.get(focusId);
@@ -354,9 +363,9 @@ export async function start(ctx) {
     const si = level ? surgeIn(level.lv, tC) : -1;
     if (si > 0 && si < 1.6 && !gfx._surgeWarned) { gfx._surgeWarned = true; sfx.surge(); gfx.fx.shake(0.5); }
     if (si < 0 || si > 2) gfx._surgeWarned = false;
-    sfx.update(dt, { danger: phase === 'play' ? danger : 0, surge: si > 0 && si < 1.6 ? 1 - si / 1.6 : 0, active: phase === 'play' });
+    sfx.update(dt, { intensity: level && phase === 'play' ? Math.min(1, tC / level.lv.T) : 0, final: ids.filter((id) => view.get(id)?.alive).length <= 2 && N > 2, danger: phase === 'play' ? danger : 0, surge: si > 0 && si < 1.6 ? 1 - si / 1.6 : 0, active: phase === 'play' });
     // --- render
-    gfx.update(dt, now, { S, st, lava, t: tC, groundAt: (x, z) => groundAt(S, x, z, lava), players: view, onCrumble: (p) => { const near = f && Math.hypot(p.x - f.x, p.z - f.z) < 6; sfx.crumble(near); if (near) gfx.fx.shake(0.35); }, onCrack: () => sfx.crack() });
+    gfx.update(dt, now, { S, st, lava, t: tC, danger: amAlive() && phase === 'play' ? danger : 0, victory: phase === 'post' ? victory : null, groundAt: (x, z) => groundAt(S, x, z, lava), players: view, onCrumble: (p) => { const near = f && Math.hypot(p.x - f.x, p.z - f.z) < 6; sfx.crumble(near); if (near) gfx.fx.shake(0.35); }, onCrack: () => sfx.crack(), onRise: (p) => { if (f && Math.hypot(p.x - f.x, p.z - f.z) < 9) sfx.rise(); } });
     // --- ghost aim (eliminated players lob lava bombs)
     const ghost = !amAlive() && !ctx.spectator && phase === 'play' && !!S;
     const ready = performance.now() >= ghostReadyAt;
@@ -368,7 +377,7 @@ export async function start(ctx) {
     hot.style.boxShadow = `inset 0 0 120px 30px rgba(255,80,20,${(Math.max(heat - 0.35, 0) * 0.9 + danger * 0.35 * (amAlive() ? 1 : 0)).toFixed(2)})`;
     if (heat > 0.55 && amAlive()) sfx.sizzle(heat);
     const T = level ? level.lv.T : 80;
-    if (phase === 'play') { if (tC < T) ui.timer(T - tC, { warn: 10 }); else ui.timer(0, { text: '🔥 OVERTIME' }); } else ui.timer(null);
+    if (phase === 'play') { if (tC < T) ui.timer(tC, { warn: -1 }); else ui.timer(0, { text: '🔥 NO MORE ROCK' }); } else ui.timer(null);
     const L = level ? `${LAYOUTS[level.layout].name}` : '';
     ui.status(ctx.spectator ? `👀 Spectating · Round ${round + 1}` : amAlive() || phase !== 'play' ? `🌋 Round ${round + 1}${maxRounds > 1 ? '/' + maxRounds : ''} · ${L}` : `💀 Out · watching ${ui.esc(ctx.player(focusId)?.name || '…')}`);
     hint.textContent = ghost ? (ready ? 'Aim with the mouse · click to drop a lava bomb' : '') : heat > 0.7 && phase === 'play' ? 'HOT! Move!' : '';
@@ -387,7 +396,7 @@ export async function start(ctx) {
     ]);
     // height meter
     if (level) {
-      const lo = level.lv.from - 0.5, hi = level.maxTop + 2.5, H = meter.clientHeight || 1;
+      const lo = lava - 3, hi = lava + 11, H = meter.clientHeight || 1;
       const fy = (y) => Math.max(0, Math.min(1, (y - lo) / (hi - lo)));
       meter.firstChild.style.height = (fy(lava) * 100).toFixed(1) + '%';
       for (const [id, d] of dots) { const v = view.get(id); d.style.opacity = v?.alive ? 1 : 0; if (v) d.style.top = ((1 - fy(v.y)) * H).toFixed(0) + 'px'; }

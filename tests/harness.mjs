@@ -42,13 +42,25 @@ async function peerBundle() {
   return fs.readFileSync(out);
 }
 
+// Local MQTT broker over WebSocket (ws://127.0.0.1:<port>) for the relay transport (?relay=ws://127.0.0.1:9002).
+export async function startRelay(port = 9002) {
+  const { createBroker } = require('aedes');
+  const { createServer } = require('aedes-server-factory');
+  const broker = createBroker();
+  const server = createServer(broker, { ws: true });
+  await new Promise((r) => server.listen(port, '127.0.0.1', r));
+  return { close: () => { server.close(); broker.close(); } };
+}
+export const RELAY = '&relay=ws://127.0.0.1:9002';
+
 export async function launch({ headless = true } = {}) {
   const browser = await chromium.launch({ headless, args: ['--disable-features=WebRtcHideLocalIpsWithMdns', '--autoplay-policy=no-user-gesture-required', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--js-flags=--expose-gc'] });
   const peerjs = await peerBundle();
   // Tests run several 3D pages on one machine with software WebGL, so by default they use a smaller window and
   // the Low graphics setting (pass {full:true} for screenshots). Real players each have their own GPU.
-  async function context({ full = false } = {}) {
-    const ctx = await browser.newContext({ viewport: full ? { width: 1366, height: 800 } : { width: 640, height: 400 } });
+  async function context({ full = false, viewport = null } = {}) {
+    if (viewport) full = true;
+    const ctx = await browser.newContext({ viewport: viewport || (full ? { width: 1366, height: 800 } : { width: 640, height: 400 }) });
     if (!full) await ctx.addInitScript(() => { try { const k = 'partyhub.settings.v1'; const s = JSON.parse(localStorage.getItem(k) || '{}'); if (!s.quality) localStorage.setItem(k, JSON.stringify({ ...s, quality: 'low' })); } catch { /* */ } });
     await ctx.route('https://cdn.jsdelivr.net/**', (route) => {
       const u = new URL(route.request().url());

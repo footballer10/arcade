@@ -3,7 +3,7 @@
 # Mini-Golf Battle — Test Guide
 
 ## 1. Where to play
-- **Live:** https://footballer10.github.io/arcade-prototypes/golf/ (once GitHub Pages is enabled: repo Settings → Pages → Deploy from branch → `main` / root).
+- **Live:** https://footballer10.github.io/arcade/golf/ (once GitHub Pages is enabled: repo Settings → Pages → Deploy from branch → `main` / root).
 - **Locally:** from the repo root run `python3 -m http.server 8000`, then open http://localhost:8000/golf/ in Chrome.
   (It needs a web server because it uses ES modules. Internet is needed for the CDN scripts and the PeerJS server.)
 

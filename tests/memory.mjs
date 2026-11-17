@@ -1,10 +1,10 @@
 // Load and unload games 10 times in a row (host + a client) and check memory and WebGL contexts don't keep climbing.
 // usage: node memory.mjs [gameId ...]   (cycles through the given games)
-import { startStatic, startPeer, launch, openPage, createParty, joinByCode, waitFor, sleep, heap, check, wiggle } from './harness.mjs';
+import { startStatic, startPeer, startRelay, RELAY, launch, openPage, createParty, joinByCode, waitFor, sleep, heap, check, wiggle } from './harness.mjs';
 
 const games = process.argv.slice(2).length ? process.argv.slice(2) : ['coingrab'];
-const BASE = 'http://127.0.0.1:8080/index.html?dev=1&peer=127.0.0.1:9000&testfps=' + (process.env.TESTFPS || 6) + (process.env.NETLOG ? '&netlog=1' : '');
-const srv = await startStatic(8080); await startPeer(9000);
+const BASE = 'http://127.0.0.1:8080/index.html?dev=1&peer=127.0.0.1:9000' + RELAY + (process.env.EXTRA || '') + '&testfps=' + (process.env.TESTFPS || 6) + (process.env.NETLOG ? '&netlog=1' : '');
+const srv = await startStatic(8080); await startPeer(9000); await startRelay(9002);
 const { browser, context } = await launch();
 const pages = [];
 try {

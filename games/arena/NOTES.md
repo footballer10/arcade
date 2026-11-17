@@ -5,7 +5,7 @@
 Top-down 3D arena brawler. Last player standing wins the round; first to 3 round wins takes the match (best of 5).
 
 ## 1. Where to play
-- **Live:** https://footballer10.github.io/arcade-prototypes/arena/ (once GitHub Pages is enabled: repo Settings → Pages → Deploy from branch → `main` / root).
+- **Live:** https://footballer10.github.io/arcade/arena/ (once GitHub Pages is enabled: repo Settings → Pages → Deploy from branch → `main` / root).
 - **Locally:** from the repo root run `python3 -m http.server 8000` and open http://localhost:8000/arena/ in Chrome. Three.js and PeerJS come from the jsDelivr CDN, so you need internet.
 
 ## 2. Testing multiplayer by yourself

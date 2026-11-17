@@ -2,6 +2,13 @@ export const manifest = {
   id: 'downhill',
   name: 'Downhill Rush',
   tagline: 'Ski or board to the bottom. Tricks = speed!',
+  // Shown on the pre-round screen next to the settings: goal, how to win, key tips (short sentences).
+  howTo: [
+    "Race everyone down the mountain. First to the finish line wins (Trick Battle: most style points wins).",
+    "Steer with A / D, hold W to tuck and go faster, S to brake.",
+    "Jump off kickers and spin, flip or grab in the air. Land straight to get a speed boost.",
+    "Ride through ? boxes for items (rocket, snowball, shield) and use them with E or a click.",
+  ],
   minPlayers: 2,
   maxPlayers: 8,
   teams: false,
@@ -9,7 +16,7 @@ export const manifest = {
   roundLengthSec: 120,
   thumbnail: 'games/downhill/thumb.svg',
   controlsHelp: [
-    ['A / D', 'Steer (tap = small, hold = carve)'], ['W', 'Tuck'], ['Shift', 'Tuck (boost)'], ['S', 'Brake'], ['Space', 'Jump / pop off rails'],
+    ['A / D', 'Steer (tap = small, hold = carve)'], ['W', 'Tuck (go faster)'], ['S', 'Brake'], ['Space', 'Jump / pop off rails'],
     ['Arrows in the air', 'Spin ← → · flip ↑ ↓'], ['R F T G C V', 'Hold in the air to grab, let go before landing'],
     ['E / click', 'Use item'], ['Q', 'Butter 180'], ['H', 'Show / hide trick list'],
   ],

@@ -3,6 +3,7 @@
 // replays unacknowledged inputs; other riders are interpolated ~0.1 s in the past.
 // Net (ctx.net): client→host {t:'in', i:[[seq,...input]]}; host→each player {t:'snap', rt, e, me, ack, pr, endIn}.
 import * as THREE from 'three';
+import './tuning.js';
 import { makeCourse, mulberry32, MAPS, MAP_IDS } from './course.js';
 import { CLASSES, newEntity, stepEntity, bump, botInput, newBrain, sanitizeInput, packInput, trickName, landingPreview, GRAB_KEYS, ITEMS, snowballHit } from './physics.js';
 import { createRenderer, buildCourse, disposeGroup, makeRider, poseRider, COLORS, Spray, makeMinimap, Trails, AirGuide, buildItemBoxes, spinItemBoxes, Snowballs } from './render.js';
@@ -217,7 +218,7 @@ export async function start(ctx) {
   const GRAB_CODES = [['KeyR', 'KeyJ'], ['KeyF', 'KeyK'], ['KeyT', 'KeyL'], ['KeyG', 'KeyI'], ['KeyC', 'KeyU'], ['KeyV', 'KeyO']];
   function localInput(e) {
     if (S.autopilot && S.race?.me) { const me = S.race.me; me.brain ||= newBrain(mulberry32(7), me.info.cls); return botInput(e, me.brain, S.race.course, FIXED); }
-    const inp = { steer: steerAmount(), tuck: !!(K('KeyW') || K('ArrowUp') || input.down('boost')), brake: !!(K('KeyS') || K('ArrowDown')), jump: jumpBuf > 0, spin: 0, flip: 0, grab: 0, use: useBuf > 0, butter: butterBuf > 0 };
+    const inp = { steer: steerAmount(), tuck: !!(K('KeyW') || K('ArrowUp')), brake: !!(K('KeyS') || K('ArrowDown')), jump: jumpBuf > 0, spin: 0, flip: 0, grab: 0, use: useBuf > 0, butter: butterBuf > 0 };
     if (e.air) {
       inp.grab = GRAB_CODES.findIndex(([a, b]) => K(a) || K(b)) + 1;
       inp.spin = ((fresh('ArrowRight') || fresh('KeyD')) ? 1 : 0) - ((fresh('ArrowLeft') || fresh('KeyA')) ? 1 : 0);

@@ -11,7 +11,7 @@
 // Events: 'msg' (msg, fromPid)  'game' (round, data, fromPid)  'raw' (round, ArrayBuffer, fromPid)  'peerjoin' (pid, hello)
 //         'peerleave' (pid)  'host' (hostPid, amHost, info)  'status' (connected|reconnecting|offline)  'kicked' (reason)
 import { Emitter } from './emitter.js';
-import { PeerTransport } from './transport-peer.js';
+import { DualTransport } from './transport-dual.js';
 import { LocalTransport } from './transport-local.js';
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -23,7 +23,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const NETLOG = /[?&]netlog=1/.test(location.search);
 const nlog = (...a) => { if (NETLOG) console.info('[net]', Math.round(performance.now()), ...a); };
 
-export function createTransport(kind) { return kind === 'local' ? new LocalTransport() : new PeerTransport(); }
+// 'peer' (every real online party) = direct WebRTC with an automatic MQTT-relay fallback; 'local' = tabs (tests).
+export function createTransport(kind) { return kind === 'local' ? new LocalTransport() : new DualTransport(); }
 
 export class PartyNet extends Emitter {
   constructor(kind, pid) {
@@ -93,13 +94,13 @@ export class PartyNet extends Emitter {
     if (!verdict.ok) { conn.send({ h: 'reject', reason: verdict.reason }); setTimeout(() => conn.close(), 400); return; }
     const old = this.conns.get(m.pid);
     if (old && old.conn !== conn) { old.replaced = true; old.conn.onclose = null; old.conn.close(); }
-    const rec = { conn, lastSeen: performance.now(), ping: 0, addr: m.addr };
+    const rec = { conn, lastSeen: performance.now(), ping: 0, addr: m.addr, via: conn.via || 'direct' };
     this.conns.set(m.pid, rec);
     conn.onmessage = (msg) => this._fromClient(m.pid, rec, msg);
     conn.onraw = (ab) => { rec.lastSeen = performance.now(); const u = new Uint8Array(ab); this.emit('raw', u[0], ab.slice(1), m.pid); };
     conn.onclose = () => { if (this.conns.get(m.pid) === rec) { nlog('client conn closed', m.pid); this.conns.delete(m.pid); this.emit('peerleave', m.pid); } };
     conn.send({ h: 'welcome', hostPid: this.pid, code: this.code, ht: performance.now() });
-    this.emit('peerjoin', m.pid, m);
+    this.emit('peerjoin', m.pid, m, rec.via);
   }
   _fromClient(pid, rec, msg) {
     rec.lastSeen = performance.now();
@@ -142,10 +143,13 @@ export class PartyNet extends Emitter {
   }
 
   // ---------------- client ----------------
-  async join(code, hello) {
+  // onStage(stage): 'server' (reaching the signalling server) → 'party' (asking the room code's host to connect).
+  async join(code, hello, onStage = () => {}) {
+    onStage('server');
     await this._ensureOpen();
     this.code = code; this.helloInfo = hello;
-    const ok = await this._tryJoin(this.t.roomAddr(code), 10000);
+    onStage('party');
+    const ok = await this._tryJoin(this.t.roomAddr(code), 20000);   // relayed (TURN) connections can take a while
     if (ok !== true) throw ok;
   }
   // Resolves true on welcome, or an Error (with .reason / .type / .redirect) otherwise.
@@ -153,7 +157,7 @@ export class PartyNet extends Emitter {
     return new Promise((resolve) => {
       let done = false, conn = null;
       const finish = (v) => { if (done) return; done = true; clearTimeout(t); if (v !== true) { try { conn?.close(); } catch { /* */ } } resolve(v); };
-      const t = setTimeout(() => finish(Object.assign(new Error('timeout'), { type: 'timeout' })), timeout);
+      const t = setTimeout(() => finish(Object.assign(new Error('timeout'), { type: 'timeout' })), timeout + 4000);
       this.t.connect(addr, timeout).then((c) => {
         conn = c;
         if (done) { c.close(); return; }
@@ -161,7 +165,7 @@ export class PartyNet extends Emitter {
           if (!m || typeof m !== 'object') return;
           if (m.h === 'welcome') {
             if (this.hostConn && this.hostConn !== c) { this.hostConn.onclose = null; this.hostConn.close(); }
-            this.hostConn = c; this.role = 'client'; this.hostPid = m.hostPid; this.code = m.code; this.lastHost = performance.now();
+            this.hostConn = c; this.via = c.via || 'direct'; this.role = 'client'; this.hostPid = m.hostPid; this.code = m.code; this.lastHost = performance.now();
             this.offset = m.ht - performance.now(); this.bestRtt = 1e9; this.nextHost = null; this.migrating = false;
             c.onmessage = (msg) => this._fromHost(c, msg);
             c.onraw = (ab) => { if (c !== this.hostConn) return; this.lastHost = performance.now(); const u = new Uint8Array(ab); this.emit('raw', u[0], ab.slice(1), this.hostPid); };

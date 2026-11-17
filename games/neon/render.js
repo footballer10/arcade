@@ -5,7 +5,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { worldPos, extent, scalar, sample, ENTRY } from './tracks.js';
+import { worldPos, extent, scalar, sample, ENTRY, SC_LEAD } from './tracks.js';
 
 // Per-track moods: sky gradient, fog, accent colours for edges / walls / pads.
 export const MOODS = {
@@ -147,14 +147,14 @@ export function createWorld(ctx, track, moodKey, rng) {
   // ---- neon grid ground
   const gridMat = own(new THREE.ShaderMaterial({
     fog: false, transparent: false,
-    uniforms: { col: { value: new THREE.Color(mood.grid) }, fogc: { value: new THREE.Color(mood.fog) }, base: { value: new THREE.Color(mood.top).multiplyScalar(0.6) }, camPos: { value: new THREE.Vector3() } },
+    uniforms: { col: { value: new THREE.Color(mood.grid) }, fogc: { value: new THREE.Color(mood.fog) }, base: { value: new THREE.Color(mood.top).multiplyScalar(0.6) }, camPos: { value: new THREE.Vector3() }, pulse: { value: 0 } },
     vertexShader: 'varying vec3 wp; void main(){ vec4 w = modelMatrix * vec4(position,1.0); wp = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
-    fragmentShader: `uniform vec3 col, fogc, base, camPos; varying vec3 wp;
+    fragmentShader: `uniform vec3 col, fogc, base, camPos; uniform float pulse; varying vec3 wp;
       void main(){
         vec2 g = abs(fract(wp.xz / 40.0 - 0.5) - 0.5) / fwidth(wp.xz / 40.0);
         float line = 1.0 - min(min(g.x, g.y), 1.0);
         float dist = length(wp.xz - camPos.xz);
-        vec3 c = base + col * line * 1.4;
+        vec3 c = base + col * line * (1.2 + pulse * 0.9);
         float f = 1.0 - exp(-dist * 0.0009);
         gl_FragColor = vec4(mix(c, fogc, clamp(f, 0.0, 1.0)), 1.0);
       }`,
@@ -244,9 +244,37 @@ export function createWorld(ctx, track, moodKey, rng) {
   // neon rims on roofs (thin bright slabs)
   const rimMat = own(new THREE.MeshBasicMaterial({ color: 0xffffff, fog: true }));
   const rMesh = new THREE.InstancedMesh(boxGeo, rimMat, roofs.length);
-  roofs.forEach(([x, z, w, d, h, c], i) => { m4.makeScale(w + 0.6, 1.2, d + 0.6).setPosition(x, groundY + h, z); rMesh.setMatrixAt(i, m4); rMesh.setColorAt(i, col.set(c)); });
+  roofs.forEach(([x, z, w, d, h, c], i) => { m4.makeScale(w + 0.7, 1.1, d + 0.7).setPosition(x, groundY + h - 2.6, z); rMesh.setMatrixAt(i, m4); rMesh.setColorAt(i, col.set(c)); });
   rMesh.instanceMatrix.needsUpdate = true; if (rMesh.instanceColor) rMesh.instanceColor.needsUpdate = true;
   scene.add(rMesh);
+
+  // ---- holographic billboards on towers facing the track (neon signs with words, pulsing)
+  const WORDS = ['NEON', 'RUSH', 'DRIFT', 'VOLT', 'HYPER', '24/7', 'NOVA', 'BOOST', 'ZOOM', 'GLOW'];
+  const signs = [];
+  {
+    const cand = towers.map((tw, i) => ({ tw, i })).filter(({ tw: [x, z, w, d, h] }) => h > 70 && trackNear(x, z, Math.max(w, d) + 140) != null && trackNear(x, z, Math.max(w, d) + 40) == null);
+    rng.shuffle(cand);
+    const nSigns = Math.min(cand.length, q.pixelRatio > 1 ? 14 : 8);
+    for (let k = 0; k < nSigns; k++) {
+      const [x, z, w, d, h] = cand[k].tw;
+      const word = WORDS[Math.floor(rng() * WORDS.length)], colr = mood.city[Math.floor(rng() * mood.city.length)];
+      const tex = own(canvasTex(256, 96, (g, W, H) => {
+        g.clearRect(0, 0, W, H);
+        g.strokeStyle = hexCss(colr); g.lineWidth = 6; g.strokeRect(6, 6, W - 12, H - 12);
+        g.font = 'bold 64px Lilita One, Arial Black, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        g.shadowColor = hexCss(colr); g.shadowBlur = 16; g.fillStyle = '#fff'; g.fillText(word, W / 2, H / 2 + 3);
+        g.fillStyle = hexCss(colr, 0.9); g.fillText(word, W / 2, H / 2 + 3);
+      }, false));
+      const mat = own(new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide, color: new THREE.Color(1.2, 1.2, 1.2) }));
+      const sw = Math.min(w, d) * 1.6, sh = sw * 0.375;
+      const m = new THREE.Mesh(own(new THREE.PlaneGeometry(sw, sh)), mat);
+      // face the centre of the track bounds
+      const ang = Math.atan2(cx - x, cz - z);
+      m.position.set(x + Math.sin(ang) * (Math.max(w, d) / 2 + 1), groundY + h - sh * 0.9, z + Math.cos(ang) * (Math.max(w, d) / 2 + 1));
+      m.rotation.y = ang;
+      scene.add(m); signs.push({ m, mat, ph: rng() * 6 });
+    }
+  }
 
   // ---- track meshes
   const texSurf = own(surfaceTex(mood)), texWall = own(wallTex()), texChev = own(chevronTex()), texCheck = own(checkerTex());
@@ -254,8 +282,10 @@ export function createWorld(ctx, track, moodKey, rng) {
   const scSurfMat = own(new THREE.MeshLambertMaterial({ map: texSurf, color: 0x9a7aff, emissive: new THREE.Color(0x6a3aff), emissiveMap: texSurf, emissiveIntensity: 0.3, side: THREE.DoubleSide }));
   const underMat = own(new THREE.MeshLambertMaterial({ color: 0x1a1430, emissive: 0x0a0618 }));
   const edgeMat = own(new THREE.MeshBasicMaterial({ color: new THREE.Color(mood.edge).multiplyScalar(1.15), side: THREE.DoubleSide }));
+  const edgeBase = edgeMat.color.clone();
   const wallMat = own(new THREE.MeshBasicMaterial({ map: texWall, color: new THREE.Color(mood.wall).multiplyScalar(0.9), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, opacity: 0.7 }));
   const padMat = own(new THREE.MeshBasicMaterial({ map: texChev, color: new THREE.Color(mood.alt).multiplyScalar(1.1), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+  const scMarkMat = own(new THREE.MeshBasicMaterial({ map: texChev, color: 0xc89bff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
   const checkMat = own(new THREE.MeshBasicMaterial({ map: texCheck, polygonOffset: true, polygonOffsetFactor: -2 }));
   const trackGroup = new THREE.Group(); scene.add(trackGroup);
   const tmp = [0, 0, 0];
@@ -349,6 +379,22 @@ export function createWorld(ctx, track, moodKey, rng) {
       gg.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); gg.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2)); gg.setIndex(I);
       trackGroup.add(new THREE.Mesh(gg, padMat));
     }
+    // shortcut markers: violet chevrons along the lead-in + entry, pointing toward the opening in the wall
+    for (const sc of path.shortcuts || []) {
+      const P = [], U = [], I = [];
+      const n2 = 16;
+      for (let r = 0; r <= n2; r++) {
+        const s = sc.a - SC_LEAD + (SC_LEAD + ENTRY * 0.55) * (r / n2);
+        const hw = scalar(path, path.hw, s);
+        const inner = sc.side * hw * 0.3, outer = sc.side * (hw + sc.hwSc * 0.7);
+        worldPos(path, s, inner, 0.08, tmp); P.push(...tmp); worldPos(path, s, outer, 0.08, tmp); P.push(...tmp);
+        U.push(0, -r / 2, 1, -r / 2);
+        if (r) { const a = (r - 1) * 2; I.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+      }
+      const gg = own(new THREE.BufferGeometry());
+      gg.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); gg.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2)); gg.setIndex(I);
+      trackGroup.add(new THREE.Mesh(gg, scMarkMat));
+    }
     // jump chevrons (warning stripes before the lip)
     for (const j of path.jumps) {
       const P = [], U = [], I = [];
@@ -436,8 +482,13 @@ export function createWorld(ctx, track, moodKey, rng) {
     scene, camera, renderer, mood, moon, groundY, sky,
     resize,
     setQuality() { ctx.three.applyQuality(renderer, moon); setupComposer(); resize(); },
-    update(dt, focus) {
+    update(dt, focus, beat = 0) {
       t += dt;
+      // the track lights breathe with the music
+      edgeMat.color.copy(edgeBase).multiplyScalar(1 + beat * 0.55);
+      wallMat.opacity = 0.62 + beat * 0.3;
+      gridMat.uniforms.pulse.value = beat;
+      for (const sg of signs) sg.mat.opacity = 0.75 + 0.25 * Math.sin(t * 3 + sg.ph) * (Math.sin(t * 17 + sg.ph * 3) > -0.92 ? 1 : -2);
       skyMat.uniforms.time.value = t;
       gridMat.uniforms.camPos.value.copy(camera.position);
       sky.position.copy(camera.position);

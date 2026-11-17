@@ -5,16 +5,20 @@
 //   - Heat (basalt), sinking (pumice) and crumbling are host state, shipped as one byte per platform.
 
 export const C = {
-  G: 30, JUMP: 10.6, RUN: 7.2, ACC_G: 70, ACC_A: 30, PR: 0.42, PH: 1.6,
-  COYOTE: 0.11, BUFFER: 0.14, FALL_MUL: 1.18, CUT_MUL: 2.3,
-  DASH_V: 15.5, DASH_T: 0.16, DASH_CD: 1.1,
+  // Movement is tuned to be forgiving, not twitchy: generous coyote/buffer time, a short guaranteed minimum
+  // hop (MIN_JUMP_T) so even a quick tap of Space clears a gap, strong air control so you can correct a bad jump.
+  G: 27, JUMP: 11.2, RUN: 7.8, ACC_G: 85, ACC_A: 50, PR: 0.42, PH: 1.6,
+  COYOTE: 0.18, BUFFER: 0.22, FALL_MUL: 1.15, CUT_MUL: 1.4, MIN_JUMP_T: 0.16,
+  DASH_V: 15.5, DASH_T: 0.16, DASH_CD: 0.9,
   SHOVE_CD: 0.75, SHOVE_R: 2.0, SHOVE_KB: 11.5, SHOVE_UP: 5.2, STUN: 0.38, BUMP_KB: 8,
-  WALL_R: 15.2, LAND_LENIENCY: 0.18,
+  WALL_R: 15.2, LAND_LENIENCY: 0.26,
   // platforms
-  HEAT_UP: 0.26, HEAT_CROWD: 0.16, COOL: 0.22, LAVA_HEAT: 0.14, CRUMBLE_T: 0.5, REGROW_T: 6.5,
+  HEAT_UP: 0.21, HEAT_CROWD: 0.14, COOL: 0.26, LAVA_HEAT: 0.14, CRUMBLE_T: 0.5, REGROW_T: 6.5,
   PUMICE_FLOAT: 0.42, PUMICE_SINK: 0.12, PUMICE_RISE: 0.1,
-  // round clock
-  ROUND_T: 80, ROUND_SHRINK: 5, ROUND_MIN: 62, OVERTIME_RISE: 0.7, HARD_END: 22,
+  // round clock: the lava never stops. It starts slow and keeps accelerating; new rock keeps rising out of it
+  // (thinner, smaller and further apart as the round goes on) until GEN_T, when the volcano runs dry.
+  LAVA_V0: 0.1, LAVA_ACC: 0.0024, GEN_T: 95, HARD_END: 40, ROUND_HARDER: 0.12,
+  RISE_T: 2.2, WARN_T: 1.6,
   // volcano spirits (eliminated players lob lava bombs)
   BOMB_T: 1.35, BOMB_R: 1.9, BOMB_KB: 9.5, BOMB_UP: 7.5, BOMB_HEAT: 40, GHOST_CD: 6, GHOST_FIRST: 2,
   CROWN_WEIGHT: 1.6,
@@ -41,25 +45,20 @@ const TAU = Math.PI * 2;
 
 // ---------------------------------------------------------------- lava clock
 // level at round time t (t < 0 = before the go). Every machine computes the same curve.
+const lavaBase = (lv, t) => lv.from + lv.v0 * t + 0.5 * lv.acc * t * t + (t > lv.T ? lv.acc * (t - lv.T) * (t - lv.T) : 0);
 export function lavaAt(lv, t) {
-  const { from, to, T, pattern } = lv;
-  if (t <= 0) return from;
-  if (t > T) return to + C.OVERTIME_RISE * (t - T);
-  const u = t / T;
-  let f;
-  switch (pattern) {
-    case 'surge': { const n = 5, k = Math.floor(u * n), fr = u * n - k; f = (k + smooth(0.5, 1, fr)) / n; break; }
-    case 'tide': f = u + 0.055 * Math.sin((TAU * t) / 12) * Math.min(1, t / 8); break;
-    case 'rush': f = Math.pow(u, 1.8); break;
-    default: f = u;
+  if (t <= 0) return lv.from;
+  switch (lv.pattern) {
+    case 'surge': { const seg = 9, k = Math.floor(t / seg), fr = t / seg - k; return lavaBase(lv, k * seg + seg * smooth(0.4, 1, fr)); }
+    case 'tide': return lavaBase(lv, t) + 0.75 * Math.sin((TAU * t) / 11) * Math.min(1, t / 8);
+    default: return lavaBase(lv, t);
   }
-  return from + (to - from) * f;
 }
 // seconds until the next surge starts (for the warning rumble), or -1
 export function surgeIn(lv, t) {
-  if (lv.pattern !== 'surge' || t < 0 || t > lv.T) return -1;
-  const seg = lv.T / 5, fr = (t % seg) / seg;
-  return fr < 0.5 ? (0.5 - fr) * seg : -1;
+  if (lv.pattern !== 'surge' || t < 0) return -1;
+  const seg = 9, fr = (t % seg) / seg;
+  return fr < 0.4 ? (0.4 - fr) * seg : -1;
 }
 
 // ---------------------------------------------------------------- level generation
@@ -87,7 +86,7 @@ export function makeLevel(rng, layout, pattern, nPlayers, round = 0) {
   const P = [];
   const add = (o) => { o.id = P.length; P.push(o); return o; };
   const col = (x, z, r, top) => add({ kind: 'basalt', x, z, r, top, bot: -40 });
-  const mover = (r, top, m) => add({ kind: 'mover', x: 0, z: 0, r, top, thick: 0.55, m });
+  const mover = (r, top, m) => add({ kind: 'mover', x: 0, z: 0, r, top, thick: 0.85, m });
   const glass = (x, z, r, top, per, ph) => add({ kind: 'glass', x, z, r, top, thick: 0.45, per, on: 0.62, ph });
   const pumice = (cx, cz, R, w, ph, r = 1.25) => add({ kind: 'pumice', x: cx, z: cz, r, top: 0, thick: 0.8, cx, cz, R, w, ph });
 
@@ -160,8 +159,21 @@ export function makeLevel(rng, layout, pattern, nPlayers, round = 0) {
     glass(0, 0, 1.4, top + 0.6, 9, 0);
     for (let i = 0; i < 4; i++) pumice(0, 0, 2.6 + (i % 2) * 2.2, 0.22 * (i % 2 ? -1 : 1), (i / 4) * TAU, 1.2);
   }
+  // the starting ground is only a launch pad: thin it out and keep it low, so new rock has room to rise
+  const thinRng = rng.fork(0x7417);
+  const near = (a, b) => Math.hypot(a.x - b.x, a.z - b.z) - a.r - b.r < 1.9;
+  const drop = new Set();
+  for (const o of P) {
+    if (o.kind !== 'basalt' || thinRng() > 0.33) continue;
+    // only drop a column if every neighbour keeps at least two other close neighbours
+    const nb = P.filter((q) => q !== o && q.kind === 'basalt' && !drop.has(q) && near(o, q));
+    if (nb.length >= 3 && nb.every((q) => P.filter((w) => w !== q && w !== o && w.kind === 'basalt' && !drop.has(w) && near(q, w)).length >= 2)) drop.add(o);
+  }
+  const kept = P.filter((o) => !drop.has(o));
+  P.length = 0; kept.forEach((o, i) => { o.id = i; if (o.kind === 'basalt') o.top = 1.6 + (o.top - 0.6) * 0.7; P.push(o); });
+  for (const o of P) if (o.kind === 'mover' && o.m.type === 'lift') o.m.y1 = Math.min(o.m.y1, 7);
   // spawns: mid-height basalt columns spread round the arena (greedy farthest-point)
-  const cand = P.filter((o) => o.kind === 'basalt' && o.top > 1.4 && o.top < 4.6);
+  const cand = P.filter((o) => o.kind === 'basalt' && o.top > 2.2 && o.top < 5);
   const pool = cand.length >= nPlayers ? cand : P.filter((o) => o.kind === 'basalt');
   const spawns = [];
   let first = pool.reduce((b, o) => (Math.hypot(o.x, o.z) > Math.hypot(b.x, b.z) ? o : b), pool[0]);
@@ -171,9 +183,47 @@ export function makeLevel(rng, layout, pattern, nPlayers, round = 0) {
     for (const o of pool) { if (spawns.includes(o) && spawns.length < pool.length) continue; const d = Math.min(...spawns.map((s) => Math.hypot(s.x - o.x, s.z - o.z))); if (d > bd) { bd = d; best = o; } }
     spawns.push(best);
   }
-  const maxTop = Math.max(...P.filter((o) => o.kind === 'basalt').map((o) => o.top));
-  const lv = { from: -0.7, to: maxTop + 0.6, T: Math.max(C.ROUND_MIN, C.ROUND_T - C.ROUND_SHRINK * round), pattern };   // the volcano gets angrier every round
-  return { layout, pattern, plats: P, spawns: spawns.map((s) => s.id), lv, maxTop };
+  const hard = 1 + C.ROUND_HARDER * round;   // the volcano gets angrier every round
+  const lv = { from: -0.7, v0: C.LAVA_V0 * hard, acc: C.LAVA_ACC * hard, T: C.GEN_T, pattern };
+  if (pattern === 'rush') { lv.v0 *= 0.45; lv.acc *= 1.7; }
+  const drownAt = (top, t0) => { let t = Math.max(0, t0); while (t < 600 && lavaAt(lv, t) < top) t += 0.25; return t; };
+  for (const o of P) { o.born = -1e9; o.until = o.kind === 'basalt' || o.kind === 'glass' ? drownAt(o.top, 0) : 1e9; }
+  // ---- new rock: every few seconds a wave of columns rises out of the lava, above and around the highest rock,
+  // so the climb never ends. Later waves are sparser, smaller and further apart.
+  const waveRng = rng.fork(0x5EED);
+  let tb = 1.2;
+  while (tb < lv.T) {
+    const d = Math.min(1, tb / lv.T);
+    const Lnow = lavaAt(lv, tb), Lup = lavaAt(lv, tb + C.RISE_T + 2);
+    const alive = P.filter((o) => (o.kind === 'basalt' || o.kind === 'glass') && o.born <= tb && o.until > tb + 3).sort((a, b) => b.top - a.top);
+    const count = Math.max(1, Math.round((4.6 - 2.7 * d) * (0.7 + nPlayers * 0.08) + waveRng() * 0.8));
+    for (let k = 0; k < count; k++) {
+      for (let tries = 0; tries < 24; tries++) {
+        const r = (1.25 - 0.38 * d) * waveRng.range(0.88, 1.1);
+        let x, z, top;
+        const anchor = alive.length ? alive[Math.floor(Math.pow(waveRng(), 1.4) * Math.min(alive.length, 14))] : null;
+        if (anchor) {
+          let a = waveRng() * TAU;
+          if (layout === 'corkscrew') a = Math.atan2(anchor.z, anchor.x) + Math.PI / 2 + waveRng.range(-0.5, 0.5);   // keep spiralling round
+          const gap = 0.45 + 1.7 * d + waveRng() * 0.9, dist = anchor.r + r + gap;
+          x = anchor.x + Math.cos(a) * dist; z = anchor.z + Math.sin(a) * dist;
+          top = anchor.top + waveRng.range(0.2, 1.1);
+        } else { const a = waveRng() * TAU, rr = waveRng() * 8; x = Math.cos(a) * rr; z = Math.sin(a) * rr; top = Lup + 2; }
+        top = Math.max(Lup + 1.3, Math.min(Lup + 5, top));
+        const rad = Math.hypot(x, z);
+        if (rad > 13.6 - r) continue;
+        if (layout === 'ringfire' && rad < 6 && waveRng() < 0.7) continue;
+        const until = drownAt(top, tb);
+        if (!P.every((o) => o.kind === 'mover' || o.kind === 'pumice' || o.until <= tb || o.born >= until || Math.hypot(o.x - x, o.z - z) >= o.r + r + 0.35)) continue;
+        if (waveRng() < 0.06 + 0.12 * d) add({ kind: 'glass', x, z, r, top, thick: 0.45, per: 6.5, on: 0.62, ph: waveRng() * 6.5, born: tb, until, y0: Lnow - 0.5 });
+        else add({ kind: 'basalt', x, z, r, top, bot: -40, born: tb, until, y0: Lnow - 0.5 });
+        alive.push(P[P.length - 1]);
+        break;
+      }
+    }
+    tb += 2.0 + d * 1.4 + waveRng() * 0.6;
+  }
+  return { layout, pattern, plats: P, spawns: spawns.map((s) => s.id), lv };
 }
 
 // Pick the per-round layout + rise pattern (each round different, seeded from the match seed).
@@ -200,12 +250,18 @@ export function updateSolids(level, S, st, t, lava, dt = 1 / 60) {
   for (let i = 0; i < P.length; i++) {
     const p = P[i], s = S[i], px = s.x, pz = s.z, pt = s.top;
     s.ptop = pt;
-    if (p.kind === 'basalt') { s.solid = st[i] !== ST_GONE; s.warn = st[i] === ST_CRUMBLE ? 1 : st[i] / 100; }
+    if (p.kind === 'basalt') {
+      if (t < p.born) { s.solid = false; s.top = p.y0; }
+      else { s.solid = st[i] !== ST_GONE; const k = (t - p.born) / C.RISE_T; s.top = k >= 1 ? p.top : p.y0 + (p.top - p.y0) * (1 - (1 - k) ** 3); }
+      s.warn = st[i] === ST_CRUMBLE ? 1 : st[i] / 100;
+    }
     else if (p.kind === 'mover') {
       tmp.top = p.top; moverPos(p.m, t, tmp); s.x = tmp.x; s.z = tmp.z; s.top = tmp.top; s.bot = s.top - p.thick;
     } else if (p.kind === 'glass') {
       const ph = ((t + p.ph) % p.per + p.per) % p.per, on = p.per * p.on;
-      s.solid = t < 0 || ph < on; s.warn = s.solid && t >= 0 && ph > on - 1.3 ? 1 : 0;
+      const k = (t - p.born) / C.RISE_T;
+      s.top = k >= 1 ? p.top : p.y0 + (p.top - p.y0) * (1 - (1 - Math.max(0, k)) ** 3); s.bot = s.top - p.thick;
+      s.solid = t >= p.born && (t < 0 || ph < on || k < 1.5); s.warn = s.solid && t >= 0 && k >= 1.5 && ph > on - 1.3 ? 1 : 0;
     } else if (p.kind === 'pumice') {
       const a = p.ph + p.w * t; s.x = p.cx + Math.cos(a) * p.R; s.z = p.cz + Math.sin(a) * p.R;
       s.top = lava + C.PUMICE_FLOAT - (st[i] || 0) / 100; s.bot = s.top - p.thick; s.warn = (st[i] || 0) / 100 / C.PUMICE_FLOAT;
@@ -218,7 +274,7 @@ export function updateSolids(level, S, st, t, lava, dt = 1 / 60) {
 // ---------------------------------------------------------------- players
 export function newPlayer(id, plat) {
   return { id, x: plat ? plat.x : 0, y: plat ? plat.top : 3, z: plat ? plat.z : 0, vx: 0, vy: 0, vz: 0, face: plat ? Math.atan2(-plat.x, -plat.z) : 0,
-    gr: plat ? plat.id : -1, coyote: 0, jbuf: 0, jumping: false, dashT: 0, dashCd: 0, airDash: false, dx: 0, dz: 0, shoveCd: 0, shoveT: 0, stun: 0,
+    gr: plat ? plat.id : -1, coyote: 0, jbuf: 0, jumping: false, jumpT: 0, dashT: 0, dashCd: 0, airDash: false, dx: 0, dz: 0, shoveCd: 0, shoveT: 0, stun: 0,
     alive: true, lj: 0, ld: 0, ls: 0, bumped: null, landed: 0 };
 }
 export function syncCounters(p, inp) { p.lj = inp.j; p.ld = inp.d; p.ls = inp.s; }
@@ -255,12 +311,13 @@ export function stepPlayer(p, inp, dt, S) {
   }
   // jump (buffered + coyote)
   if (p.jbuf > 0 && (p.gr >= 0 || p.coyote > 0) && p.stun <= 0) {
-    p.vy = C.JUMP + (g && g.vy > 0 ? g.vy * 0.5 : 0); p.jbuf = 0; p.coyote = 0; p.gr = -1; p.jumping = true; ev |= 1;
+    p.vy = C.JUMP + (g && g.vy > 0 ? g.vy * 0.5 : 0); p.jbuf = 0; p.coyote = 0; p.gr = -1; p.jumping = true; p.jumpT = 0; ev |= 1;
   }
   // gravity (short hop when jump is released early, snappier falls)
   if (p.gr < 0 && p.dashT <= 0) {
+    p.jumpT += dt;
     let gm = 1;
-    if (p.vy > 0 && p.jumping && !inp.jh) gm = C.CUT_MUL; else if (p.vy < 0) gm = C.FALL_MUL;
+    if (p.vy > 0 && p.jumping && !inp.jh && p.jumpT > C.MIN_JUMP_T) gm = C.CUT_MUL; else if (p.vy < 0) gm = C.FALL_MUL;
     p.vy -= C.G * gm * dt;
     if (p.vy < -24) p.vy = -24;
   }
@@ -334,12 +391,8 @@ export function stepPlatforms(level, S, st, timers, occ, lava, dt, overtime) {
   for (let i = 0; i < P.length; i++) {
     const p = P[i];
     if (p.kind === 'basalt') {
-      if (st[i] === ST_GONE) {
-        timers[i] = (timers[i] || 0) + dt;
-        if (timers[i] > C.REGROW_T && p.top > lava + 1.5) { st[i] = 0; timers[i] = 0; ev.push([i, 'grow']); }
-        continue;
-      }
-      if (p.top < lava - 0.2) { st[i] = ST_GONE; timers[i] = 0; continue; }   // drowned (may resurface on a lava tide)
+      if (st[i] === ST_GONE || !S[i].solid) continue;                      // gone for good, or not risen yet
+      if (p.top < lava - 0.2) { st[i] = ST_GONE; timers[i] = 0; continue; }   // drowned (p.top = height once fully risen)
       if (st[i] === ST_CRUMBLE) { timers[i] = (timers[i] || 0) + dt; if (timers[i] > C.CRUMBLE_T) { st[i] = ST_GONE; timers[i] = 0; ev.push([i, 'gone']); } continue; }
       let h = st[i] / 100;
       if (occ[i] > 0) h += dt * (C.HEAT_UP * Math.min(occ[i], 1) + C.HEAT_CROWD * Math.max(0, occ[i] - 1));
@@ -363,7 +416,7 @@ export function stepPlatforms(level, S, st, timers, occ, lava, dt, overtime) {
 export const PHASES = ['wait', 'intro', 'play', 'post', 'done'];
 export function encodeSnap(s) {
   const nP = s.players.length, nS = s.st.length;
-  const buf = new ArrayBuffer(16 + nP * 16 + nS * 2), v = new DataView(buf);
+  const buf = new ArrayBuffer(16 + nP * 16 + nS), v = new DataView(buf);
   v.setUint8(0, 1); v.setUint8(1, s.round); v.setUint8(2, PHASES.indexOf(s.phase)); v.setFloat32(3, s.t); v.setFloat32(7, s.phaseT); v.setUint8(11, nP); v.setUint16(12, nS);
   let o = 16;
   const i16 = (x) => { v.setInt16(o, Math.max(-32767, Math.min(32767, Math.round(x * 100)))); o += 2; };
@@ -373,7 +426,7 @@ export function encodeSnap(s) {
     i16(p.x); i16(p.y); i16(p.z); i16(p.vx); i16(p.vy); i16(p.vz);
     v.setUint8(o++, Math.round((((p.face % TAU) + TAU) % TAU) / TAU * 255)); v.setUint8(o++, p.auth & 255);
   }
-  for (let i = 0; i < nS; i++) { v.setUint16(o, s.st[i]); o += 2; }
+  for (let i = 0; i < nS; i++) v.setUint8(o++, Math.min(255, s.st[i]));
   return buf;
 }
 export function decodeSnap(buf) {
@@ -387,7 +440,7 @@ export function decodeSnap(buf) {
     const idx = v.getUint8(o++), f = v.getUint8(o++);
     s.players.push({ idx, alive: !!(f & 1), grounded: !!(f & 2), dashing: !!(f & 4), stunned: !!(f & 8), shoving: !!(f & 16), x: i16(), y: i16(), z: i16(), vx: i16(), vy: i16(), vz: i16(), face: (v.getUint8(o++) / 255) * TAU, auth: v.getUint8(o++) });
   }
-  for (let i = 0; i < nS; i++) { s.st[i] = v.getUint16(o); o += 2; }
+  for (let i = 0; i < nS; i++) s.st[i] = v.getUint8(o++);
   return s;
 }
 
