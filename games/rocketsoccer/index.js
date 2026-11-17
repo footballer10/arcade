@@ -13,6 +13,7 @@
 // - Host migration: the new host continues from the last snapshot it received; bots take over for anyone who left.
 import * as THREE from 'three';
 import { makeArena, sdArena } from './arena.js';
+import './tuning.js';
 import { C, PH, DT, MAGIC, HDR, CK, newWorld, kickoff, stepWorld, pack, unpack, quantize, encInput, speedOf } from './physics.js';
 import { Referee } from './match.js';
 import { newBot, botInput, assignRoles } from './bots.js';

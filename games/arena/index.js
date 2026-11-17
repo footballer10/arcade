@@ -2,7 +2,8 @@
 // Netcode (unchanged from the original): host-authoritative 60 Hz sim with lag compensation; compact binary
 // snapshots (net.js) on the unreliable channel at 20 Hz; binary inputs; client prediction + interpolation.
 // ctx.net: raw host→all = snapshots, raw client→host = inputs; JSON {t:'fx'} {t:'emote'} {t:'chars'}.
-import { Sim, CHARS, ARENA_R, WINS_TO_WIN, DASH_CD, MAPS, MAP_KEYS, MAP, setMap, integrate, applyDash, zoneNextIn, clampTo, TELEPORT_MAX, BOMB_RANGE, WELL_RANGE, MUTATORS, MUT_KEYS, MUT, BOO_CD, cdRate } from './sim.js';
+import './tuning.js';
+import { Sim, CHARS, ARENA_R, WINS_TO_WIN, MOVE, MAPS, MAP_KEYS, MAP, setMap, integrate, applyDash, zoneNextIn, clampTo, TELEPORT_MAX, BOMB_RANGE, WELL_RANGE, MUTATORS, MUT_KEYS, MUT, BOO_CD, cdRate } from './sim.js';
 import { botInput } from './bots.js';
 import { Renderer, cssColor } from './render.js';
 import { encodeSnapshot, decodeSnapshot, encodeInput, decodeInput } from './net.js';
@@ -337,7 +338,7 @@ export async function start(ctx) {
       if (me.speedT > 0) buffs.push(`⚡ ${Math.ceil(me.speedT)}s`); if (me.dmgT > 0) buffs.push(`🔥 ${Math.ceil(me.dmgT)}s`); if (me.shield > 0) buffs.push(`🛡 ${Math.ceil(me.shield * 10)}`);
       hpEl.lastChild.textContent = buffs.join('  ');
       const gh = !me.alive && me.ghost;
-      const dashF = Math.max(0, me.dashCd / DASH_CD), spF = gh ? 1 : Math.max(0, me.spCd / CHARS[me.char].spCd);
+      const dashF = Math.max(0, me.dashCd / MOVE.DASH_CD), spF = gh ? 1 : Math.max(0, me.spCd / CHARS[me.char].spCd);
       ui.abilities([
         { key: 'Shift', label: 'Dash', cd: dashF, ready: dashF <= 0 },
         { key: 'LMB', label: gh ? 'Boo!' : CHARS[me.char].attack, cd: gh ? Math.max(0, me.spCd / BOO_CD) : 1 - Math.min(1, me.ammo), ready: me.ammo >= 1 },

@@ -5,6 +5,7 @@
 //                host→all  {t:'hole'} {t:'s'} {t:'ev'} {t:'emoted'} {t:'holeEnd'} {t:'matchEnd'}
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import './tuning.js';
 import * as C from './course.js';
 import * as SFX from './sfx.js';
 import * as G from './gfx.js';
@@ -165,7 +166,7 @@ export async function start(ctx) {
   function prepare(idx) {
     if (!prepCache.has(idx)) {
       const opt = holeOpt(idx);
-      const p = worker ? new Promise((res) => { const id = ++reqId; waiting.set(id, res); worker.postMessage({ id, seed: S.seed, idx, opt }); }) : Promise.resolve(prepSync(idx, opt));
+      const p = worker ? new Promise((res) => { const id = ++reqId; waiting.set(id, res); worker.postMessage({ id, seed: S.seed, idx, opt, phys: { ...C.PHYS } }); }) : Promise.resolve(prepSync(idx, opt));
       prepCache.set(idx, p.then(({ seed, par }) => { const hole = C.generateHole(seed, idx, opt); hole.par = par; return { seed, hole, par, opt }; }));
     }
     return prepCache.get(idx);

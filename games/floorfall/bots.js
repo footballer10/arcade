@@ -7,11 +7,11 @@
 import { C, tileAt, tileQR, NEIGH } from './world.js';
 
 const DIRS = 16;
-const AIR = 2 * C.JUMP / C.G;                 // time in the air for a full jump
+const AIR = () => 2 * C.JUMP / C.G;           // time in the air for a full jump (read live: tunable)
 // Where would a jump started now land if I steer with heading a at strength m? (same integration as stepPlayer)
 function jumpLand(p, a, m) {
   let x = p.x, z = p.z, vx = p.vx, vz = p.vz; const dt = 1 / 30, tx = Math.sin(a) * C.SPEED * m, tz = Math.cos(a) * C.SPEED * m;
-  for (let tt = 0; tt < AIR; tt += dt) {
+  for (let tt = 0; tt < AIR(); tt += dt) {
     const ex = tx - vx, ez = tz - vz, el = Math.hypot(ex, ez), acc = C.AIR_ACC * dt;
     if (el <= acc) { vx = tx; vz = tz; } else { vx += (ex / el) * acc; vz += (ez / el) * acc; }
     x += vx * dt; z += vz * dt;
@@ -23,10 +23,10 @@ function landSafe(L, p, a, t, B) {
   const tries = [[a, 1], [a, 0.6], [a, 0.25], [a + 0.4, 1], [a - 0.4, 1], [a + 0.4, 0.5], [a - 0.4, 0.5]];
   for (const [aa, m] of tries) {
     const [x, z] = jumpLand(p, aa, m), i = tileAt(L, x, z);
-    if (i < 0 || L.at[i] <= t + AIR + 0.25) continue;
-    let ok = 0; for (const [ox, oz] of [[0.9, 0], [-0.9, 0], [0, 0.9], [0, -0.9]]) if (tileVal(L, x + ox, z + oz, t, AIR + 0.3)) ok++;
+    if (i < 0 || L.at[i] <= t + AIR() + 0.25) continue;
+    let ok = 0; for (const [ox, oz] of [[0.9, 0], [-0.9, 0], [0, 0.9], [0, -0.9]]) if (tileVal(L, x + ox, z + oz, t, AIR() + 0.3)) ok++;
     if (ok < 2) continue;
-    if (B) B.air = { a: aa, m, t: AIR + 0.1, at: t };
+    if (B) B.air = { a: aa, m, t: AIR() + 0.1, at: t };
     return true;
   }
   return false;
