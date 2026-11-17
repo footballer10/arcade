@@ -42,6 +42,17 @@ async function peerBundle() {
   return fs.readFileSync(out);
 }
 
+// Local MQTT broker over WebSocket (ws://127.0.0.1:<port>) for the relay transport (?relay=ws://127.0.0.1:9002).
+export async function startRelay(port = 9002) {
+  const { createBroker } = require('aedes');
+  const { createServer } = require('aedes-server-factory');
+  const broker = createBroker();
+  const server = createServer(broker, { ws: true });
+  await new Promise((r) => server.listen(port, '127.0.0.1', r));
+  return { close: () => { server.close(); broker.close(); } };
+}
+export const RELAY = '&relay=ws://127.0.0.1:9002';
+
 export async function launch({ headless = true } = {}) {
   const browser = await chromium.launch({ headless, args: ['--disable-features=WebRtcHideLocalIpsWithMdns', '--autoplay-policy=no-user-gesture-required', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--js-flags=--expose-gc'] });
   const peerjs = await peerBundle();
