@@ -12,6 +12,9 @@
 //      pads: [[frac, d, len]], jump: {at, gap}, shift (loop side offset), dir (corkscrew ±1) }
 export const DS = 1;                 // sample spacing (units)
 export const ENTRY = 46;             // length of a shortcut's side-by-side entry lane
+export const SC_LEAD = 16;           // the main wall opens this far before the shortcut's own 'a' point, so a
+                                      // player sees the gap and has room to steer into it instead of needing
+                                      // to already be hugging the edge exactly when it starts
 export const PIPE_R = 6;             // wall-ride pipe radius (quarter pipe up to vertical)
 export const RAMP = 14;              // jump kicker length before the lip
 
@@ -378,7 +381,13 @@ export function buildTrack(id) {
     if (o.jump) {
       const lip = s0 + (s1 - s0) * o.jump.at, end = lip + o.jump.gap;
       main.jumps.push({ lip, end, ramp: lip - RAMP });
-      for (let s = Math.ceil(lip); s < end; s++) main.gap[idxAt(main, s)] = 1;
+      // Mark only buckets fully inside (lip, end): idxAt() floors s/ds, so flagging by iterating literal
+      // s values (assuming ds===1) can mis-flag the bucket that straddles the real lip — a ship's position
+      // lands in that bucket just *before* the lip some frames (depending on exact speed) and not others,
+      // so it falls through the floor with no launch on some runs and jumps fine on others. Deriving the
+      // index range from ds directly keeps every marked bucket strictly past the lip and before the end.
+      const i0 = Math.ceil(lip / main.ds), i1 = Math.floor(end / main.ds);
+      for (let i = i0; i < i1; i++) main.gap[((i % main.n) + main.n) % main.n] = 1;
     }
   });
   const track = { id, def, name: def.name, main, paths: [main], opS, startS: 0 };
@@ -389,8 +398,8 @@ export function buildTrack(id) {
     path.id = track.paths.length;
     path.parent = { a, b, side, hwSc: sc.hw, lift: sc.lift || 0 };
     main.shortcuts.push({ path: path.id, a, b, side, hwSc: sc.hw });
-    // open the main wall along the entry lane
-    for (let s = a - 2; s < a + ENTRY; s++) { const i = idxAt(main, s); if (side > 0) main.wr[i] = 0; else main.wl[i] = 0; }
+    // open the main wall along the entry lane, with SC_LEAD of advance warning before the true entry point
+    for (let s = a - SC_LEAD; s < a + ENTRY; s++) { const i = idxAt(main, s); if (side > 0) main.wr[i] = 0; else main.wl[i] = 0; }
     track.paths.push(path);
   }
   cache.set(id, track);
