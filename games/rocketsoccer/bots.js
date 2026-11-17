@@ -47,8 +47,8 @@ export function assignRoles(W, roles) {
 // time (so a hard bot reads bounces and touches almost at once, an easy bot a beat late).
 function seen(W, lv) {
   const H = W._bh || (W._bh = []);
-  if (!H.length || H[H.length - 1].tick !== W.tick) { const b = W.ball; H.push({ tick: W.tick, x: b.x, y: b.y, z: b.z, vx: b.vx, vy: b.vy, vz: b.vz }); if (H.length > 40) H.shift(); }
-  const lag = Math.round(lv.reaction * 60);
+  if (!H.length || H[H.length - 1].tick !== W.tick) { const b = W.ball; H.push({ tick: W.tick, x: b.x, y: b.y, z: b.z, vx: b.vx, vy: b.vy, vz: b.vz }); if (H.length > 60) H.shift(); }
+  const lag = Math.round(lv.reaction * 1.6 * 60);   // widened so the levels feel clearly different
   let e = H[0]; for (let k = H.length - 1; k >= 0; k--) if (H[k].tick <= W.tick - lag) { e = H[k]; break; }
   const t = (W.tick - e.tick) / 60 * 0.8;
   const out = { x: e.x + e.vx * t, y: Math.max(C.BALL_R, e.y + e.vy * t), z: e.z + e.vz * t, vx: e.vx, vy: e.vy, vz: e.vz, wx: 0, wy: 0, wz: 0 };
@@ -57,7 +57,7 @@ function seen(W, lv) {
 function prediction(W, b, key) {
   const cache = W._pc || (W._pc = {});   // per world, so nothing outlives the round
   const pc = cache[key] || (cache[key] = { tick: -1, P: [] });
-  if (pc.tick !== W.tick) { predictBall({ A: W.A, ball: b }, pc.P, 150, 3); pc.tick = W.tick; }
+  if (pc.tick !== W.tick) { predictBall({ A: W.A, ball: b, grav: W.grav }, pc.P, 150, 3); pc.tick = W.tick; }
   return pc.P;
 }
 
@@ -91,11 +91,12 @@ function plan(W, i, bot, role) {
   }
   // ATTACK: find the first predicted ball position we can reach in time
   const P = prediction(W, b, lv.reaction);
+  const gk = Math.min(1.9, Math.pow(C.G / (W.grav || C.G), 0.75));   // low gravity: jumps reach higher
   const speed = 14 + lv.skill * 12 + (c.boost > 20 ? 8 * lv.skill : 0);
-  const aerialOk = lv.skill > 0.85 && c.boost > 30;
+  const aerialOk = lv.skill > 0.85 && c.boost > 30 && (W.grav || C.G) >= C.G;   // in low gravity a jump already reaches high balls
   let tgt = null;
   for (const p of P) {
-    if (p.y > 4.6) continue;
+    if (p.y > 4.6 * gk) continue;
     const d = Math.max(0, Math.hypot(p.x - c.x, p.z - c.z) - R - 1.5);
     const l = local(c, p.x, c.y, p.z), ang = Math.abs(Math.atan2(l[0], l[2]));
     const need = d / speed + ang * 0.35;
@@ -132,12 +133,12 @@ function plan(W, i, bot, role) {
   bot.tx = clamp(bot.tx, -A.W + 2, A.W - 2); bot.tz = clamp(bot.tz, -A.L - 4, A.L + 4);
   bot.wantBoost = lv.skill > 0.4 && (align > 0.6 || tcl > 30) && bot.rnd() < 0.4 + lv.skill * 0.6;
   // hard bots go for simple aerials: a high ball we can reach soon, roughly in front of us, heading our way
-  if (aerialOk && c.gnd && !bot.aerial && sp(c) < 30 && bot.rnd() < lv.skill * 0.6) {
+  if (aerialOk && c.gnd && !bot.aerial && sp(c) < 30 && bot.rnd() < lv.skill * 0.3) {
     for (const p of P) {
-      if (p.t < 0.7 || p.t > 1.8) continue;
+      if (p.t < 0.6 || p.t > 1.4) continue;
       if (p.y < 7 || p.y > 15) continue;
       const hd = Math.hypot(p.x - c.x, p.z - c.z), l = local(c, p.x, p.y, p.z);
-      if (Math.abs(Math.atan2(l[0], l[2])) > 0.3 || hd > p.t * 22 || hd < 4) continue;
+      if (Math.abs(Math.atan2(l[0], l[2])) > 0.25 || hd > Math.min(18, p.t * 20) || hd < 4) continue;
       if ((p.z - c.z) * dir < -2) continue;   // only toward the opponent's half of the ball
       bot.aerial = 2.4; bot.ax = p.x - sx * 1.2; bot.ay = p.y; bot.az = p.z - sz * 1.2; break;
     }
@@ -163,9 +164,11 @@ export function botInput(W, i, bot, role) {
       if (!c.gnd && c.ft <= 0) {
         out.y = l[1] > l[2] * 0.08 + 0.3 ? 1 : l[1] < -0.3 ? -1 : 0;   // nose up / down
         out.x = l[0] > 0.4 ? -1 : l[0] < -0.4 ? 1 : 0;
-        out.boost = l[2] > 0 && Math.abs(l[1]) < l[2] * 0.6 + 1;
+        out.boost = true;   // boost the whole way: that is what gives full air control
+        if (c.boost <= 0) bot.aerial = 0;
       }
-      if (Math.hypot(b.x - c.x, b.y - c.y, b.z - c.z) < 3.6 || bot.aerial <= 0) bot.aerial = 0;
+      if (out.jump) { out.x = 0; out.y = 0; }   // a jump press with a direction held would dodge instead
+      if (Math.hypot(b.x - c.x, b.y - c.y, b.z - c.z) < C.BALL_R + 1.2 || bot.aerial <= 0) bot.aerial = 0;
       return out;
     }
   }
@@ -175,7 +178,7 @@ export function botInput(W, i, bot, role) {
     if (bot.jumpPlan === 1) out.jump = bot.jumpT < 0.08 || (bot.jumpT > 0.14 && bot.jumpT < 0.2);  // dodge
     else out.jump = bot.jumpT < 0.22 || (bot.jumpPlan === 3 && bot.jumpT > 0.3 && bot.jumpT < 0.34);
     if (bot.jumpPlan === 1 && bot.jumpT > 0.1) { out.y = -1; out.x = bot.flipX || 0; }
-    else { out.y = -1; }
+    else { out.y = bot.jumpPlan === 3 && bot.jumpT > 0.26 && bot.jumpT < 0.38 ? 0 : -1; }   // plain double jump, not a dodge
     if (bot.jumpT > 1.1 || (c.gnd && bot.jumpT > 0.3)) bot.jumpT = -1;
     return out;
   }
@@ -184,7 +187,7 @@ export function botInput(W, i, bot, role) {
   const dball = Math.hypot(b.x - c.x, b.z - c.z);
   const att = bot.mode === 'attack';
   const dirZ = c.team === 0 ? 1 : -1, toOwn = dball > 0.1 ? -((b.z - c.z) * dirZ) / dball : 0;   // >0: driving through it toward our goal
-  if (att && bot.sx != null && b.y < 6.5) {
+  if (att && bot.sx != null && b.y < 6.5 * Math.min(1.9, Math.pow(C.G / (W.grav || C.G), 0.75))) {
     // curve in: aim at a point behind the ball whose offset shrinks as we get closer, so the car arrives
     // travelling along the shot line and drives straight through the ball
     const bx = dball < 14 ? b.x : bot.bx, bz = dball < 14 ? b.z : bot.bz;
@@ -229,10 +232,11 @@ export function botInput(W, i, bot, role) {
   if (bot.stuck > 1.0) { bot.rev = 0.7; bot.stuck = 0; bot.revSteer = bot.rnd() < 0.5 ? -1 : 1; }
   if (bot.rev > 0) { bot.rev -= 1 / 60; out.y = 1; out.x = bot.revSteer; out.boost = false; return out; }
   // ---- hit decisions near the ball
+  const gk = Math.min(1.9, Math.pow(C.G / (W.grav || C.G), 0.75));
   if (c.gnd && att && !bot.whiff) {
     const lb = local(c, b.x, b.y, b.z), bang = Math.abs(Math.atan2(lb[0], lb[2])), bd = Math.hypot(lb[0], lb[2]);
     if (bot.kick && bd < 8.5 + sp * 0.05 && lv.skill > 0.5) { bot.jumpT = 0; bot.jumpPlan = 1; bot.flipX = 0; }
-    else if (b.y > 4.3 && b.y < 9 && bd < 3 + Math.max(0, b.y - 4) * 0.8 && bang < 0.6 && b.vy < 4) { bot.jumpT = 0; bot.jumpPlan = b.y > 6.5 ? 3 : 2; }
+    else if (b.y > 4.3 && b.y < 9 * gk && bd < 3 + Math.max(0, b.y - 4) * 0.8 / gk && bang < 0.6 && b.vy < 4) { bot.jumpT = 0; bot.jumpPlan = b.y > 6.5 * gk ? 3 : 2; }
     else if (b.y < 4 && bd < 6.5 && bang < 0.3 && bot.lined && sp > 12 && bot.rnd() < lv.skill * 0.12) { bot.jumpT = 0; bot.jumpPlan = 1; bot.flipX = 0; }
   }
   if (!c.gnd && c.ft <= 0 && bot.jumpT < 0) { out.x = 0; out.y = 0; }   // let the landing assist settle the car

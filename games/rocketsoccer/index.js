@@ -76,6 +76,8 @@ export async function start(ctx) {
   const myTeam = myIdx >= 0 ? roster[myIdx].team : -1;
   const W = newWorld(A, roster.map((r) => r.team));
   W.clock = mins * 60;
+  const moon = ctx.options.gravity === 'moon';
+  if (moon) W.grav = C.MOON_G;
   const kickRng = ctx.rng(0x6b1c);
   kickoff(W, kickRng); W.pt = 0;   // the hub's countdown is the first kickoff
   quantize(W);
@@ -113,7 +115,7 @@ export async function start(ctx) {
   let lastSnap = null, lastSnapTick = -1;
   const rec = [];                        // replay recording: packed snapshots at 30 Hz
   let replay = null, skips = new Set(), mySkip = false;
-  let ballCam = (() => { try { return localStorage.getItem('partyhub.rs.ballcam') !== '0'; } catch { return true; } })();
+  let ballCam = (() => { try { return localStorage.getItem('partyhub.rs.ballcam2') === '1'; } catch { return false; } })();   // car cam by default: steering always matches the screen
   const hooks = window.__rs = { autopilot: false, turbo: 1, get W() { return W; }, get phase() { return W.phase; }, get score() { return [W.sA, W.sB]; }, roster, lag: 0, err: { car: 0, ball: 0, n: 0, carMax: 0, ballMax: 0 } };
   let autoBot = null;
   const brain = (i) => { let b = bots.get(i); if (!b) { b = newBot(ctx.bots.level, ctx.rng(0xb07 + i)); bots.set(i, b); } return b; };
@@ -132,7 +134,7 @@ export async function start(ctx) {
     return myInput;
   }
   input.on('press', (a) => {
-    if (a === 'secondary') { ballCam = !ballCam; try { localStorage.setItem('partyhub.rs.ballcam', ballCam ? '1' : '0'); } catch { /* */ } ui.toast(ballCam ? '🎥 Ball cam ON' : '🎥 Ball cam OFF', '', 1000); }
+    if (a === 'secondary') { ballCam = !ballCam; try { localStorage.setItem('partyhub.rs.ballcam2', ballCam ? '1' : '0'); } catch { /* */ } ui.toast(ballCam ? '🎥 Ball cam ON' : '🎥 Ball cam OFF', '', 1000); }
     if (a === 'jump' && W.phase === PH.REPLAY && !mySkip && !ctx.spectator) { mySkip = true; net.toHost({ t: 'skip' }); ui.toast('⏭ Voted to skip the replay', '', 1400); }
   });
 
@@ -202,7 +204,9 @@ export async function start(ctx) {
       out[r.id] = bits.join(' · ');
     });
     const title = W.sA === W.sB ? `Draw ${W.sA}–${W.sB}` : `${W.sA > W.sB ? 'Blue' : 'Orange'} wins ${Math.max(W.sA, W.sB)}–${Math.min(W.sA, W.sB)}${W.ot ? ' in overtime' : ''}`;
-    ctx.endGame(placements(), { stats: out, title });
+    let mvp = 0; st.forEach((s, i) => { if (s.pts > st[mvp].pts) mvp = i; });
+    const note = st[mvp].pts > 0 ? `⭐ MVP: ${roster[mvp].name} (${TEAM[roster[mvp].team].name.toLowerCase()}, ${st[mvp].pts} pts)` : '';
+    ctx.endGame(placements(), { stats: out, title, note });
   }
 
   // ---------------------------------------------------------------- client prediction
@@ -282,6 +286,7 @@ export async function start(ctx) {
   });
   ctx.on('leave', (id) => { const i = idxOf.get(id); if (i != null && !roster[i].isBot) ui.toast(`🤖 A bot drives for ${roster[i].name}`, '', 2200); });
 
+  let lastGoal = null, demoedBy = -1, prevClock = W.clock, cheer = 0, goT = -1;
   let shake = 0, flash = 0, popT = 0, pulse = [0, 0], countShown = -1, lastScore = [0, 0];
   function pop(html, ms = 1300) { popEl.innerHTML = html; popEl.classList.add('on'); popT = ms / 1000; }
   const nm = (i) => (i >= 0 && roster[i] ? ui.esc(roster[i].name) : '?');
@@ -294,7 +299,8 @@ export async function start(ctx) {
         goalBoom(e.x, e.y, e.z, colorOf(e.scorer), tc.glow);
         pulse[e.team] = 1;
         const who = e.own ? `Own goal by ${nm(e.scorer)}` : e.scorer >= 0 ? `${nm(e.scorer)} scores!${e.assist >= 0 ? ` <small>assist ${nm(e.assist)}</small>` : ''}` : '';
-        const tag = e.aerial ? 'AERIAL GOAL!' : e.speed > 50 ? 'ROCKET GOAL!' : e.ot ? 'GOLDEN GOAL!' : 'GOAL!';
+        const tag = e.ot ? 'GOLDEN GOAL!' : e.g === 3 ? 'HAT TRICK!' : e.aerial ? 'AERIAL GOAL!' : e.speed > 50 ? 'ROCKET GOAL!' : e.own ? 'OWN GOAL!' : 'GOAL!';
+        lastGoal = e;
         pop(`<span style="color:${tc.css}">${tag}</span><small>${who} · ${Math.round(e.speed * 3.6)} km/h</small>`, 2600);
         W.sA = e.sA; W.sB = e.sB;
         if (e.scorer === myIdx && !e.own) ui.toast('⚽ You scored!', 'gold', 2200);
@@ -315,8 +321,8 @@ export async function start(ctx) {
         sfx.sfx('demo', e.i === myIdx || e.by === myIdx ? 1.2 : 0.6);
         fx.burst(p.x, p.y, p.z, 70, [TEAM[roster[e.i].team].glow, 0xffd23f, 0xffffff, 0x333333], 18, 1.1, 1.4, { up: 4, grav: 10 });
         rings.add(p.x, p.y, p.z, TEAM[roster[e.i].team].glow, 10, 0.5, null);
-        if (e.i === myIdx) { shake = Math.max(shake, 1); flash = 0.5; pop('<span style="color:#ff6a6a">DEMOLISHED!</span>', 1500); }
-        else if (e.by === myIdx) { pop('💥 DEMOLITION!', 1300); shake = Math.max(shake, 0.5); }
+        if (e.i === myIdx) { shake = Math.max(shake, 1); flash = 0.5; demoedBy = e.by; pop(`<span style="color:#ff6a6a">DEMOLISHED!</span><small>by ${nm(e.by)}</small>`, 1500); }
+        else if (e.by === myIdx) { pop(e.i === demoedBy ? '😤 PAYBACK!' : '💥 DEMOLITION!', 1300); if (e.i === demoedBy) demoedBy = -1; shake = Math.max(shake, 0.5); }
         else ui.toast(`💥 ${roster[e.by]?.name} demolished ${roster[e.i]?.name}`, '', 1800);
         void c; break;
       }
@@ -331,12 +337,15 @@ export async function start(ctx) {
     }
   }
   function goalBoom(x, y, z, color, team) {
-    fx.burst(x, y, z, ctx.quality().effects ? 260 : 120, [color, color, team, 0xffffff, 0xffd23f], 40, 1.6, 2.4, { up: 6, grav: 6, drag: 1.2 });
-    fx.burst(x, y, z, 60, 0xffffff, 18, 0.6, 3.5);
+    const hi = ctx.quality().effects;
+    fx.burst(x, y, z, hi ? 170 : 90, [color, color, color, team], 42, 1.7, 2.2, { up: 7, grav: 7, drag: 1.1 });
+    fx.burst(x, y, z, hi ? 50 : 25, [0xffd23f, color], 22, 1.0, 1.4, { up: 10, grav: 14, drag: 0.6 });
+    fx.burst(x, y, z, 14, 0xffffff, 14, 0.4, 3.0);
     rings.add(x, Math.max(0.3, y), z, color, 34, 0.9, null);
     rings.add(x, y, z, team, 26, 0.7, new THREE.Vector3(0, 0, 1));
-    shake = Math.max(shake, 1.3); flash = 0.85;
-    view.setBloom(1.6);
+    rings.add(x, y, z, color, 16, 0.5, new THREE.Vector3(0, 0, 1));
+    shake = Math.max(shake, 1.3); flash = 0.45; cheer = 1.6;
+    view.boom(x, y, z, color); view.setBloom(1.2);
   }
   function confetti(team) {
     const cols = [TEAM[team].hex, TEAM[team].light, 0xffffff, 0xffd23f];
@@ -356,9 +365,9 @@ export async function start(ctx) {
           break;
         }
         case 'bounce': if (e.s > 14) { sfx.sfx('bounce', e.s / 30); fx.burst(e.x, e.y, e.z, 8, 0xffffff, 6, 0.35, 0.7); } break;
-        case 'jump': case 'jump2': if (mine) sfx.sfx('jump'); break;
+        case 'jump': case 'jump2': view.cars[e.i].squash = -0.22; if (mine) sfx.sfx('jump'); break;
         case 'dodge': if (mine) sfx.sfx('dodge'); { const p = W.cars[e.i]; fx.burst(p.x, p.y - 0.3, p.z, 10, 0xffffff, 6, 0.4, 0.7); } break;
-        case 'land': if (mine) { sfx.sfx('land', e.s / 14); shake = Math.max(shake, Math.min(0.4, e.s / 40)); } break;
+        case 'land': view.cars[e.i].squash = Math.min(0.4, e.s / 35); if (mine) { sfx.sfx('land', e.s / 14); shake = Math.max(shake, Math.min(0.4, e.s / 40)); } break;
         case 'bump': if (e.i === myIdx || e.j === myIdx) { sfx.sfx('bump', e.s / 10); shake = Math.max(shake, 0.4); } fx.burst(e.x, e.y, e.z, 14, [0xffd23f, 0xffffff], 9, 0.4, 0.8); break;
         case 'pad': { const pd = A.pads[e.p]; if (mine) sfx.sfx(pd.big ? 'padbig' : 'pad'); fx.burst(pd.x, 0.8, pd.z, pd.big ? 24 : 8, 0xffd23f, pd.big ? 9 : 5, 0.5, pd.big ? 1.1 : 0.6, { up: 5 }); break; }
         case 'kickoff': if (ctx.started && countShown > 0) ui.countdown(0); countShown = -1; break;
@@ -388,7 +397,7 @@ export async function start(ctx) {
     if (R.tt >= fr[fr.length - 1].tick) { R.tt = fr[fr.length - 1].tick; }
     unpack(Wr, a.f); unpack(Wr2, b.f);
     const f = b.tick > a.tick ? Math.min(1, (R.tt - a.tick) / (b.tick - a.tick)) : 0;
-    if (!R.boomed && R.tt >= R.goalTick) { R.boomed = true; const B = Wr2.ball; goalBoom(B.x, B.y, B.z, 0xffffff, TEAM[R.gz > 0 ? 0 : 1].glow); }
+    if (!R.boomed && R.tt >= R.goalTick) { R.boomed = true; const B = Wr2.ball; goalBoom(B.x, B.y, B.z, lastGoal ? colorOf(lastGoal.scorer) : 0xffffff, TEAM[R.gz > 0 ? 0 : 1].glow); }
     return { a: Wr, b: Wr2, f };
   }
 
@@ -412,6 +421,7 @@ export async function start(ctx) {
       if (a !== b && !jump) { _q2.set(ca.qx, ca.qy, ca.qz, ca.qw); _q.copy(_q2.slerp(_q, f)); }
       dispQ[i].copy(_q);
       v.root.position.copy(p); v.root.quaternion.copy(_q);
+      const sq = v.squash || 0; v.rig.scale.set(1 + sq * 0.35, 1 - sq * 0.6, 1 + sq * 0.2); v.squash = sq * 0.86;
       // wheels + boost flames
       const sp = speedOf(cb);
       v.spin += sp * 0.016 * (cb.inp & 8 ? -1 : 1);
@@ -433,7 +443,7 @@ export async function start(ctx) {
     view.ball.root.position.copy(ballPos);
     view.ballShadow.position.set(ballPos.x, 0.05, ballPos.z); view.ballShadow.scale.setScalar(C.BALL_R * Math.max(0.35, 1 - ballPos.y / 34));
     // pads
-    for (let p = 0; p < view.pads.length; p++) { const on = b.pads[p] <= 0; view.pads[p].orb.visible = on; }
+    for (let p = 0; p < view.pads.length; p++) view.setPad(p, b.pads[p] <= 0);
   }
 
   // ---------------------------------------------------------------- camera
@@ -456,9 +466,11 @@ export async function start(ctx) {
     } else if (!ctx.started) {
       // intro: sweep around the stadium toward my end
       introT += dt;
-      const ang = (myTeam === 1 ? Math.PI : 0) + Math.PI * 0.9 - introT * 0.32, r = 95 - introT * 6;
-      pos.set(Math.sin(ang) * r, 42 - introT * 5, -Math.cos(ang) * r * (myTeam === 1 ? -1 : 1));
-      look.set(0, 2, 0); fov = 60;
+      // intro: a slow crane shot around the stadium that settles behind my team's goal
+      const e = Math.min(1, introT / 7), side = myTeam === 1 ? 1 : -1;
+      const ang = Math.PI * 0.75 * (1 - e) + (side > 0 ? 0 : Math.PI), r = 120 - 50 * e;
+      pos.set(Math.sin(ang) * r * 0.8, 55 - 30 * e + Math.sin(introT * 0.7) * 2, Math.cos(ang) * r);
+      look.set(0, 3, 0); fov = 58;
       cam.pos.copy(pos); cam.look.copy(look);
     } else if (myIdx >= 0 && W.cars[myIdx].demo <= 0) {
       const p = dispPos[myIdx], c = W.cars[myIdx];
@@ -483,7 +495,9 @@ export async function start(ctx) {
         look.copy(p).addScaledVector(to, Math.min(1, 6 / tl)); look.y += 0.5;
       } else look.set(p.x + cam.dir.x * 6, p.y + 0.8, p.z + cam.dir.z * 6);
       keepInside(pos);
-      cam.pos.lerp(pos, 1 - Math.exp(-dt * 14)); cam.look.lerp(look, 1 - Math.exp(-dt * 16));
+      const glide = goT >= 0 && goT < 1.6 ? Math.pow(Math.min(1, 0.08 + goT / 1.6), 2) : 1;   // swoop down from the intro shot
+      if (goT >= 0) goT += dt;
+      cam.pos.lerp(pos, 1 - Math.exp(-dt * 14 * glide)); cam.look.lerp(look, 1 - Math.exp(-dt * 16 * glide));
       fov = 72 + Math.max(0, sp - 25) * 0.5 + (c.bst ? 4 : 0);
     } else {
       // spectating / demolished: TV camera from the side stand, tracking the ball
@@ -528,11 +542,21 @@ export async function start(ctx) {
     shake = Math.max(0, shake - dt * 2.2); flash = Math.max(0, flash - dt * 2.5);
     pulse[0] = Math.max(0, pulse[0] - dt * 0.5); pulse[1] = Math.max(0, pulse[1] - dt * 0.5);
     view.uniforms.uTime.value += dt; view.uniforms.uPulseA.value = pulse[0] * (0.6 + 0.4 * Math.sin(now / 90)); view.uniforms.uPulseB.value = pulse[1] * (0.6 + 0.4 * Math.sin(now / 90));
-    flashEl.style.opacity = (flash * 0.7).toFixed(3);
+    flashEl.style.opacity = (flash * 0.55).toFixed(3);
     if (popT > 0) { popT -= dt; if (popT <= 0) popEl.classList.remove('on'); }
+    cheer = Math.max(0, cheer - dt * 0.3);
+    const dangerC = Math.max(0, 1 - Math.abs(Math.abs(W.ball.z) - A.L) / 25);
+    view.update(dt, Math.min(1.3, cheer + (ctx.started ? dangerC * 0.35 : 0.1)));
+    // ball streak at speed, tinted by the team that last hit it
+    const bsrc = replay ? Wr2.ball : W.ball, bsp = speedOf(bsrc);
+    { const lt0 = (replay ? Wr2 : W).lastTouch; view.ball.setGlow(Math.max(0, Math.min(1, (bsp - 14) / 40)), lt0 >= 0 && roster[lt0] ? TEAM[roster[lt0].team].glow : null, dt); }
+    if (bsp > 30 && view.ball.root.visible) {
+      const lt = (replay ? Wr2 : W).lastTouch, tint = lt >= 0 && roster[lt] ? TEAM[roster[lt].team].glow : 0xffffff;
+      for (let k = 0; k < (bsp > 48 ? 3 : 1); k++) fx.emit(ballPos.x + (Math.random() - 0.5) * 2.4, ballPos.y + (Math.random() - 0.5) * 2.4, ballPos.z + (Math.random() - 0.5) * 2.4, 0, 0, 0, Math.random() < 0.5 ? 0xffffff : tint, 0.4, 1.3, 0);
+    }
     fx.update(dt); rings.update(dt);
     updateCamera(dt, now);
-    view.setBloom(0.55 + flash * 1.1);
+    view.setBloom(0.55 + flash * 0.9);
     view.render();
     // name tags + off-screen ball arrow
     const w = ctx.container.clientWidth, h = ctx.container.clientHeight;
@@ -556,12 +580,15 @@ export async function start(ctx) {
     // sound
     const me = myIdx >= 0 ? W.cars[myIdx] : null;
     const danger = Math.max(0, 1 - Math.abs(Math.abs(W.ball.z) - A.L) / 30);
-    sfx.update(dt, { speed: me ? Math.min(1, speedOf(me) / C.MAX) : 0, boosting: !!me?.bst, gnd: !!me?.gnd, active: !!me && ctx.started && me.demo <= 0 && W.phase !== PH.REPLAY && !ended, excite: ctx.started ? 0.25 + danger * 0.7 : 0.15 });
+    sfx.update(dt, { speed: me ? Math.min(1, speedOf(me) / C.MAX) : 0, boosting: !!me?.bst, gnd: !!me?.gnd, active: !!me && ctx.started && me.demo <= 0 && W.phase !== PH.REPLAY && !ended, excite: ctx.started ? 0.25 + danger * 0.7 + (!W.ot && W.clock < 30 ? 0.25 : 0) + (W.ot ? 0.35 : 0) : 0.15 });
     hud(dt);
   });
 
   // ---------------------------------------------------------------- HUD
   function hud() {
+    if (!W.ot && W.phase === PH.PLAY && prevClock > 60 && W.clock <= 60 && mins > 1) { ui.banner('LAST MINUTE!', 1500); sfx.sfx('overtime'); }
+    if (!W.ot && W.phase === PH.PLAY && prevClock > 10 && W.clock <= 10) ui.toast('⏱ 10 seconds left!', 'gold', 1500);
+    prevClock = W.clock;
     if (W.sA !== lastScore[0]) bump(scA); if (W.sB !== lastScore[1]) bump(scB);
     lastScore = [W.sA, W.sB];
     scA.textContent = W.sA; scB.textContent = W.sB;
@@ -591,8 +618,9 @@ export async function start(ctx) {
     return { columns: ['Player', 'Team', 'Points', 'Goals', 'Assists', 'Saves', 'Shots', 'Demos'], rows: roster.map((r, i) => ({ r, s: st[i] || {} })).sort((a, b) => a.r.team - b.r.team || b.s.pts - a.s.pts).map(({ r, s }) => [`<span style="color:${r.colorCss}">${ui.esc(r.name)}</span>`, TEAM[r.team].emoji, s.pts ?? 0, s.g ?? 0, s.a ?? 0, s.s ?? 0, s.sh ?? 0, s.d ?? 0]) };
   });
   ctx.on('go', () => {
-    sfx.sfx('whistle');
+    sfx.sfx('whistle'); goT = 0; cheer = 0.8;
     if (myIdx >= 0) ui.banner(`${TEAM[myTeam].emoji} You're ${TEAM[myTeam].name}! Score in the ${TEAM[1 - myTeam].name.toLowerCase()} goal`, 2200, { small: true });
+    if (moon) ctx.setTimeout(() => ui.toast('🌙 Moon Ball: low gravity. Jump high and fly!', 'gold', 2600), 2300);
   });
 
   return {

@@ -63,7 +63,7 @@ export class Referee {
         } else if (lastT) { own = true; scorer = lastT.i; }
         const speed = len3(b.vx, b.vy, b.vz);
         const aerial = scorer >= 0 && !own && b.y > 6;
-        out.push({ k: 'goal', team, scorer, assist, own, speed, x: b.x, y: b.y, z: b.z, aerial, tick: W.tick, ot: W.ot, sA: W.sA, sB: W.sB });
+        out.push({ k: 'goal', team, scorer, assist, own, g: scorer >= 0 && !own ? st[scorer].g : 0, speed, x: b.x, y: b.y, z: b.z, aerial, tick: W.tick, ot: W.ot, sA: W.sA, sB: W.sB });
         W.phase = PH.GOAL; W.pt = GOAL_T; this.goals++; this.goalTick = W.tick; this.touches.length = 0;
         return out;
       }

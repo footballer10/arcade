@@ -3,7 +3,7 @@
 A free browser party-game hub: create a party, share the 4-letter code or link, and play a session of 3D mini-games
 together without ever leaving the party. Host-authoritative peer-to-peer (PeerJS/WebRTC), static files only.
 
-**Play:** https://footballer10.github.io/arcade-prototypes/
+**Play:** https://footballer10.github.io/arcade/
 
 Games: **Mini-Golf Battle**, **Downhill Rush** and **Arena Royale**. (`games/_template`, "Coin Grab", is the developer template new games copy; players never see it.)
 Old links (`/golf/`, `/downhill/`, `/arena/`) redirect to the hub.

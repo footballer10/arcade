@@ -52,6 +52,8 @@ export async function start(ctx) {
   const ids = ctx.players.map((p) => p.id), N = ids.length, myIdx = ids.indexOf(ctx.myId);
   const opts = { rounds: ctx.options.rounds || '3', pool: ctx.options.pool || 'all', final: ctx.options.final || 'random' };
   const plan = planMatch(ctx.rng(0x0B5), opts, N);
+  let devStage = new URLSearchParams(location.search).get('ocstage'); try { devStage ||= localStorage.getItem('oc.devstage'); } catch { /* */ }      // dev/test only: ?ocstage=hop plays that stage first
+  if (devStage && STAGES[devStage]) plan[0] = devStage;
   const stages = new Map();
   const stageFor = (k) => { if (!stages.has(k)) stages.set(k, buildStage(plan[k], ctx.rng(0x500 + k * 131))); return stages.get(k); };
   const api = { autopilot: false, turbo: 1, plan, stats: { corrections: 0, snaps: 0 } };   // test-only hooks (tests/drivers.mjs)

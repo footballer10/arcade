@@ -6,11 +6,11 @@ import { sdArena } from './arena.js';
 
 export const DT = 1 / 60;
 export const C = {
-  G: 24,                    // gravity
-  BALL_R: 2.4, BALL_MAX: 66, BALL_DRAG: 0.025, BALL_E: 0.62, BALL_ROLL: 0.22,
+  G: 24, MOON_G: 14,        // gravity (normal / Moon Ball)
+  BALL_R: 2.7, BALL_MAX: 66, BALL_DRAG: 0.025, BALL_E: 0.62, BALL_ROLL: 0.22,
   HX: 1.1, HY: 0.5, HZ: 1.55, REST: 0.86,   // car hitbox half extents (x width, y height, z length), ride height
   DRIVE_MAX: 25, MAX: 42, SUPER: 38,         // top speed on throttle / absolute cap / supersonic (demolishes)
-  THROTTLE: 40, BRAKE: 45, COAST: 6, GRIP: 11, STICK: 9,
+  THROTTLE: 40, BRAKE: 45, COAST: 6, GRIP: 14, STICK: 9,
   BOOST_ACC: 30, BOOST_USE: 33, BOOST_START: 34,
   JUMP_V: 8.6, JUMP_HOLD: 26, JUMP_HOLD_T: 0.2, DJ_WINDOW: 1.45, DODGE_V: 11.5, FLIP_T: 0.62,
   PITCH: 5.2, YAW: 3.6, ROLL: 3.2, AIR_RESP: 9,
@@ -88,7 +88,7 @@ export function newWorld(A, teams) {
   const cars = teams.map((t) => newCar(t));
   return {
     A, cars, ball: { x: 0, y: C.BALL_R, z: 0, vx: 0, vy: 0, vz: 0, wx: 0, wy: 0, wz: 0, px: 0, py: C.BALL_R, pz: 0 },
-    pads: new Float32Array(A.pads.length), tick: 0, phase: PH.KICK, pt: 0, clock: 180, ot: 0, sA: 0, sB: 0, lastTouch: -1, flags: 0,
+    grav: C.G, pads: new Float32Array(A.pads.length), tick: 0, phase: PH.KICK, pt: 0, clock: 180, ot: 0, sA: 0, sB: 0, lastTouch: -1, flags: 0,
     ev: null,   // events array while "live" (null during client replays)
   };
 }
@@ -139,12 +139,12 @@ function stepCar(W, c, i) {
       c.vx += fx * acc * DT; c.vy += fy * acc * DT; c.vz += fz * acc * DT;
       // steering: turn the car and its velocity about the surface normal
       const sp = Math.abs(vf), dir = vf < -0.5 ? -1 : vf > 0.5 ? 1 : t || 1;
-      const rate = -inp.x * dir * Math.min(1, sp / 4) * (2.7 - Math.min(sp, C.MAX) * 0.022);
+      const rate = -inp.x * dir * Math.min(1, (sp + 1.5) / 5) * (3.0 - Math.min(sp, C.MAX) * 0.024);   // turns even when slow
       if (rate) { qpre(c, nx, ny, nz, rate * DT); rotVel(c, nx, ny, nz, rate * DT); }
       // tyre grip kills sideways sliding
       const vs = c.vx * sx + c.vy * sy + c.vz * sz, k = vs * (1 - Math.exp(-C.GRIP * DT));
       c.vx -= sx * k; c.vy -= sy * k; c.vz -= sz * k;
-      c.vy -= C.G * DT;
+      c.vy -= (W.grav || C.G) * DT;
       c.vx -= nx * C.STICK * DT; c.vy -= ny * C.STICK * DT; c.vz -= nz * C.STICK * DT;
       c.wx = c.wy = c.wz = 0;
       // too slow on a wall, or hanging from the ceiling: fall off
@@ -184,15 +184,18 @@ function stepCar(W, c, i) {
       c.ft -= DT;
       if (c.ft <= 0) { c.ft = 0; c.wx = c.wy = c.wz = 0; }
     } else {
-      // air control in the car's own frame: W/S pitch, A/D yaw + roll (a banked turn)
+      // air control in the car's own frame. With boost held you fly: W/S pitch, A/D yaw + roll (a banked turn).
+      // Without boost it stays calm: a gentle tilt, A/D just turn, and the car levels itself (see carSurface),
+      // so holding W through a jump doesn't flip you onto your roof.
       qinv(c, c.wx, c.wy, c.wz, t3);
-      const tp = -inp.y * C.PITCH, ty = -inp.x * C.YAW, tr = inp.x * C.ROLL;
+      const fly = boosting ? 1 : 0;
+      const tp = -inp.y * C.PITCH * (fly ? 1 : 0.3), ty = -inp.x * C.YAW * (fly ? 1 : 0.85), tr = inp.x * C.ROLL * fly;
       const k = Math.min(1, C.AIR_RESP * DT);
       t3[0] += (tp - t3[0]) * k; t3[1] += (ty - t3[1]) * k; t3[2] += (tr - t3[2]) * k;
       qrot(c, t3[0], t3[1], t3[2], t3); c.wx = t3[0]; c.wy = t3[1]; c.wz = t3[2];
     }
     if (boosting) { c.vx += f3[0] * C.BOOST_ACC * DT; c.vy += f3[1] * C.BOOST_ACC * DT; c.vz += f3[2] * C.BOOST_ACC * DT; }
-    c.vy -= C.G * DT;
+    c.vy -= (W.grav || C.G) * DT;
     const wl = len3(c.wx, c.wy, c.wz);
     if (wl > 1e-5) qpre(c, c.wx / wl, c.wy / wl, c.wz / wl, wl * DT);
   }
@@ -227,13 +230,13 @@ function carSurface(W, c, i, inp, pressed) {
     return;
   }
   if (d < C.REST) {
-    if (up > 0.5 && vn < 1) {
+    if (up > 0.35 && vn < 1) {
       // wheels down: land
       const hard = -vn;
       c.gnd = 1; c.jt = -1; c.dj = 0; c.jhold = 0; c.ft = 0; c.wx = c.wy = c.wz = 0; c.tt = 0;
       c.x += nx * (C.REST - d); c.y += ny * (C.REST - d); c.z += nz * (C.REST - d);
       if (vn < 0) { c.vx -= nx * vn; c.vy -= ny * vn; c.vz -= nz * vn; }
-      alignUp(c, nx, ny, nz, 0.5);
+      alignUp(c, nx, ny, nz, 0.6);
       if (ev && hard > 6) ev.push({ k: 'land', i, s: hard });
       return;
     }
@@ -250,7 +253,7 @@ function carSurface(W, c, i, inp, pressed) {
   // turtled (lying on the roof or side): flip back over by itself or with Space
   const sp = len3(c.vx, c.vy, c.vz);
   if (d < 1.7 && sp < 5 && up < 0.5 && c.ft <= 0) c.tt += DT; else c.tt = 0;
-  if (c.tt > 0.9 || (pressed && c.tt > 0.12)) {
+  if (c.tt > 0.45 || (pressed && c.tt > 0.08)) {
     c.tt = 0; c.dj = 0; c.jt = -1;
     c.vx += nx * 7; c.vy += ny * 7; c.vz += nz * 7;
     let ax = u3[1] * nz - u3[2] * ny, ay = u3[2] * nx - u3[0] * nz, az = u3[0] * ny - u3[1] * nx;
@@ -259,8 +262,11 @@ function carSurface(W, c, i, inp, pressed) {
     const ang = Math.acos(clamp(up, -1, 1)), T = 0.5;
     c.wx = (ax / al) * (ang / T); c.wy = (ay / al) * (ang / T); c.wz = (az / al) * (ang / T); c.ft = T;
   }
-  // gentle landing assist: with no air input, ease the wheels toward the surface below
-  if (!inp.x && !inp.y && c.ft <= 0 && d < 5 && vn < 0) alignUp(c, nx, ny, nz, Math.min(1, 2.2 * DT));
+  // self-levelling while not flying: wheels ease toward the surface below (or the sky when high up)
+  if (c.ft <= 0 && !c.bst) {
+    const near = d < 6 && vn < 2, rate = (inp.x || inp.y ? 2.6 : 3.6) * DT;
+    if (near) alignUp(c, nx, ny, nz, Math.min(1, rate)); else alignUp(c, 0, 1, 0, Math.min(1, rate * 0.8));
+  }
 }
 
 export function respawn(W, c, i) {
@@ -275,7 +281,7 @@ export function respawn(W, c, i) {
 function stepBall(W) {
   const b = W.ball, A = W.A, R = C.BALL_R;
   b.px = b.x; b.py = b.y; b.pz = b.z;
-  b.vy -= C.G * DT;
+  b.vy -= (W.grav || C.G) * DT;
   const dk = 1 - C.BALL_DRAG * DT; b.vx *= dk; b.vy *= dk; b.vz *= dk;
   const sp = len3(b.vx, b.vy, b.vz);
   if (sp > C.BALL_MAX) { const k = C.BALL_MAX / sp; b.vx *= k; b.vy *= k; b.vz *= k; }
@@ -419,7 +425,7 @@ export function stepWorld(W) {
 
 // Only the ball (for bot predictions). Works on a lightweight copy.
 export function predictBall(W, out, steps, every = 3) {
-  const P = { A: W.A, ball: { ...W.ball }, ev: null };
+  const P = { A: W.A, ball: { ...W.ball }, ev: null, grav: W.grav };
   out.length = 0;
   for (let s = 1; s <= steps; s++) { stepBall(P); if (s % every === 0) out.push({ t: s * DT, x: P.ball.x, y: P.ball.y, z: P.ball.z, vx: P.ball.vx, vy: P.ball.vy, vz: P.ball.vz }); }
   return out;

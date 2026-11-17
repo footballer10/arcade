@@ -3,12 +3,41 @@
 // squeaky hammer, third-person hiders, particles (poofs, stars, music notes), name tags and the blindfold.
 import * as THREE from 'three';
 import { Batch, KINDS, kindGeometry, disposeKindCache } from './props.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CELL, WH, WT, rayWorld } from './level.js';
+
+// warm cozy grade + soft vignette (High quality only)
+const GRADE = {
+  uniforms: { tDiffuse: { value: null }, uFlash: { value: 0 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uFlash; varying vec2 vUv;
+  void main(){
+    vec4 c = texture2D(tDiffuse, vUv);
+    float l = dot(c.rgb, vec3(.299,.587,.114));
+    c.rgb = mix(vec3(l), c.rgb, 1.12);                       // a little more saturation
+    c.rgb *= vec3(1.04, 1.0, .94);                           // warm
+    vec2 d = vUv - .5; float v = smoothstep(.9, .3, length(d * vec2(1.15, 1.)));
+    c.rgb *= mix(.72, 1., v);
+    c.rgb += vec3(1., .95, .8) * uFlash;
+    gl_FragColor = c;
+  }`,
+};
 
 const INK = 0x17112e;
 const GRAD = (() => { const t = new THREE.DataTexture(new Uint8Array([95, 175, 255]), 3, 1, THREE.RedFormat); t.needsUpdate = true; return t; })();
-const v1 = new THREE.Vector3(), v2 = new THREE.Vector3();
+const v1 = new THREE.Vector3(), v2 = new THREE.Vector3(), _ctr = new THREE.Vector3(), _mL = new THREE.Matrix4(), _qL = new THREE.Quaternion();
 
+function comic(g, s, txt, fill, burst) {
+  g.translate(s / 2, s / 2); g.beginPath();
+  for (let i = 0; i < 24; i++) { const r = i % 2 ? s * 0.3 : s * 0.47, a = (i / 24) * Math.PI * 2; g.lineTo(Math.cos(a) * r, Math.sin(a) * r * 0.62); }
+  g.closePath(); g.fillStyle = burst; g.fill(); g.lineWidth = s * 0.025; g.strokeStyle = '#17112e'; g.stroke();
+  g.rotate(-0.12); g.font = `${s * 0.2}px "Lilita One", Arial Black, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.lineWidth = s * 0.045; g.strokeStyle = '#17112e'; g.strokeText(txt, 0, 0); g.fillStyle = fill; g.fillText(txt, 0, 0);
+}
 function spriteTex(draw, size = 64) {
   const c = document.createElement('canvas'); c.width = c.height = size; const g = c.getContext('2d'); draw(g, size);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
@@ -26,6 +55,12 @@ export function createView(ctx) {
   const inkMat = M(new THREE.MeshBasicMaterial({ color: INK, side: THREE.BackSide }));
   const hiMat = M(new THREE.MeshBasicMaterial({ color: 0xffe14a, side: THREE.BackSide }));
   const kindCache = new Map();
+  const ceilMat = M(new THREE.MeshToonMaterial({ color: 0xfff6e8, gradientMap: GRAD }));
+  const lampMat = M(new THREE.MeshBasicMaterial({ color: 0xfff0c8, toneMapped: false }));
+  const glowMat = M(new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }));
+  const fireTex = spriteTex((g, s2) => { const gr = g.createRadialGradient(s2 / 2, s2 / 2, 0, s2 / 2, s2 / 2, s2 / 2); gr.addColorStop(0, 'rgba(255,200,90,.9)'); gr.addColorStop(0.4, 'rgba(255,120,40,.35)'); gr.addColorStop(1, 'rgba(255,90,20,0)'); g.fillStyle = gr; g.fillRect(0, 0, s2, s2); });
+  const fireMat = M(new THREE.SpriteMaterial({ map: fireTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })); own.add(fireTex);
+  const fireLight = new THREE.PointLight(0xff9a4a, 6, 7, 1.6); scene.add(fireLight);
 
   // ---------------------------------------------------------------- lights
   const hemi = new THREE.HemisphereLight(0xfff1dc, 0x8a6a5a, 1.45); scene.add(hemi);
@@ -36,14 +71,34 @@ export function createView(ctx) {
     sun.castShadow = q.shadows; renderer.shadowMap.enabled = q.shadows;
     return q;
   }
+  let flash = 0, fovKick = 0;
+  let composer = null, bloom = null, grade = null;
+  function setupPost() {
+    if (Q.effects && !composer) {
+      composer = new EffectComposer(renderer);
+      composer.addPass(new RenderPass(scene, camera));
+      bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.38, 0.5, 0.86); composer.addPass(bloom);
+      grade = new ShaderPass(GRADE); composer.addPass(grade);
+      composer.addPass(new OutputPass());
+      sizePost();
+    } else if (!Q.effects && composer) disposePost();
+  }
+  function sizePost() { if (!composer) return; const w = ctx.container.clientWidth || innerWidth, h = ctx.container.clientHeight || innerHeight; composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w, h); }
+  function disposePost() { if (!composer) return; for (const p of composer.passes) p.dispose?.(); composer.renderTarget1.dispose(); composer.renderTarget2.dispose(); composer = bloom = grade = null; }
   let Q = applyQ();
+  // dust motes floating in the warm light (High only)
+  const DUST = 140, dustGeo = new THREE.BufferGeometry(), dustPos = new Float32Array(DUST * 3);
+  for (let i = 0; i < DUST; i++) { dustPos[i * 3] = (Math.random() - 0.5) * 12; dustPos[i * 3 + 1] = Math.random() * WH; dustPos[i * 3 + 2] = (Math.random() - 0.5) * 12; }
+  dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3)); own.add(dustGeo);
+  const dust = new THREE.Points(dustGeo, M(new THREE.PointsMaterial({ color: 0xfff0c8, size: 0.035, transparent: true, opacity: 0.55, depthWrite: false })));
+  dust.frustumCulled = false; scene.add(dust);
 
   // ---------------------------------------------------------------- level
   let level = null; const levelObjs = []; const decoys = []; const decoyMeshes = []; let highlighted = -1;
   const dm = new THREE.Object3D();
   const hiMesh = new THREE.Mesh(undefined, hiMat); hiMesh.visible = false; scene.add(hiMesh);
   function clearLevel() {
-    for (const o of levelObjs) { o.removeFromParent(); o.geometry?.dispose(); }
+    for (const o of levelObjs) { o.removeFromParent(); if (!o.isSprite) o.geometry?.dispose(); }
     levelObjs.length = 0;
     for (const m of decoyMeshes) { m.removeFromParent(); m.dispose(); }
     decoyMeshes.length = 0; decoys.length = 0; highlighted = -1; hiMesh.visible = false;
@@ -67,8 +122,33 @@ export function createView(ctx) {
     }
     fb.box(0, -0.12, 0, L.w + 30, 0.1, L.d + 30, 0x7cc76a);
     const f = fb.build(); add(f.geo, toonV, false);
-    const ceil = new THREE.Mesh(mergeList(cb), M(new THREE.MeshToonMaterial({ color: 0xfff6e8, gradientMap: GRAD }))); scene.add(ceil); levelObjs.push(ceil);
+    const lamps = cb.filter((g, i) => i % 2 === 1), ceils = cb.filter((g, i) => i % 2 === 0);
+    const ceil = new THREE.Mesh(mergeList(ceils), ceilMat); scene.add(ceil); levelObjs.push(ceil);
+    const lampM = new THREE.Mesh(mergeList(lamps), lampMat); scene.add(lampM); levelObjs.push(lampM);
     for (const g of cb) g.dispose();
+    // glowing windows (sunny sky outside)
+    const wb = new Batch(0);
+    for (const w of L.windows) { wb.at(w.x, w.y, w.z, w.ry); wb.box(0, 0, 0, w.w, w.h, 0.012, 0xd8f4ff); wb.box(0, 0, 0.004, 0.05, w.h, 0.014, 0xfffaf0); wb.box(0, 0, 0.004, w.w, 0.05, 0.014, 0xfffaf0); }
+    const wg = wb.build(); if (wg.geo) { const wm = new THREE.Mesh(wg.geo, glowMat); scene.add(wm); levelObjs.push(wm); }
+    // garden around the house: lawn details, trees, bushes, a fence (cosmetic only)
+    const gb = new Batch(0.04); let sd = (L.w * 131 + L.d * 71 + L.rooms.length) | 0; const r1 = () => ((sd = (sd * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    const hx = L.w / 2 + 0.2, hz = L.d / 2 + 0.2;
+    for (let i = 0; i < 26; i++) {
+      const a = r1() * Math.PI * 2, rr = 3 + r1() * 7, x = Math.cos(a) * (hx + rr), z = Math.sin(a) * (hz + rr);
+      if (r1() < 0.55) { const h = 1.6 + r1() * 1.6; gb.at(x, 0, z).cyl(0, h / 2, 0, 0.16, 0.22, h, 0x8a5a3a); const c = [0x4cb85a, 0x5fd06a, 0x3fa05a][i % 3]; gb.sph(0, h + 0.5, 0, 1.0 + r1() * 0.5, c); gb.sph(0.5, h + 0.1, 0.2, 0.75, c, { shade: 0.92 }); gb.sph(-0.4, h + 0.2, -0.3, 0.7, c, { shade: 1.05 }); }
+      else { const c = r1() < 0.3 ? 0xff8ab0 : 0x5fc86a; gb.at(x, 0, z).sph(0, 0.35, 0, 0.55 + r1() * 0.3, c, { sy: 0.75 }); }
+    }
+    gb.at(0, 0, 0);
+    const fx0 = hx + 1.6, fz0 = hz + 1.6;
+    for (let x = -fx0; x <= fx0 + 0.01; x += 1.2) for (const z of [-fz0, fz0]) gb.box(x, 0.45, z, 0.12, 0.9, 0.12, 0xfffaf0, { out: false });
+    for (let z = -fz0; z <= fz0 + 0.01; z += 1.2) for (const x of [-fx0, fx0]) gb.box(x, 0.45, z, 0.12, 0.9, 0.12, 0xfffaf0, { out: false });
+    for (const z of [-fz0, fz0]) for (const y of [0.35, 0.7]) gb.box(0, y, z, fx0 * 2, 0.08, 0.05, 0xfffaf0, { out: false });
+    for (const x of [-fx0, fx0]) for (const y of [0.35, 0.7]) gb.box(x, y, 0, 0.05, 0.08, fz0 * 2, 0xfffaf0, { out: false });
+    for (let i = 0; i < 9; i++) gb.box(0, -0.06, hz + 0.6 + i * 0.75, 0.9, 0.03, 0.5, 0xd8d0c0, { out: false });
+    const gg = gb.build(); { const m1 = new THREE.Mesh(gg.geo, toonV); m1.castShadow = true; m1.receiveShadow = true; scene.add(m1); levelObjs.push(m1); const m2 = new THREE.Mesh(gg.line, inkMat); scene.add(m2); levelObjs.push(m2); }
+    // fireplace glow + flicker light
+    for (const g of L.glows) { const sp = new THREE.Sprite(fireMat); sp.position.set(g.x, g.y + 0.1, g.z); sp.scale.setScalar(1.6); scene.add(sp); levelObjs.push(sp); }
+    fireLight.visible = !!L.glows.length && Q.effects; if (L.glows[0]) fireLight.position.set(L.glows[0].x, 0.8, L.glows[0].z);
     // decoys: one instanced mesh (+ outline) per kind -> ~2 draw calls per kind however stocked the shelves are
     const byKind = new Map();
     for (const d of L.decoys) { if (!byKind.has(d.k)) byKind.set(d.k, []); byKind.get(d.k).push(d); }
@@ -150,6 +230,9 @@ export function createView(ctx) {
     puff: spriteTex((g, s) => { const gr = g.createRadialGradient(s / 2, s / 2, 2, s / 2, s / 2, s / 2); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.6, 'rgba(255,255,255,.85)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, s, s); }),
     star: spriteTex((g, s) => { g.fillStyle = '#fff'; g.strokeStyle = '#17112e'; g.lineWidth = 4; g.beginPath(); for (let i = 0; i < 10; i++) { const r = i % 2 ? s * 0.2 : s * 0.45, a = (i / 10) * Math.PI * 2 - Math.PI / 2; g.lineTo(s / 2 + Math.cos(a) * r, s / 2 + Math.sin(a) * r); } g.closePath(); g.stroke(); g.fill(); }),
     note: spriteTex((g, s) => { g.font = `${s * 0.8}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineWidth = 5; g.strokeStyle = '#17112e'; g.strokeText('♪', s / 2, s / 2); g.fillStyle = '#fff'; g.fillText('♪', s / 2, s / 2); }),
+    bonk: spriteTex((g, s) => { comic(g, s, 'BONK!', '#ffd23f', '#ff4d6a'); }, 256),
+    nope: spriteTex((g, s) => { comic(g, s, 'NOPE!', '#ffffff', '#3ea6ff'); }, 256),
+    conf: spriteTex((g, s) => { g.fillStyle = '#fff'; g.fillRect(s * 0.3, s * 0.15, s * 0.4, s * 0.7); }, 32),
     x: spriteTex((g, s) => { g.lineCap = 'round'; g.strokeStyle = '#17112e'; g.lineWidth = 16; g.beginPath(); g.moveTo(14, 14); g.lineTo(s - 14, s - 14); g.moveTo(s - 14, 14); g.lineTo(14, s - 14); g.stroke(); g.strokeStyle = '#ff4d5e'; g.lineWidth = 9; g.stroke(); }),
   };
   for (const t of Object.values(TEX)) own.add(t);
@@ -159,15 +242,15 @@ export function createView(ctx) {
     if (!s) { if (pool.length > 140) return; s = new THREE.Sprite(M(new THREE.SpriteMaterial({ depthWrite: false, transparent: true }))); scene.add(s); pool.push(s); }
     s.material.map = TEX[tex]; s.material.color.setHex(o.color ?? 0xffffff); s.material.opacity = 1; s.material.depthTest = o.depthTest !== false;
     s.position.set(x, y, z); s.visible = true;
-    s.userData = { vx: o.vx || 0, vy: o.vy || 0, vz: o.vz || 0, g: o.g ?? 0, life: o.life || 1, t: 0, s0: o.size || 0.4, s1: o.size1 ?? (o.size || 0.4), spin: o.spin || 0 };
-    s.scale.setScalar(s.userData.s0); s.material.rotation = Math.random() * 6;
+    s.userData = { pop: !!o.pop, vx: o.vx || 0, vy: o.vy || 0, vz: o.vz || 0, g: o.g ?? 0, life: o.life || 1, t: 0, s0: o.size || 0.4, s1: o.size1 ?? (o.size || 0.4), spin: o.spin || 0 };
+    s.userData.aspect = o.aspect || 1; s.scale.set(s.userData.s0 * s.userData.aspect, s.userData.s0, 1); s.material.rotation = o.rot ?? Math.random() * 6;
   }
   function stepParticles(dt) {
     for (const s of pool) {
       if (!s.visible) continue; const u = s.userData; u.t += dt;
       if (u.t >= u.life) { s.visible = false; continue; }
       u.vy -= u.g * dt; s.position.x += u.vx * dt; s.position.y += u.vy * dt; s.position.z += u.vz * dt;
-      const f = u.t / u.life; s.scale.setScalar(u.s0 + (u.s1 - u.s0) * f); s.material.opacity = f > 0.6 ? 1 - (f - 0.6) / 0.4 : 1; s.material.rotation += u.spin * dt;
+      const f = u.t / u.life, sc = u.s0 + (u.s1 - u.s0) * (u.pop ? Math.min(1, f * 6) : f); s.scale.set(sc * u.aspect, sc, 1); s.material.opacity = f > 0.6 ? 1 - (f - 0.6) / 0.4 : 1; s.material.rotation += u.spin * dt;
     }
   }
   let shakeA = 0;
@@ -179,7 +262,23 @@ export function createView(ctx) {
     swing(id) { const B = bodies.get(id); if (B) B.swing = 1; if (id === ctx.myId && vm) vm.swing = 1; },
     shake(a) { shakeA = Math.max(shakeA, a); },
     pop(id) { const B = bodies.get(id); if (B) B.pop = 1; },
+    punch(a) { fovKick = Math.max(fovKick, a); },
+    flash(a) { flash = Math.max(flash, a); },
+    // a hider was bonked: the disguise flies off spinning, BONK! burst, confetti in their color, dizzy stars
+    found(m, color) {
+      spawn('bonk', m.x, m.y + 1.0, m.z, { vy: 0.6, life: 1.1, size: 0.25, size1: 1.0, aspect: 1.6, rot: 0, pop: true, depthTest: false });
+      for (let i = 0; i < 26; i++) { const a = Math.random() * 6.28, sp = 1.5 + Math.random() * 3; spawn('conf', m.x, m.y + 0.6, m.z, { vx: Math.cos(a) * sp, vz: Math.sin(a) * sp, vy: 3 + Math.random() * 3.5, g: 9, life: 1.4 + Math.random() * 0.6, size: 0.14, color: [color, 0xffd23f, 0xff6ec7, 0x3ea6ff, 0x4cd964][i % 5], spin: (Math.random() - 0.5) * 14 }); }
+      if (m.k >= 0) {
+        const { geo, line } = kindGeometry(kindCache, m.k);
+        const g = new THREE.Mesh(geo, toonV); g.add(new THREE.Mesh(line, inkMat)); g.position.set(m.x, m.y, m.z); g.rotation.y = m.rot || 0; scene.add(g);
+        flyers.push({ g, vx: (Math.random() - 0.5) * 2, vy: 7, vz: (Math.random() - 0.5) * 2, spin: 9 + Math.random() * 6, t: 0 });
+      }
+      const B = bodies.get(m.id); if (B) B.foundT = 2.2;
+    },
+    nope(i) { const D = decoys[i]; if (D) spawn('nope', D.d.x, D.d.y + 0.9, D.d.z, { vy: 0.5, life: 0.9, size: 0.2, size1: 0.75, aspect: 1.6, rot: 0, pop: true, depthTest: false }); },
+    tauntHat(id) { const B = bodies.get(id); if (B) B.hatT = 1.3; },
   };
+  const flyers = [];
 
   // ---------------------------------------------------------------- camera
   const cam = { yaw: 0, pitch: -0.25, dist: 3.4, mode: 'tp', intro: 0, x: 0, y: 1, z: 0 };
@@ -188,7 +287,7 @@ export function createView(ctx) {
     if (mode === 'fp') {
       px = focus.x; py = focus.y + 1.45; pz = focus.z;
       camera.position.set(px, py, pz); camera.rotation.set(cam.pitch, cam.yaw + Math.PI, 0);
-      camera.fov += (72 - camera.fov) * Math.min(1, dt * 6);
+      camera.fov += (72 + fovKick * 14 - camera.fov) * Math.min(1, dt * 10);
     } else {
       const k = Math.min(1, dt * 12);
       cam.x += (focus.x - cam.x) * k; cam.y += (focus.y + focus.h - cam.y) * Math.min(1, dt * 8); cam.z += (focus.z - cam.z) * k;
@@ -196,19 +295,20 @@ export function createView(ctx) {
       const o = [cam.x, cam.y, cam.z], back = [-f[0], -f[1], -f[2]];
       let d = cam.dist;
       if (level) d = Math.min(d, rayWorld(level, o, back, d + 0.3) - 0.25);
-      d = Math.max(0.35, d);
-      px = o[0] + back[0] * d; py = Math.min(WH - 0.15, o[1] + back[1] * d); pz = o[2] + back[2] * d;
+      d = Math.max(0.08, d);
+      const lift = d < 1.2 ? (1.2 - d) * 0.7 : 0;      // squeezed against a wall: rise above the prop instead
+      px = o[0] + back[0] * d; py = Math.min(WH - 0.15, o[1] + back[1] * d + lift); pz = o[2] + back[2] * d;
       camera.position.set(px, py, pz); camera.lookAt(cam.x + f[0], cam.y + f[1], cam.z + f[2]);
-      camera.fov += (62 - camera.fov) * Math.min(1, dt * 6);
+      camera.fov += (62 + fovKick * 14 - camera.fov) * Math.min(1, dt * 10);
     }
     // intro: start high above the open dollhouse and swoop down
     if (cam.intro > 0 && level) {
       const e = cam.intro * cam.intro * (3 - 2 * cam.intro);
-      const a = now / 9000;
-      v1.set(Math.sin(a) * level.w * 0.55, 15 + level.w * 0.35, Math.cos(a) * level.d * 0.8 + 4);
+      const a = now / 7000, S = Math.max(level.w, level.d);
+      v1.set(Math.sin(a) * S * 0.62, S * 0.62 + 4, Math.cos(a) * S * 0.62);
       camera.position.lerp(v1, e);
-      const q0 = camera.quaternion.clone(); const tmp = new THREE.Object3D(); tmp.position.copy(camera.position); tmp.lookAt(0, 0, 0);
-      camera.quaternion.slerpQuaternions(q0, tmp.quaternion, e);
+      const q0 = camera.quaternion.clone(); _mL.lookAt(camera.position, _ctr.set(0, 0, 0), camera.up); _qL.setFromRotationMatrix(_mL);
+      camera.quaternion.slerpQuaternions(q0, _qL, e);
     }
     if (shakeA > 0) { camera.position.x += (Math.random() - 0.5) * shakeA * 0.15; camera.position.y += (Math.random() - 0.5) * shakeA * 0.15; shakeA = Math.max(0, shakeA - dt * 2.5); }
     camera.updateProjectionMatrix();
@@ -224,9 +324,11 @@ export function createView(ctx) {
     for (const [id, p] of st.players) {
       const B = bodyFor(p); live.add(id);
       const meFp = id === st.me && st.mode === 'fp';
-      const vis = p.alive || st.phase === 'post';
+      B.foundT = Math.max(0, (B.foundT || 0) - dt); B.hatT = Math.max(0, (B.hatT || 0) - dt);
+      const dizzy = !p.alive && B.foundT > 0 && st.phase !== 'post';
+      const vis = p.alive || st.phase === 'post' || dizzy;
       B.root.visible = vis && !meFp;
-      const showProp = p.role === 'H' && p.kind >= 0 && (p.alive || st.phase === 'post');
+      const showProp = p.role === 'H' && p.kind >= 0 && (p.alive || st.phase === 'post') && !dizzy;
       setKind(B, showProp ? p.kind : -1, id === st.me);
       B.av.visible = !showProp; B.hammer.visible = p.role === 'S';
       B.root.position.set(p.x, p.y, p.z);
@@ -237,6 +339,9 @@ export function createView(ctx) {
           if (p.moving || sp > 0.3) { B.hop += dt * 13; const s = Math.abs(Math.sin(B.hop)); pr.position.y = s * 0.13; pr.rotation.z = Math.sin(B.hop) * 0.13; pr.scale.set(1 + (1 - s) * 0.08, 1 - (1 - s) * 0.1, 1 + (1 - s) * 0.08); }
           else { pr.rotation.z = Math.sin(t * 3.1 + B.hop) * 0.04; pr.rotation.x = Math.sin(t * 2.3 + B.hop) * 0.025; }
         }
+        if (!B.hatMesh) { B.hatMesh = ctx.avatar.hat(ctx.player(p.id)?.hat || 'cap', ctx.player(p.id)?.colorHex ?? 0xffffff); B.propHolder.add(B.hatMesh); }
+        B.hatMesh.visible = B.hatT > 0;
+        if (B.hatT > 0) { const k = Math.sin(Math.min(1, (1.3 - B.hatT) * 4) * Math.PI / 2) * (B.hatT < 0.3 ? B.hatT / 0.3 : 1); B.hatMesh.position.set(0, KINDS[p.kind].size[1] + 0.15 + k * 0.25, 0); B.hatMesh.scale.setScalar(0.7 * k + 0.01); B.hatMesh.rotation.y = t * 4; }
         if (B.pop > 0) { B.pop = Math.max(0, B.pop - dt * 4); const k = 1 + Math.sin(B.pop * Math.PI) * 0.35; pr.scale.multiplyScalar(k); }
       } else {
         if (p.role === 'S') B.faceYaw = p.yaw;
@@ -244,7 +349,7 @@ export function createView(ctx) {
         B.px = p.x; B.pz = p.z;
         B.root.rotation.y = B.faceYaw;
         B.av.userData.setPose({ run: Math.min(1, sp / 4.5), t });
-        if (!p.alive && st.phase === 'post') B.av.rotation.z = Math.sin(t * 6) * 0.2;
+        if (dizzy || (!p.alive && st.phase === 'post')) { B.av.rotation.z = Math.sin(t * 6) * 0.2; if (dizzy && Math.random() < dt * 8) spawn('star', p.x + Math.sin(t * 7) * 0.5, p.y + 1.9, p.z + Math.cos(t * 7) * 0.5, { life: 0.5, size: 0.18, size1: 0.05, color: 0xffd23f }); }
         else B.av.rotation.z = 0;
         if (B.swing > 0) { B.swing = Math.max(0, B.swing - dt * 4); B.hammer.rotation.x = 0.5 - Math.sin(B.swing * Math.PI) * 2.2; } else B.hammer.rotation.x = 0.5;
       }
@@ -266,24 +371,32 @@ export function createView(ctx) {
     const f = st.players.get(st.focusId);
     if (f) placeCamera(dt, { x: f.x, y: f.y, z: f.z, h: f.kind >= 0 && f.role === 'H' ? Math.max(0.35, KINDS[f.kind].size[1] * 0.7) : 1.2 }, st.mode, now);
     // seeker view model
-    if (st.mode === 'fp') { const m = viewModel(ctx.player(st.me)?.colorHex ?? 0xffffff); m.g.visible = true; if (m.swing > 0) { m.swing = Math.max(0, m.swing - dt * 4.5); } const s = Math.sin(m.swing * Math.PI); m.g.rotation.set(-0.45 - s * 1.25, 0.25 - s * 0.2, -0.2 + s * 0.35); m.g.position.set(0.36 - s * 0.16, -0.42 + Math.sin(t * 8) * 0.012 * (st.moving ? 1 : 0) - s * 0.05, -0.62 - s * 0.12); }
+    if (st.mode === 'fp' && cam.intro <= 0.02) { const m = viewModel(ctx.player(st.me)?.colorHex ?? 0xffffff); m.g.visible = true; if (m.swing > 0) { m.swing = Math.max(0, m.swing - dt * 4.5); } const s = Math.sin(m.swing * Math.PI); m.g.rotation.set(-0.45 - s * 1.25, 0.25 - s * 0.2, -0.2 + s * 0.35); m.g.position.set(0.36 - s * 0.16, -0.42 + Math.sin(t * 8) * 0.012 * (st.moving ? 1 : 0) - s * 0.05, -0.62 - s * 0.12); }
     else if (vm) vm.g.visible = false;
     stepParticles(dt);
-    renderer.render(scene, camera);
+    fovKick = Math.max(0, fovKick - dt * 2.5); flash = Math.max(0, flash - dt * 3);
+    for (let i = flyers.length - 1; i >= 0; i--) { const f2 = flyers[i]; f2.t += dt; f2.vy -= 14 * dt; f2.g.position.x += f2.vx * dt; f2.g.position.y += f2.vy * dt; f2.g.position.z += f2.vz * dt; f2.g.rotation.x += f2.spin * dt; f2.g.rotation.z += f2.spin * 0.7 * dt; f2.g.scale.setScalar(Math.max(0.01, 1 - Math.max(0, f2.t - 0.8) * 2)); if (f2.t > 1.3) { f2.g.removeFromParent(); flyers.splice(i, 1); if (Math.random() < 1) fx.poof(f2.g.position.x, f2.g.position.y - 0.3, f2.g.position.z, 0xffffff, 6); } }
+    dust.visible = !!Q.effects;
+    if (dust.visible) { const c = camera.position; for (let i = 0; i < DUST; i++) { let x = dustPos[i * 3] + Math.sin(t * 0.3 + i) * dt * 0.08, y = dustPos[i * 3 + 1] + dt * 0.03, z = dustPos[i * 3 + 2] + Math.cos(t * 0.27 + i * 1.7) * dt * 0.08; if (y > WH) y = 0; if (x - c.x > 6) x -= 12; if (c.x - x > 6) x += 12; if (z - c.z > 6) z -= 12; if (c.z - z > 6) z += 12; dustPos[i * 3] = x; dustPos[i * 3 + 1] = y; dustPos[i * 3 + 2] = z; } dustGeo.attributes.position.needsUpdate = true; }
+    if (fireLight.visible) fireLight.intensity = 5 + Math.sin(t * 13) * 0.8 + Math.sin(t * 29) * 0.5;
+    if (composer) { grade.uniforms.uFlash.value = flash * 0.35; composer.render(); }
+    else renderer.render(scene, camera);
   }
 
   function resize() {
     const w = ctx.container.clientWidth || innerWidth, h = ctx.container.clientHeight || innerHeight;
-    renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+    renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); sizePost();
   }
+  setupPost();
   resize();
 
   return {
     renderer, scene, camera, cam, fx, buildLevel, update, resize, centerRay,
-    applyQ() { Q = applyQ(); },
+    applyQ() { Q = applyQ(); setupPost(); fireLight.visible = !!level?.glows.length && Q.effects; },
     dispose() {
-      clearLevel(); hiMesh.removeFromParent();
-      for (const B of bodies.values()) { ctx.avatar.dispose(B.av); B.hg.geo.dispose(); B.hg.line.dispose(); B.root.removeFromParent(); B.tag.remove(); }
+      clearLevel(); hiMesh.removeFromParent(); disposePost();
+      for (const f2 of flyers) f2.g.removeFromParent(); flyers.length = 0;
+      for (const B of bodies.values()) { if (B.hatMesh) ctx.avatar.dispose(B.hatMesh); ctx.avatar.dispose(B.av); B.hg.geo.dispose(); B.hg.line.dispose(); B.root.removeFromParent(); B.tag.remove(); }
       bodies.clear();
       if (vm) { vm.geo.geo.dispose(); vm.geo.line.dispose(); vm = null; }
       disposeKindCache(kindCache);

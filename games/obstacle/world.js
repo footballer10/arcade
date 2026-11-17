@@ -20,7 +20,7 @@ export const TILE_FALL = 0.9;                // seconds a tile shakes before it 
 // ---------------------------------------------------------------- solids
 export function solid(o) {
   const s = Object.assign({ shape: 'box', hx: 1, hy: 0.5, hz: 1, r: 1, bx: 0, by: 0, bz: 0, bry: 0, ox: 0, oz: 0, anim: null, hit: 0, belt: null, bounce: 0,
-    tile: -1, door: -1, fake: false, until: 0, finish: false, noHang: false, look: 'floor', col: 0 }, o);
+    tile: -1, door: -1, fake: false, until: 0, blink: null, finish: false, noHang: false, look: 'floor', col: 0 }, o);
   s.q = {}; s.br = s.shape === 'cyl' ? s.r : Math.hypot(s.hx, s.hz);
   pose(s, 0, s); pose(s, 0, s.q);
   return s;
@@ -45,7 +45,10 @@ export function setPoses(W, t, dt) {
   W.t = t;
   for (const s of W.moving) { pose(s, t - dt, s.q); pose(s, t, s); }
 }
+// blinking platforms: on for `on` of every `p` seconds (phase ph), a pure function of the stage clock
+export const blinkU = (s, t) => ((t / s.blink.p + s.blink.ph) % 1 + 1) % 1;
 export function active(s, W) {
+  if (s.blink && blinkU(s, W.t) > s.blink.on) return false;
   if (s.tile >= 0) return W.dyn[s.tile] < 2;
   if (s.door >= 0 && !s.fake) return W.dyn[s.door] === 0;
   if (s.until) return W.t < s.until;
@@ -210,7 +213,7 @@ function collide(p, W, dt, wasGr) {
         const tol = Math.max(0.28, -p.vy * dt + 0.12) + rise + (wasGr === i ? 0.25 : 0);
         if (footIn && p.vy <= 0.5 + rise / dt && p.y >= top - tol) { p.y = top; if (p.vy < 0) p.vy = 0; p.gr = i; continue; }
         // step up small ledges
-        if (wasGr >= 0 && top - p.y <= C.STEP_UP && top > p.y && s.door < 0 && p.vy <= 0.5) {
+        if ((wasGr >= 0 || p.coy > 0) && top - p.y <= C.STEP_UP && top > p.y && s.door < 0 && p.vy <= 0.5 && !s.hit) {
           const sx = nlx * s.c + nlz * s.sn, sz = -nlx * s.sn + nlz * s.c, k = s.shape === 'cyl' ? 0 : Math.max(0, d - R * 0.5);
           if (s.shape !== 'cyl') { p.x -= sx * k; p.z -= sz * k; }
           p.y = top; p.vy = 0; p.gr = i; continue;

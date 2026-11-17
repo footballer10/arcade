@@ -3,6 +3,13 @@ export const manifest = {
   id: 'floorfall',
   name: 'Floor Is Falling',
   tagline: 'Every step breaks the floor. Fall through the layers, don\'t fall out!',
+  // Shown on the pre-round screen next to the settings: goal, how to win, key tips (short sentences).
+  howTo: [
+    "You start on a stack of hexagon floors above a glowing void.",
+    "Every tile you touch cracks and drops about half a second later, so keep moving.",
+    "Fall through a hole to land on the floor below. Fall off the bottom floor and you're out.",
+    "Last one standing wins the round. First to win 2 rounds wins. Dash with Shift to bump others.",
+  ],
   minPlayers: 1,
   maxPlayers: 8,
   teams: false,

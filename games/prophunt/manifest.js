@@ -3,6 +3,13 @@ export const manifest = {
   id: 'prophunt',
   name: 'Prop Hunt',
   tagline: 'Hide as a toaster. Taunt the seekers. Don\'t get bonked!',
+  // Shown on the pre-round screen next to the settings: goal, how to win, key tips (short sentences).
+  howTo: [
+    "Each round some players are Seekers and the rest are Hiders. Roles rotate so everyone gets to seek.",
+    "Hiders: look at an object and press E to turn into it, then hide before the seekers are let out. Taunt with F for bonus points.",
+    "Seekers: left click to bonk suspicious objects. A wrong guess costs health; Q gives a hot / cold hint.",
+    "Points for surviving, taunting and finding hiders. Highest total wins, and the last round counts double.",
+  ],
   minPlayers: 2,
   maxPlayers: 8,
   teams: false,
