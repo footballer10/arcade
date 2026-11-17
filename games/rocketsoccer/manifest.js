@@ -17,12 +17,12 @@ export const manifest = {
   roundLengthSec: 210,          // 3-minute clock + goal replays and kickoffs (host option 2–5 min)
   thumbnail: 'games/rocketsoccer/thumb.svg',
   controlsHelp: [
-    ['W / S', 'Drive / reverse · in the air: tilt nose down / up'],
-    ['A / D', 'Steer · in the air: turn and roll'],
+    ['W / S', 'Drive / reverse · in the air: tilt the nose'],
+    ['A / D', 'Steer · in the air: turn (the car levels itself)'],
     ['Space', 'Jump · press again for a double jump'],
     ['Space + direction', 'Second press while holding a direction: dodge flip (a power hit)'],
-    ['Shift (hold)', 'Boost · in the air, boost + tilt to fly'],
-    ['Right click', 'Ball cam on / off'],
+    ['Shift (hold)', 'Boost · in the air: full flying control (pitch, turn, roll)'],
+    ['Right click', 'Ball cam on / off (camera follows the ball)'],
     ['Drive into curves', 'Ride up the walls'],
     ['Supersonic ram', 'Demolish an opponent'],
     ['Space during a replay', 'Vote to skip it'],
