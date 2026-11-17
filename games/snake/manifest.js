@@ -3,6 +3,13 @@ export const manifest = {
   id: 'snake',
   name: 'Snake Royale',
   tagline: 'Eat, grow, cut them off. The ring is closing!',
+  // Shown on the pre-round screen next to the settings: goal, how to win, key tips (short sentences).
+  howTo: [
+    "Your snake chases the mouse pointer. Eat the glowing orbs to grow longer.",
+    "If your head touches another snake's body you pop. Cut in front of others to make them crash into you.",
+    "Hold Shift, Space or left click to boost. Boosting costs length.",
+    "Royale: last snake alive wins. Frenzy: you respawn and the biggest snake at the buzzer wins. Stay inside the shrinking ring.",
+  ],
   minPlayers: 1,
   maxPlayers: 8,
   teams: false,

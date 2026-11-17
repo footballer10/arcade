@@ -79,7 +79,17 @@ body.in-game { background: #111; }
 .lb-row .n { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* setup / loading / results */
-.setup-panel, .loading-panel { width: min(640px, 94vw); }
+.loading-panel { width: min(640px, 94vw); }
+.setup-grid { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(360px, 1.1fr); gap: 18px; width: min(1280px, 96vw); align-items: start; }
+.setup-panel { min-width: 0; }
+.howto-panel { text-align: left; max-height: calc(100vh - 40px); overflow-y: auto; }
+.howto-panel h2 { margin-top: 0; }
+.howto-tag { text-align: left; font-size: 1.15rem; color: var(--yellow); margin: 0 0 6px; }
+.howto { margin: 0 0 12px; padding-left: 1.4em; font-size: 1.08rem; line-height: 1.4; text-shadow: var(--stroke); }
+.howto li { margin: 6px 0; padding-left: 4px; }
+.howto li::marker { color: var(--yellow); }
+.howto-panel .controls-box { margin: 6px 0 0; max-width: none; grid-template-columns: minmax(110px, auto) 1fr; }
+@media (max-width: 900px) { .setup-grid { grid-template-columns: 1fr; } .howto-panel { max-height: none; } }
 .pick-group { margin: 10px 0; }
 .pick-group .choices { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 .pick-group .choice { min-width: 120px; max-width: 200px; }

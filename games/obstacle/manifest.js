@@ -3,6 +3,13 @@ export const manifest = {
   id: 'obstacle',
   name: 'Ultimate Obstacle Course',
   tagline: 'A bouncy elimination show: race, survive, grab the crown!',
+  // Shown on the pre-round screen next to the settings: goal, how to win, key tips (short sentences).
+  howTo: [
+    "A game show in rounds: race through obstacle courses or survive the hazards to qualify.",
+    "Fewer players qualify each round. If you don't qualify, you're out.",
+    "In the final round, grab the crown to win the show.",
+    "Jump with Space, dive with Shift, and hold E to grab other players or a ledge.",
+  ],
   minPlayers: 1,
   maxPlayers: 8,
   teams: false,
