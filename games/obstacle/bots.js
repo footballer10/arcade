@@ -174,24 +174,27 @@ function tileTarget(G, p, b, think) {
 const TILE_FALL_GUESS = 0.9;
 
 function arenaTarget(G, p, b, think) {
-  const lv = b.level, st = G.st;
+  const lv = b.level, st = G.st, W = G.W;
   b.wanderT -= G.dt || 1 / 60;
-  const safe = st.id === 'last' ? (G.W.t < 20 ? 7 : 5.2) : 7;
-  if (!b.wander || b.wanderT <= 0 || Math.hypot(b.wander[0], b.wander[1]) > safe) {
-    for (let i = 0; i < 6; i++) {
-      const a = b.rnd() * Math.PI * 2, r = b.rnd() * safe * 0.85;
+  // ground that will still be there in a few seconds (outer rings drop on a timer)
+  const ok = (x, z) => { const gi = groundAt(W, x, z, -1, 0.5); if (gi < 0) return false; const s = W.solids[gi]; return !(s.until && s.until - W.t < 3); };
+  const here = p.gr >= 0 ? W.solids[p.gr] : null;
+  const dying = here && here.until && here.until - W.t < 3.2;
+  if (!b.wander || b.wanderT <= 0 || dying || !ok(b.wander[0], b.wander[1]) || Math.hypot(b.wander[0] - p.x, b.wander[1] - p.z) < 0.9) {
+    for (let i = 0; i < 10; i++) {
+      const a = b.rnd() * Math.PI * 2, r = b.rnd() * (st.arenaR || 10) * 0.8;
       const x = Math.sin(a) * r, z = Math.cos(a) * r;
-      if (groundAt(G.W, x, z, -1, 0.5) >= 0) { b.wander = [x, z]; break; }
+      if (ok(x, z) && ok(x * 0.9, z * 0.9)) { b.wander = [x, z]; break; }
     }
-    b.wanderT = 1.5 + b.rnd() * 2.5;
+    b.wanderT = 1.2 + b.rnd() * 1.8;
   }
-  // final: the bold ones go hunting
-  if (st.id === 'last' && think && G.W.t > 12 && b.rnd() < lv.skill * 0.06) {
+  // finals: the bold ones go hunting
+  if (st.mode === 'last' && think && W.t > 10 && b.rnd() < lv.skill * 0.06) {
     const near = G.players.filter((o) => o.id !== p.id).map((o) => [o, Math.hypot(o.x - p.x, o.z - p.z)]).filter(([, d]) => d < 5).sort((a, c) => a[1] - c[1])[0];
     b.prey = near ? near[0].id : null;
   }
   const prey = b.prey && G.players.find((o) => o.id === b.prey);
-  if (prey && Math.hypot(prey.x, prey.z) < safe + 2) {
+  if (prey && ok(prey.x, prey.z)) {
     const d = Math.hypot(prey.x - p.x, prey.z - p.z);
     if (d < 2.6 && p.gr >= 0 && think && b.rnd() < 0.5) { p.face = Math.atan2(prey.x - p.x, prey.z - p.z); dive(b); b.prey = null; }
     return { tx: prey.x, tz: prey.z };

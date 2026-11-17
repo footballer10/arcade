@@ -7,7 +7,7 @@ export const manifest = {
   howTo: [
     "A game show in rounds: race through obstacle courses or survive the hazards to qualify.",
     "Fewer players qualify each round. If you don't qualify, you're out.",
-    "The final is Crown Summit (grab the crown first) or Bean Arena (be the last one standing).",
+    "The final is Crown Summit (grab the crown first), or Bean Arena / Sumo Slam (be the last one standing).",
     "Jump with Space, dive with Shift, and hold E to grab other players or a ledge.",
   ],
   minPlayers: 1,
@@ -25,6 +25,6 @@ export const manifest = {
   options: [
     { key: 'rounds', label: 'Show length', default: '3', choices: [{ value: '3', label: '3 rounds' }, { value: '4', label: '4 rounds' }] },
     { key: 'pool', label: 'Stage pool', default: 'all', choices: [{ value: 'all', label: 'All stages', desc: 'Races and survival rounds' }, { value: 'races', label: 'Races only' }, { value: 'survival', label: 'Survival heavy' }] },
-    { key: 'final', label: 'Final', default: 'random', choices: [{ value: 'random', label: 'Random final' }, { value: 'crown', label: 'Crown Summit' }, { value: 'last', label: 'Bean Arena' }] },
+    { key: 'final', label: 'Final', default: 'random', choices: [{ value: 'random', label: 'Random final' }, { value: 'crown', label: 'Crown Summit' }, { value: 'last', label: 'Bean Arena' }, { value: 'sumo', label: 'Sumo Slam' }] },
   ],
 };

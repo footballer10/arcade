@@ -23,6 +23,11 @@ const THEMES = {
   climb: { top: 0x86ee9e, side: 0x34b45a, accent: 0xff5a5f, acc2: 0xffd23f, bridge: 0xb6f36b, sky: [0x2f8fff, 0xfff1b8], slime: 0xd65cff },
   rotor: { top: 0xffa3c4, side: 0xe0558c, accent: 0x3ea6ff, acc2: 0xffd23f, bridge: 0xa6f0ff, sky: [0x3366ff, 0xffd6ec], slime: 0xff4fb3 },
   bounce: { top: 0xa6f08c, side: 0x4fb83a, accent: 0xb57bff, acc2: 0xff8c42, bridge: 0xffe07a, sky: [0x3a8cff, 0xe0f7ff], slime: 0xff59c0 },
+  logs: { top: 0xc0f08a, side: 0x58b83a, accent: 0xff8c42, acc2: 0xffd23f, bridge: 0xffe9a8, sky: [0x2f9bff, 0xd8ffe0], slime: 0x4fd6c4 },
+  gauntlet: { top: 0xff9fa6, side: 0xd8404f, accent: 0x3e6dff, acc2: 0xffd23f, bridge: 0xffe0e3, sky: [0x5a3cff, 0xffb8c8], slime: 0xff3f7a },
+  bumpers: { top: 0xffc266, side: 0xf08a1a, accent: 0xff4d5e, acc2: 0x3ea6ff, bridge: 0xffe07a, sky: [0x3a5cff, 0xffd8b0], slime: 0xc84fff },
+  dodge: { top: 0x9ad8ff, side: 0x3a8fe0, accent: 0xff5ab0, acc2: 0xffd23f, bridge: 0xcfeaff, sky: [0x2a6cff, 0xcff6ff], slime: 0xff4fb3 },
+  sumo: { top: 0xffe066, side: 0xf0a800, accent: 0xff4d5e, acc2: 0xffffff, bridge: 0xff9fa6, sky: [0x3a3cff, 0xffb8a0], slime: 0xff3f5a },
   tiles: { top: 0xff8fd0, side: 0xc04fb8, accent: 0x2ee6d6, acc2: 0xffd23f, bridge: 0xffd23f, sky: [0x5163ff, 0xffc4e8], slime: 0xff3fa4 },
   sweep: { top: 0xffde5c, side: 0xf0a800, accent: 0xff4d5e, acc2: 0x3ea6ff, bridge: 0xffffff, sky: [0x2f7cff, 0xffe9a8], slime: 0xff4fb3 },
   crown: { top: 0xd4b4ff, side: 0x9466f0, accent: 0xffcc33, acc2: 0xff5ab0, bridge: 0xff9ad5, sky: [0x2a5cff, 0xffc7a8], slime: 0xff4fb3 },
@@ -129,6 +134,8 @@ export function createView(ctx) {
 
   // ---- stage
   let stage = null, root = null, theme = THEMES.whirl;
+  const occ = [], ray = new THREE.Raycaster(), rayFrom = new THREE.Vector3(), rayDir = new THREE.Vector3(), OCC = new Set(['column', 'summit', 'bwall', 'wall', 'rushwall', 'pillar']);
+  let occDist = 99;
   const arches = [], dyn = [], tiles = [], doors = [], belts = [], blinks = [], pads = [], spots = [], spinners = [], balloons = [];
   let crownObj = null, stageMats = [], geoCache = new Map(), crowd = null, flags = [];
   const SM = (m) => { stageMats.push(m); return m; };
@@ -190,6 +197,13 @@ export function createView(ctx) {
         outline(bar, 0.05); m.add(bar);
         if (!s.ox) { const hub = new THREE.Mesh(geo('hubc', () => new THREE.CylinderGeometry(0.55, 0.55, 0.7, 20)), M.gold); m.add(hub); }
         if (s.high) bar.material = M.hazard;
+        break;
+      }
+      case 'log': {
+        const len = s.hx * 2, rad = s.hy * 1.1;
+        m = outline(new THREE.Mesh(geo(`log${len.toFixed(2)},${rad.toFixed(2)}`, () => { const g = new THREE.CylinderGeometry(rad, rad, len, 20); g.rotateZ(Math.PI / 2); return g; }), SM(plastic(0xffb36b, { map: T.stripes.clone(), roughness: 0.5 }))), 0.06);
+        m.material.map.needsUpdate = true; m.material.map.repeat.set(len / 2, 1);
+        for (const k of [-1, 1]) { const cap = new THREE.Mesh(geo('logcap', () => new THREE.CylinderGeometry(rad * 1.05, rad * 1.05, 0.3, 20)), M.yellow); cap.rotation.z = Math.PI / 2; cap.position.x = k * len / 2; m.add(cap); }
         break;
       }
       case 'gate': m = outline(new THREE.Mesh(rbox(s.hx * 2, s.hy * 2, s.hz * 2, 0.12), SM(plastic(th.acc2, { map: T.polka, roughness: 0.3 }))), 0.05, [s.hx * 2, s.hy * 2, s.hz * 2]); break;
@@ -299,6 +313,7 @@ export function createView(ctx) {
       const m = meshFor(s);
       if (!m.userData.kind) { m.position.set(s.x, s.y, s.z); m.rotation.y = s.ry; }
       root.add(m);
+      if (OCC.has(s.look) && !s.anim) occ.push(m);
       if (s.anim || s.until) dyn.push(m);
     }
     if (st.crown) {
@@ -412,7 +427,7 @@ export function createView(ctx) {
     for (const t of tiles) for (const m of t.mats) m.dispose();
     if (crowd) { crowd.dispose(); crowd = null; }
     if (crownObj) { crownObj.traverse((o) => { if (o.geometry && o.geometry.type !== 'CylinderGeometry' && o.geometry.type !== 'TorusGeometry') return; o.geometry?.dispose(); }); }
-    arches.length = 0; dyn.length = 0; tiles.length = 0; doors.length = 0; belts.length = 0; blinks.length = 0; pads.length = 0; spots.length = 0; spinners.length = 0; balloons.length = 0; crownObj = null;
+    occ.length = 0; arches.length = 0; dyn.length = 0; tiles.length = 0; doors.length = 0; belts.length = 0; blinks.length = 0; pads.length = 0; spots.length = 0; spinners.length = 0; balloons.length = 0; crownObj = null;
   }
 
   // ---- players
@@ -576,7 +591,18 @@ export function createView(ctx) {
     } else {
       const cp = Math.cos(cam.pitch), spch = Math.sin(cam.pitch);
       const tx = cam.x - Math.sin(cam.yaw) * cp * cam.dist, tz = cam.z - Math.cos(cam.yaw) * cp * cam.dist, ty = cam.y + 1.4 + spch * cam.dist;
-      camera.position.set(tx + sx, ty + sy, tz);
+      // never let walls / the tower column sit between the camera and the bean: pull the camera in front of them
+      rayFrom.set(cam.x, cam.y + 1.5, cam.z); rayDir.set(tx - cam.x, ty - (cam.y + 1.5), tz - cam.z);
+      const full = rayDir.length(); rayDir.divideScalar(full || 1);
+      let want = full;
+      if (occ.length) {
+        ray.set(rayFrom, rayDir); ray.far = full;
+        const hit = ray.intersectObjects(occ, false)[0];
+        if (hit) want = Math.max(1.8, hit.distance - 0.6);
+      }
+      occDist = want < occDist ? want : Math.min(want, occDist + dt * 14);          // snap in, ease back out
+      const dd = Math.min(full, occDist);
+      camera.position.set(rayFrom.x + rayDir.x * dd + sx, rayFrom.y + rayDir.y * dd + sy, rayFrom.z + rayDir.z * dd);
       camera.lookAt(cam.x + Math.sin(cam.yaw) * 2.5, cam.y + 1.3, cam.z + Math.cos(cam.yaw) * 2.5);
     }
     for (const a of arches) a.g.visible = Math.abs(camera.position.z - a.z) > (cam.mode === 'intro' ? 1.5 : 7);
