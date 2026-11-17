@@ -5,6 +5,11 @@ export const manifest = {
   dir: '_template',             // folder name under /games (defaults to id)
   name: 'Coin Grab',
   tagline: 'Grab the most coins in 45 seconds!',
+  // Shown on the pre-round screen next to the settings: goal, how to win, key tips (short sentences).
+  howTo: [
+    "Run around and grab as many coins as you can before time runs out.",
+    "Gold coins are worth 1, gems are worth 3. Most points wins.",
+  ],
   minPlayers: 1,
   maxPlayers: 8,
   teams: false,                 // false | 2

@@ -142,10 +142,13 @@ export class PartyNet extends Emitter {
   }
 
   // ---------------- client ----------------
-  async join(code, hello) {
+  // onStage(stage): 'server' (reaching the signalling server) → 'party' (asking the room code's host to connect).
+  async join(code, hello, onStage = () => {}) {
+    onStage('server');
     await this._ensureOpen();
     this.code = code; this.helloInfo = hello;
-    const ok = await this._tryJoin(this.t.roomAddr(code), 10000);
+    onStage('party');
+    const ok = await this._tryJoin(this.t.roomAddr(code), 20000);   // relayed (TURN) connections can take a while
     if (ok !== true) throw ok;
   }
   // Resolves true on welcome, or an Error (with .reason / .type / .redirect) otherwise.
