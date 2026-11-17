@@ -2,14 +2,14 @@
 
 A free, static, browser **party game hub** (think Jackbox / Fall Guys): friends join one party and stay
 connected while the host switches between 3D games. Hosted on GitHub Pages at
-`https://footballer10.github.io/arcade-prototypes/`. Laptop first, Chrome, keyboard + mouse.
+`https://footballer10.github.io/arcade/`. Laptop first, Chrome, keyboard + mouse.
 
 **Every new game must use `/core` and must pass the checklist in [`docs/ADDING_A_GAME.md`](docs/ADDING_A_GAME.md).**
 Start from `games/_template` (Coin Grab). That template is **hidden from players**: it only appears in the lobby with `?dev=1` (used by developers and the tests). One game per session.
 
 ## Hard rules
 - 100% free: static files on GitHub Pages; Three.js `0.160.0` and PeerJS `1.5.4` from jsDelivr via the import map in `index.html`; the public PeerJS server. No build step, no npm to play, no paid services, no API keys, no accounts.
-- **Relative paths only** (the site lives under `/arcade-prototypes/`). Import other core files as `../../core/x.js` from a game.
+- **Relative paths only** (the site lives under `/arcade/`). Import other core files as `../../core/x.js` from a game.
 - Never reload the page or touch the party connection from a game. Games talk only through `ctx`.
 - Don't edit another game's folder while working on yours. Changes to `/core` must stay backward compatible with every game in `games/registry.js`, and must be re-tested with `tests/` (all games).
 

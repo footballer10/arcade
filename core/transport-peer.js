@@ -19,10 +19,20 @@ if (window.RTCPeerConnection && !RTCPeerConnection.prototype.__phPatched) {
   RTCPeerConnection.prototype.__phPatched = true;
 }
 
+// Free public STUN + TURN (relay) servers. Players on different networks (school / office Wi-Fi, strict home
+// routers) often can't connect directly; a TURN relay carries the traffic instead. Several are listed so one being
+// down doesn't matter. All are free and need no account.
+const ICE_SERVERS = [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
+  { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'], username: 'peerjs', credential: 'peerjsp' },
+  { urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443', 'turns:openrelay.metered.ca:443?transport=tcp'], username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: ['turn:freestun.net:3478'], username: 'free', credential: 'free' },
+];
+
 function peerOptions() {
   // ?peer=host:port points at a self-hosted PeerJS server (used by the automated tests).
   const p = new URLSearchParams(location.search).get('peer');
-  if (!p) return { debug: 0 };
+  if (!p) return { debug: 0, config: { iceServers: ICE_SERVERS } };
   const [host, port] = p.split(':');
   return { debug: 0, host, port: +port || 9000, path: '/', secure: false, config: { iceServers: [] } };
 }

@@ -42,7 +42,9 @@ const find = (id) => S?.players.find((p) => p.id === id);
 const humans = () => S.players.filter((p) => !p.isBot);
 const connectedHumans = () => S.players.filter((p) => !p.isBot && p.connected);
 const hnow = () => (net ? net.now() : performance.now());
-const netKind = () => (params.get('net') === 'local' || $('localNet').checked ? 'local' : 'peer');
+// Online (PeerJS) always, except ?net=local (automated tests) or the offline fallback for Play Solo.
+let forceLocal = params.get('net') === 'local';
+const netKind = () => (forceLocal ? 'local' : 'peer');
 const profile = () => ({ name: (settings.get('name') || '').trim().slice(0, 14) || 'Player', color: settings.get('color'), hat: settings.get('hat'), skin: settings.get('skin'), hair: settings.get('hair'), hairColor: settings.get('hairColor') });
 
 // ---------------------------------------------------------------- screens
@@ -191,7 +193,7 @@ if (!HAIRS.includes(settings.get('hair'))) settings.set('hair', HAIRS[Math.floor
 if (settings.get('hairColor') < 0) settings.set('hairColor', Math.floor(Math.random() * HAIR_COLORS.length));
 renderProfile();
 
-function homeMsg(t, offerLocal = false) { $('homeMsg').textContent = t || ''; $('homeExtra').classList.toggle('hidden', !offerLocal); }
+function homeMsg(t) { $('homeMsg').textContent = t || ''; }
 function busy(b) { for (const id of ['createBtn', 'joinBtn', 'joinLinkBtn', 'soloBtn']) $(id).disabled = b; }
 $('createBtn').onclick = () => { audio.play('click'); createParty(); };
 // Solo: straight into a lobby with 3 bots. Uses the online party (so friends can still join with the code);
@@ -199,7 +201,7 @@ $('createBtn').onclick = () => { audio.play('click'); createParty(); };
 $('soloBtn').onclick = async () => {
   audio.play('click');
   let ok = await createParty();
-  if (!ok) { $('localNet').checked = true; ok = await createParty(); }
+  if (!ok) { forceLocal = true; ok = await createParty(); forceLocal = params.get('net') === 'local'; }   // server unreachable: offline solo
   if (!ok) return;
   for (let i = 0; i < 3; i++) act({ type: 'bot+' });
   toast('Solo party with 3 bots — pick a game and press Start!', 'good', 4000);
@@ -207,8 +209,6 @@ $('soloBtn').onclick = async () => {
 $('joinBtn').onclick = () => { audio.play('click'); joinParty($('codeIn').value); };
 $('joinLinkBtn').onclick = () => { audio.play('click'); joinParty(params.get('room')); };
 $('codeIn').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinParty($('codeIn').value); });
-$('tryLocalBtn').onclick = () => { $('localNet').checked = true; homeMsg('Same-computer mode on: open more tabs of this page to join.'); };
-if (params.get('net') === 'local') $('localNet').checked = true;
 function needName() { if (!settings.get('name')) { settings.set('name', 'Player' + Math.floor(10 + Math.random() * 89)); renderProfile(); } }
 
 // ---------------------------------------------------------------- connecting
@@ -247,7 +247,7 @@ async function createParty(code = null, restored = null) {
   net = newNet(kind);
   try { await net.host(code); } catch (e) {
     net.leave(); net = null; busy(false);
-    homeMsg('Could not reach the PeerJS server (' + (e.type || e.message) + ').', kind === 'peer');
+    homeMsg('Could not reach the game server (' + (e.type || e.message) + '). Check your internet connection and try again.');
     return false;
   }
   busy(false); homeMsg('');
@@ -266,12 +266,17 @@ async function joinParty(code, quiet = false) {
   code = String(code || '').toUpperCase().replace(/[^A-Z]/g, '');
   if (code.length !== 4) { homeMsg('Enter the 4-letter party code.'); return false; }
   needName(); busy(true); if (!quiet) homeMsg('Joining ' + code + '…');
-  const kind = params.get('net') === 'local' || $('localNet').checked ? 'local' : 'peer';
+  const kind = netKind();
   net = newNet(kind);
-  try { await net.join(code, { ...profile(), rejoin: !!ss.get(SESSION_KEY) }); } catch (e) {
+  const stage = (st) => { if (!quiet) homeMsg(st === 'server' ? 'Connecting to the game server…' : `Connecting to party ${code}… (can take up to 20 s on some networks)`); };
+  try { await net.join(code, { ...profile(), rejoin: !!ss.get(SESSION_KEY) }, stage); } catch (e) {
     net.leave(); net = null; busy(false);
-    const msg = e.reason || (e.type === 'peer-unavailable' || e.type === 'timeout' ? `Party ${code} not found.` : e.type === 'network' ? 'Could not reach the PeerJS server.' : 'Could not join: ' + (e.message || e.type));
-    if (!quiet) homeMsg(msg, e.type === 'network');
+    const msg = e.reason
+      || (e.type === 'peer-unavailable' ? `No party with code ${code}. Check the code, and make sure the host still has the game open.`
+      : e.type === 'timeout' || e.type === 'closed' ? `Found party ${code} but couldn't connect to it. One of your networks is probably blocking peer-to-peer games (common on school / work Wi-Fi). Try again, or try a different network such as a phone hotspot.`
+      : e.type === 'network' || e.type === 'server-error' || e.type === 'socket-error' ? 'Could not reach the game server. Check your internet connection and try again.'
+      : 'Could not join: ' + (e.message || e.type));
+    if (!quiet) homeMsg(msg);
     return e.reason ? 'rejected' : false;
   }
   busy(false); homeMsg('');
@@ -677,7 +682,7 @@ setInterval(() => {
 function renderLobby() {
   const host = isHost(), m = me();
   $('roomCode').textContent = S.code;
-  $('netBadge').textContent = net.kind === 'local' ? '🖥 Same-computer mode (tabs)' : '🌐 Online (PeerJS)';
+  $('netBadge').textContent = net.kind === 'local' ? '⚠ Offline party: the game server could not be reached, so friends can\'t join (bots only)' : '🌐 Online: friends join with the code or link';
   $('playerList').innerHTML = S.players.map((p) => {
     const tags = [];
     if (p.id === S.hostId) tags.push('<span class="ph-tag gold">HOST</span>');
@@ -889,7 +894,7 @@ async function boot() {
   if (sess && (!room || sess.code === room)) {
     // Refresh / dropped Wi-Fi: rejoin the party we were in (and become host again if we were alone).
     $('reconnect').classList.remove('hidden'); $('reconnectText').textContent = `Rejoining party ${sess.code}…`;
-    if (sess.net === 'local') $('localNet').checked = true;
+    if (sess.net === 'local') forceLocal = true;
     const saved = ss.get(SAVE_KEY);
     const end = performance.now() + 20000;
     while (performance.now() < end) {
