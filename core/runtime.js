@@ -48,7 +48,7 @@ export class GameRuntime extends Emitter {
     this.channel = makeChannel(net, game.round, () => net.isHost);
     const rt = this;
     const level = BOT_LEVELS[game.botLevel] || BOT_LEVELS.normal;
-    const plist = players.map((p) => ({ id: p.id, name: p.name, color: p.color, colorHex: hex(p.color), colorCss: css(p.color), hat: p.hat, isBot: !!p.isBot }));
+    const plist = players.map((p) => ({ id: p.id, name: p.name, color: p.color, colorHex: hex(p.color), colorCss: css(p.color), hat: p.hat, skin: p.skin, hair: p.hair, hairColor: p.hairColor, isBot: !!p.isBot }));
     this.ctx = {
       container: this.container, manifest, round: game.round, seed: game.seed, options: game.options || {}, picks: game.picks || {},
       players: plist, myId, spectator: !plist.some((p) => p.id === myId),

@@ -2,14 +2,14 @@
 
 A free, static, browser **party game hub** (think Jackbox / Fall Guys): friends join one party and stay
 connected while the host switches between 3D games. Hosted on GitHub Pages at
-`https://footballer10.github.io/arcade-prototypes/`. Laptop first, Chrome, keyboard + mouse.
+`https://footballer10.github.io/arcade/`. Laptop first, Chrome, keyboard + mouse.
 
 **Every new game must use `/core` and must pass the checklist in [`docs/ADDING_A_GAME.md`](docs/ADDING_A_GAME.md).**
 Start from `games/_template` (Coin Grab). That template is **hidden from players**: it only appears in the lobby with `?dev=1` (used by developers and the tests). One game per session.
 
 ## Hard rules
 - 100% free: static files on GitHub Pages; Three.js `0.160.0` and PeerJS `1.5.4` from jsDelivr via the import map in `index.html`; the public PeerJS server. No build step, no npm to play, no paid services, no API keys, no accounts.
-- **Relative paths only** (the site lives under `/arcade-prototypes/`). Import other core files as `../../core/x.js` from a game.
+- **Relative paths only** (the site lives under `/arcade/`). Import other core files as `../../core/x.js` from a game.
 - Never reload the page or touch the party connection from a game. Games talk only through `ctx`.
 - Don't edit another game's folder while working on yours. Changes to `/core` must stay backward compatible with every game in `games/registry.js`, and must be re-tested with `tests/` (all games).
 
@@ -41,10 +41,16 @@ authoritative state from the latest state you saw. Players who join mid-round sp
 `async start(ctx) → { stop(), standings?() }`.
 ```js
 manifest = { id, dir?, name, tagline, minPlayers, maxPlayers, teams: false|2, supportsBots, roundLengthSec,
+             howTo: ['goal', 'how to win', 'key tips'],          // 2–4 short plain sentences, shown on the pre-round screen
              controlsHelp: [[keys, action]], thumbnail: 'games/<id>/thumb.svg',
              picks:   [{ key, label, default, choices: [{ value, label, desc? }] }],   // every player chooses (pre-round screen)
              options: [{ key, label, default, choices: [...] }] }                      // the host chooses
 ```
+Every game goes through the hub's **pre-round screen**: picks/options on the left, and on the right "How to play"
+(`tagline` + `howTo`) and every key from `controlsHelp`. That is where players learn the game, so write `howTo` for
+someone who has never played: what you're trying to do, how a round is won, and the 1–2 things that matter most.
+Don't add your own in-game controls panels at the start; the loading screen deliberately shows no controls.
+
 `ctx` (see `core/runtime.js`):
 | | |
 |---|---|
@@ -77,8 +83,11 @@ Trophies: 1st 5, 2nd 3, 3rd 2, everyone else 1 (ties share the higher place).
 | Mouse | aim / look (`mouse`, `takeMouseDelta(sens)`) | | Q | special (`special`) |
 | Left / right click | `primary` / `secondary` | | Tab | scoreboard — **hub only** |
 | Space | jump / action (`jump`) | | Esc | pause menu — **hub only** |
-| Shift | boost / dash (`boost`) | | Enter | chat — **hub only** |
-Add extra keys only when the game truly needs them (e.g. Downhill grabs, emotes on 1–4) and list them in `controlsHelp`.
+| Shift | boost / dash, *if the game has one* (`boost`) | | Enter | chat — **hub only** |
+The map says **which key to use if your game has that kind of action**. It is not a feature list: don't add a boost,
+dash, jump, item or special just because a key exists for it. Most games use only a few of these (Mini-Golf uses mouse +
+E + Space; Downhill has no boost key). Add extra keys only when the game truly needs them (e.g. Downhill grabs, emotes on
+1–4) and list every key you use in `controlsHelp`.
 
 ## UI / HUD rules
 - HUD goes **only** in the four zones: top-left status (`ui.status`), top-center timer (`ui.timer`), top-right mini scoreboard (`ui.mini`), bottom-center abilities/items/meters (`ui.abilities`, `ui.bar`). Toasts and banners via `ui.toast` / `ui.banner`; the countdown, pause menu, results screen and Tab scoreboard are the hub's (use `ui.setScoreboard` to add your table).

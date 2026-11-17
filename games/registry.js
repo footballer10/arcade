@@ -7,9 +7,13 @@ import { manifest as template } from './_template/manifest.js';
 import { manifest as snake } from './snake/manifest.js';
 import { manifest as lava } from './lava/manifest.js';
 import { manifest as neon } from './neon/manifest.js';
+import { manifest as obstacle } from './obstacle/manifest.js';
+import { manifest as floorfall } from './floorfall/manifest.js';
+import { manifest as prophunt } from './prophunt/manifest.js';
+import { manifest as rocketsoccer } from './rocketsoccer/manifest.js';
 
 // Games players see in the lobby (and that Shuffle / votes pick from).
-const PLAYABLE = [golf, downhill, arena, snake, lava, neon];
+const PLAYABLE = [golf, downhill, arena, snake, lava, neon, obstacle, floorfall, prophunt, rocketsoccer];
 // games/_template (Coin Grab) is the starting point for new games, not a game for players. It only appears in
 // the lobby with ?dev=1 (developers and the automated tests use it to check /core).
 const DEV = typeof location !== 'undefined' && new URLSearchParams(location.search).has('dev');
