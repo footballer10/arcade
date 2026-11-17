@@ -75,6 +75,7 @@ export class HostSim {
       if (!playing && !post) { p.lj = inp.j; p.ld = inp.d; }
       const ev = stepPlayer(p, inp, sdt, W);
       if (ev & EV.FELL) this.fell(p);
+      if (!bot && playing) this.unstick(p, inp, sdt);
       if (!playing) continue;
       p.g = !!inp.g;
       // checkpoints, finish line, crown
@@ -104,6 +105,17 @@ export class HostSim {
       for (let i = 0; i < st.dynN; i++) if (W.dyn[i] === 1 && this.t - this.tileT[i] > TILE_FALL) W.dyn[i] = 2;
     }
     if (playing) this.checkEnd(connected);
+  }
+  // Safety net for humans: pushing hard against something without moving for over a second pops you free.
+  // (Closed doors are the exception: they are supposed to stop you.)
+  unstick(p, inp, dt) {
+    const push = Math.hypot(inp.mx || 0, inp.mz || 0) > 0.5, w = p.wall >= 0 ? this.W.solids[p.wall] : null;
+    const still = Math.hypot(p.vx, p.vz) < 1.2 && p.gr >= 0 && !isDown(p) && !p.dive && p.hang < 0 && !p.grab && !p.gby && !(w && w.door >= 0);
+    p.stk = push && still ? (p.stk || 0) + dt : 0;
+    if (p.stk > 1.1) {
+      p.stk = 0; p.vy = 8.5; p.gr = -1; p.coy = 0; p.vx = (inp.mx || 0) * 6; p.vz = (inp.mz || 0) * 6;
+      p.auth = (p.auth + 1) & 255; this.cfg.ev('unstick', { id: p.id });
+    }
   }
   grabs(al, dt) {
     for (const p of al) {
@@ -181,6 +193,12 @@ export class HostSim {
     }
     const eliminated = [...left, ...[...this.outOrder].reverse()];
     for (const id of left) { this.status[id] = 'out'; }
+    // The show ends early when only one contestant is left, or when no human is left to play for anything:
+    // nobody is made to keep playing alone (or to sit through bot-only rounds).
+    if (!this.final) {
+      const humansLeft = this.order.filter((id) => !this.cfg.bots.has(id)).length;
+      if (this.order.length <= 1 || !humansLeft) { this.final = true; if (!this.winner) this.winner = this.order.slice(0, 1); }
+    }
     if (this.final) {
       // finalists who didn't win, best progress first
       this.elim.push(eliminated);

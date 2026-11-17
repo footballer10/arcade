@@ -52,6 +52,8 @@ export async function start(ctx) {
   const ids = ctx.players.map((p) => p.id), N = ids.length, myIdx = ids.indexOf(ctx.myId);
   const opts = { rounds: ctx.options.rounds || '3', pool: ctx.options.pool || 'all', final: ctx.options.final || 'random' };
   const plan = planMatch(ctx.rng(0x0B5), opts, N);
+  let devStage = new URLSearchParams(location.search).get('ocstage'); try { devStage ||= localStorage.getItem('oc.devstage'); } catch { /* */ }      // dev/test only: ?ocstage=hop plays that stage first
+  if (devStage && STAGES[devStage]) plan[0] = devStage;
   const stages = new Map();
   const stageFor = (k) => { if (!stages.has(k)) stages.set(k, buildStage(plan[k], ctx.rng(0x500 + k * 131))); return stages.get(k); };
   const api = { autopilot: false, turbo: 1, plan, stats: { corrections: 0, snaps: 0 } };   // test-only hooks (tests/drivers.mjs)
@@ -426,6 +428,11 @@ export async function start(ctx) {
     const cam = gfx.cam;
     if (f) { const k = Math.min(1, dt * 9); cam.x += (f.x - cam.x) * k; cam.z += (f.z - cam.z) * k; cam.y += ((f.grounded || f.hang ? f.y : Math.min(cam.y + 3, f.y)) - cam.y) * Math.min(1, dt * 5); }
     if (input.mouse.locked) { const d = input.takeMouseDelta(ctx.settings.get('sens') || 1); cam.yaw -= d.x * 0.0032; cam.pitch = Math.max(0.05, Math.min(1.25, cam.pitch + d.y * 0.0026)); }
+    else if (st?.crown && f && Math.hypot(f.x - st.crown.x, f.z - st.crown.z) < 11 && f.y > 0.8) {
+      // on the tower: the camera swings round behind the direction you're running, so the column is always beside you
+      const sp = Math.hypot(f.vx || 0, f.vz || 0);
+      if (sp > 2) { let da = Math.atan2(f.vx, f.vz) - cam.yaw; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2; cam.yaw += da * Math.min(1, dt * 2.4); }
+    }
     else if (st?.len && f) { let da = 0 - cam.yaw; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2; cam.yaw += da * Math.min(1, dt * 0.8); }
     // ---- audio bed
     const left = info.roundIn.filter((id) => statusOf(id) === 'in').length;

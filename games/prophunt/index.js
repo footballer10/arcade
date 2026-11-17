@@ -9,7 +9,7 @@
 // matters (roles, timers, bonks, finds, taunt points). Discrete actions ('act') are sent reliably.
 export { manifest } from './manifest.js';
 import { KINDS } from './props.js';
-import { makeLevel, stepBody, bodySize, roomAt, lineOfSight, MAP_IDS, BEAN } from './level.js';
+import { makeLevel, stepBody, bodySize, roomAt, lineOfSight, MAP_IDS, BEAN, PHYS } from './level.js';
 import { HostSim, makePlan, standingsOf, applyRow, pickTarget, T, R, TAUNTS } from './sim.js';
 import { makeBrain } from './bots.js';
 import { createView } from './render.js';
@@ -25,6 +25,11 @@ const CSS = `
 .pr-blind .mask{font:4.5rem var(--font);text-shadow:var(--stroke),0 8px 0 var(--ink);text-align:center;color:#fff;line-height:1.05}
 .pr-blind .mask small{display:block;font-size:1.3rem;opacity:.9;margin-top:10px}
 .pr-vig{position:absolute;inset:0;pointer-events:none;z-index:2;box-shadow:inset 0 0 120px 20px rgba(255,60,80,0);transition:box-shadow .2s}
+.pr-sel{position:absolute;left:0;top:0;pointer-events:none;z-index:3;font:1.05rem var(--font);color:var(--ink);white-space:nowrap;padding:3px 12px;border-radius:14px;
+  background:var(--yellow);border:3px solid var(--ink);box-shadow:0 4px 0 var(--ink);animation:pr-bob .9s ease-in-out infinite alternate}
+.pr-sel:after{content:'';position:absolute;left:50%;bottom:-11px;margin-left:-8px;border:8px solid transparent;border-top-color:var(--ink);border-bottom:0}
+.pr-sel kbd{font-size:.8rem}
+@keyframes pr-bob{from{margin-top:0}to{margin-top:-6px}}
 .pr-sniff{position:absolute;left:50%;bottom:118px;transform:translateX(-50%);font:1.4rem var(--font);color:#fff;text-shadow:var(--stroke);padding:4px 16px;border:3px solid var(--ink);border-radius:16px;pointer-events:none;z-index:3;transition:opacity .3s}
 `;
 const SNAP_HZ = 12, SEND_HZ = 20, STEP = 1 / 60;
@@ -41,7 +46,7 @@ export async function start(ctx) {
   const tauntOf = (id) => (TAUNTS.includes(ctx.picks[id]?.taunt) ? ctx.picks[id].taunt : 'kazoo');
   const api = { autopilot: false, turbo: 1, stats: { snaps: 0, finds: 0, taunts: 0 } };   // test-only hooks
   window.__prophunt = api;
-  api.dbg = () => ({ sim: sim && [...sim.players.values()].map((p) => [p.id, +p.x.toFixed(1), +p.z.toFixed(1), p.role, p.alive]), view: [...view.values()].map((v) => [v.id, +v.x?.toFixed(1), +v.z?.toFixed(1)]), me: me && [me.x, me.z], L: L && [L.ox, L.oz, L.w, L.d, L.mapId], round });
+  api.dbg = () => ({ sim: sim && [...sim.players.values()].map((p) => [p.id, +p.x.toFixed(1), +p.z.toFixed(1), p.role, p.alive]), view: [...view.values()].map((v) => [v.id, +v.x?.toFixed(1), +v.z?.toFixed(1)]), me: me && [me.x, me.z, +me.y.toFixed(2), me.kind, me.role], L: L && [L.ox, L.oz, L.w, L.d, L.mapId], round });
 
   const style = document.createElement('style'); style.textContent = CSS; ctx.container.appendChild(style);
   const cross = ui.el('div', 'pr-cross'); const hint = ui.el('div', 'pr-hint'); const vig = ui.el('div', 'pr-vig');
@@ -72,11 +77,11 @@ export async function start(ctx) {
   input.on('press', (a) => {
     if (!me || ended) return;
     const alive = me.alive && phase !== 'post' && phase !== 'intro' && phase !== 'wait';
-    if (a === 'primary' && !input.mouse.locked) { input.lockPointer(); if (!(alive && me.role === 'S')) return; }
+    if (a === 'primary' && !input.mouse.locked) { input.lockPointer(); if (!(alive && (me.role === 'S' || highlight >= 0))) return; }
     if (!alive || (me.role === 'S' && phase === 'hide')) { if (a === 'jump' || a === 'primary' || a === 'secondary') cycleSpec(); return; }
-    if (a === 'jump') myInput.j = true;
+    if (a === 'jump') { myInput.j = true; if (me.locked) { me.locked = false; act({ a: 'lock', v: false }); sfx.lock(false); } }   // Space while locked: unlock and hop
     if (me.role === 'H') {
-      if (a === 'use' && highlight >= 0) {
+      if ((a === 'use' || a === 'primary') && highlight >= 0) {
         const d = L.decoys[highlight]; if (d.k !== me.kind) { me.kind = d.k; me.rot = d.ry; me.locked = false; Object.assign(me, bodySize(d.k)); act({ a: 'dis', k: d.k, r: d.ry }); }
       }
       if (a === 'special' && me.kind >= 0) { me.rot = Math.round((me.rot + Math.PI / 4) / (Math.PI / 4)) * (Math.PI / 4); act({ a: 'rot', r: me.rot }); sfx.rotate(); }
@@ -103,6 +108,31 @@ export async function start(ctx) {
     void o;
   }
   const act = (a) => net.toHost({ t: 'act', a });
+  // Aim assist for disguising: the object whose center is closest to the crosshair (or the mouse cursor when the
+  // mouse isn't locked) inside a generous cone, within reach of my body and not behind a wall. Sticky: the
+  // current pick wins ties so the label doesn't flicker between neighbours.
+  const REACH = 4.6, CONE = 0.45;
+  function assistPick() {
+    const { o, d } = input.mouse.locked ? gfx.centerRay() : gfx.rayFrom(input.mouse.nx, input.mouse.ny);
+    const eye = [me.x, me.y + Math.min(1.4, (me.h || 1) * 0.8), me.z];
+    const direct = pickTarget(L, [], o, d, gfx.cam.dist + REACH + 1, ctx.myId).tg;
+    let best = -1, bs = Infinity;
+    for (const dc of L.decoys) {
+      if (dc.k === me.kind) continue;
+      const hd = Math.hypot(dc.x - me.x, dc.z - me.z);
+      if (hd > REACH || Math.abs(dc.y - me.y) > 2.3) continue;
+      const c = [dc.x, dc.y + KINDS[dc.k].size[1] * 0.5, dc.z];
+      const vx = c[0] - o[0], vy = c[1] - o[1], vz = c[2] - o[2], len = Math.hypot(vx, vy, vz) || 1;
+      const ang = Math.acos(Math.max(-1, Math.min(1, (vx * d[0] + vy * d[1] + vz * d[2]) / len)));
+      const isDirect = direct === 'd:' + dc.i;
+      if (ang > CONE && !isDirect) continue;
+      const score = (isDirect ? -1 : ang * 3) + hd * 0.12 - (dc.i === lastPick ? 0.15 : 0);
+      if (score < bs && lineOfSight(L, eye, c)) { bs = score; best = dc.i; }
+    }
+    lastPick = best;
+    return best;
+  }
+  let lastPick = -1;
   function cycleSpec() {
     const alive = ids.filter((id) => view.get(id)?.alive && id !== ctx.myId);
     if (!alive.length) return;
@@ -276,7 +306,7 @@ export async function start(ctx) {
         const speed = R.SPEED[me.role] * (input.down('boost') ? R.SPRINT : 1);
         predAcc += dt; let k = 0;
         while (predAcc >= STEP && k < 8) {
-          const land = stepBody(me, { mx, mz, speed, jump: myInput.j }, STEP, L); myInput.j = false;
+          const land = stepBody(me, { mx, mz, speed, jump: myInput.j, jumpV: me.kind >= 0 ? PHYS.PROP_JUMP : PHYS.JUMP }, STEP, L); myInput.j = false;
           if (land > 6) sfx.step(me.x, me.y, me.z);
           predAcc -= STEP; k++;
         }
@@ -309,18 +339,15 @@ export async function start(ctx) {
       if (!input.mouse.locked) cam.yaw += dt * 0.25;
     }
     if (api.autopilot && me && me.role === 'S') { focusId = ctx.myId; }
+    if (api.focus && view.get(api.focus)) { focusId = api.focus; mode = 'tp'; }   // test-only: follow someone (screenshots)
     if (cam.intro > 0) cam.intro = Math.max(0, cam.intro - dt / (phase === 'intro' ? T.INTRO * 0.9 : 1.5));
     // --- what am I looking at (hider: copyable object; seeker: crosshair)
     highlight = -1; let hintTxt = '';
     if (alive && L && me.role === 'H' && (phase === 'hide' || phase === 'hunt') && !api.autopilot) {
-      const { o, d } = gfx.centerRay();
-      const pk = pickTarget(L, [], o, d, gfx.cam.dist + 5, ctx.myId);
-      if (pk.tg && pk.tg.startsWith('d:')) {
-        const dc = L.decoys[+pk.tg.slice(2)];
-        if (Math.hypot(dc.x - me.x, dc.z - me.z) < 4.2 && dc.k !== me.kind) { highlight = dc.i; hintTxt = `<kbd>E</kbd> become ${KINDS[dc.k].icon} ${KINDS[dc.k].name}`; }
-      }
+      highlight = assistPick();
+      if (highlight >= 0) { const dc = L.decoys[highlight]; hintTxt = `<kbd>E</kbd> / <kbd>Click</kbd> become ${KINDS[dc.k].icon} ${KINDS[dc.k].name}`; }
       if (!hintTxt && me.kind >= 0 && !me.locked && phase === 'hunt' && Math.hypot(me.vx, me.vz) < 0.2) hintTxt = '<kbd>Right click</kbd> lock in place (stops the wobble)';
-      if (!hintTxt && me.kind < 0) hintTxt = 'Look at an object nearby and press <kbd>E</kbd>';
+      if (!hintTxt && me.kind < 0) hintTxt = 'Walk up to an object and point roughly at it, then <kbd>E</kbd> or <kbd>Click</kbd>';
     }
     if (fpMode && phase === 'hunt') {
       const { d } = gfx.centerRay();

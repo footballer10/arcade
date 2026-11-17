@@ -20,7 +20,7 @@ export const TILE_FALL = 0.9;                // seconds a tile shakes before it 
 // ---------------------------------------------------------------- solids
 export function solid(o) {
   const s = Object.assign({ shape: 'box', hx: 1, hy: 0.5, hz: 1, r: 1, bx: 0, by: 0, bz: 0, bry: 0, ox: 0, oz: 0, anim: null, hit: 0, belt: null, bounce: 0,
-    tile: -1, door: -1, fake: false, until: 0, finish: false, noHang: false, look: 'floor', col: 0 }, o);
+    tile: -1, door: -1, fake: false, noStand: false, until: 0, blink: null, finish: false, noHang: false, look: 'floor', col: 0 }, o);
   s.q = {}; s.br = s.shape === 'cyl' ? s.r : Math.hypot(s.hx, s.hz);
   pose(s, 0, s); pose(s, 0, s.q);
   return s;
@@ -45,7 +45,10 @@ export function setPoses(W, t, dt) {
   W.t = t;
   for (const s of W.moving) { pose(s, t - dt, s.q); pose(s, t, s); }
 }
+// blinking platforms: on for `on` of every `p` seconds (phase ph), a pure function of the stage clock
+export const blinkU = (s, t) => ((t / s.blink.p + s.blink.ph) % 1 + 1) % 1;
 export function active(s, W) {
+  if (s.blink && blinkU(s, W.t) > s.blink.on) return false;
   if (s.tile >= 0) return W.dyn[s.tile] < 2;
   if (s.door >= 0 && !s.fake) return W.dyn[s.door] === 0;
   if (s.until) return W.t < s.until;
@@ -204,17 +207,11 @@ function collide(p, W, dt, wasGr) {
         }
       }
       const footIn = d < R * 0.75;
-      if (!s.hit) {
+      if (!s.hit && !s.noStand) {
         // land / stand on top
         const rise = s.anim ? Math.max(0, s.y - s.q.y) : 0;
         const tol = Math.max(0.28, -p.vy * dt + 0.12) + rise + (wasGr === i ? 0.25 : 0);
         if (footIn && p.vy <= 0.5 + rise / dt && p.y >= top - tol) { p.y = top; if (p.vy < 0) p.vy = 0; p.gr = i; continue; }
-        // step up small ledges
-        if (wasGr >= 0 && top - p.y <= C.STEP_UP && top > p.y && s.door < 0 && p.vy <= 0.5) {
-          const sx = nlx * s.c + nlz * s.sn, sz = -nlx * s.sn + nlz * s.c, k = s.shape === 'cyl' ? 0 : Math.max(0, d - R * 0.5);
-          if (s.shape !== 'cyl') { p.x -= sx * k; p.z -= sz * k; }
-          p.y = top; p.vy = 0; p.gr = i; continue;
-        }
         // bump head
         if (footIn && p.vy > 0 && p.y + H - bot < 0.45 && p.y < bot) { p.y = bot - H; p.vy = 0; p.jumping = false; continue; }
         if (p.y >= top - 0.05) continue;          // level with the top: a seam between platforms, not a wall
@@ -227,7 +224,7 @@ function collide(p, W, dt, wasGr) {
       if (s.hit && p.hitCd <= 0) {
         const v = pointVel(s, p.x - wx * R, p.z - wz * R, dt);
         const m = Math.hypot(v[0], v[2]);
-        if (m > 1.2) {
+        if (m > 0.45) {
           const sp = Math.max(C.HIT_MIN, Math.min(C.HIT_MAX, 4 + m * s.hit));
           let kx = v[0] / m * 0.75 + wx * 0.45, kz = v[2] / m * 0.75 + wz * 0.45; const kl = Math.hypot(kx, kz) || 1;
           knock(p, kx / kl * sp, 5 + sp * 0.18, kz / kl * sp); ev |= EV.HIT; p.lastBy = null;
@@ -240,7 +237,7 @@ function collide(p, W, dt, wasGr) {
       }
       p.wall = i; p.wn[0] = wx; p.wn[1] = wz; p.wtop = top;
       if (s.door >= 0 && !s.fake && W.dyn[s.door] === 0) { W.dyn[s.door] = 1; ev |= EV.DOOR; W.doorHit?.(s.door, p); }
-      else if (s.door >= 0 && s.fake && -vn > 2.5) { ev |= EV.BONK; W.fakeHit?.(s.door, p); }
+      else if (s.door >= 0 && s.fake && -vn > 2.5) { ev |= EV.BONK; knock(p, wx * 6.5, 5, wz * 6.5, 0.55); W.fakeHit?.(s.door, p); }
     }
   }
   return ev;

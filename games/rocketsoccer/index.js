@@ -107,7 +107,7 @@ export async function start(ctx) {
   // ---------------------------------------------------------------- state
   let isSim = net.isHost, ref = null, ended = false, acc = 0, snapCount = 0;
   const evBuf = [];
-  const queues = roster.map(() => ({ q: [], max: 0, ack: 0 }));
+  const queues = roster.map(() => ({ q: [], max: 0, ack: 0, wait: true, need: 2, smooth: 0 }));
   const acks = new Float32Array(N), snapAcks = new Float32Array(N);
   const bots = new Map(); const roles = []; let roleT = 0;
   let stats = roster.map(() => ({ g: 0, a: 0, s: 0, sh: 0, d: 0, t: 0, pts: 0 }));
@@ -115,7 +115,7 @@ export async function start(ctx) {
   let lastSnap = null, lastSnapTick = -1;
   const rec = [];                        // replay recording: packed snapshots at 30 Hz
   let replay = null, skips = new Set(), mySkip = false;
-  let ballCam = (() => { try { return localStorage.getItem('partyhub.rs.ballcam') !== '0'; } catch { return true; } })();
+  let ballCam = (() => { try { return localStorage.getItem('partyhub.rs.ballcam2') === '1'; } catch { return false; } })();   // car cam by default: steering always matches the screen
   const hooks = window.__rs = { autopilot: false, turbo: 1, get W() { return W; }, get phase() { return W.phase; }, get score() { return [W.sA, W.sB]; }, roster, lag: 0, err: { car: 0, ball: 0, n: 0, carMax: 0, ballMax: 0 } };
   let autoBot = null;
   const brain = (i) => { let b = bots.get(i); if (!b) { b = newBot(ctx.bots.level, ctx.rng(0xb07 + i)); bots.set(i, b); } return b; };
@@ -134,7 +134,7 @@ export async function start(ctx) {
     return myInput;
   }
   input.on('press', (a) => {
-    if (a === 'secondary') { ballCam = !ballCam; try { localStorage.setItem('partyhub.rs.ballcam', ballCam ? '1' : '0'); } catch { /* */ } ui.toast(ballCam ? '🎥 Ball cam ON' : '🎥 Ball cam OFF', '', 1000); }
+    if (a === 'secondary') { ballCam = !ballCam; try { localStorage.setItem('partyhub.rs.ballcam2', ballCam ? '1' : '0'); } catch { /* */ } ui.toast(ballCam ? '🎥 Ball cam ON' : '🎥 Ball cam OFF', '', 1000); }
     if (a === 'jump' && W.phase === PH.REPLAY && !mySkip && !ctx.spectator) { mySkip = true; net.toHost({ t: 'skip' }); ui.toast('⏭ Voted to skip the replay', '', 1400); }
   });
 
@@ -148,8 +148,15 @@ export async function start(ctx) {
       else if (r.isBot || !ctx.connected(r.id)) c.inp = encInput(botInput(W, i, brain(i), roles[i] || 'attack'));
       else {
         const qu = queues[i];
-        while (qu.q.length > 6) qu.q.shift();
-        if (qu.q.length) { const e = qu.q.shift(); qu.ack = e.seq; c.inp = e.b; }
+        // adaptive jitter buffer: after running dry, wait until `need` inputs are queued before consuming again;
+        // `need` grows after each dry spell and shrinks back after a smooth stretch. Exactly one input per step
+        // keeps client replays in sync with what the host applied.
+        while (qu.q.length > qu.need + 4) qu.q.shift();
+        if (qu.wait && qu.q.length >= qu.need) qu.wait = false;
+        if (qu.q.length && !qu.wait) {
+          const e = qu.q.shift(); qu.ack = e.seq; c.inp = e.b; hooks.used = (hooks.used || 0) + 1;
+          if (++qu.smooth > 240 && qu.need > 2) { qu.need--; qu.smooth = 0; }
+        } else { if (!qu.wait) qu.need = Math.min(8, qu.need + 1); qu.wait = true; qu.smooth = 0; hooks.starve = (hooks.starve || 0) + 1; }
       }
     }
     evBuf.length = 0; W.ev = evBuf;
@@ -215,7 +222,7 @@ export async function start(ctx) {
       const b = encInput(sampleInput());
       seq++; hist.push({ seq, b }); if (hist.length > 90) hist.shift();
       W.cars[myIdx].inp = b;
-      if (++sendT >= 2) {
+      if (++sendT >= 1) {
         sendT = 0;
         const n = Math.min(10, hist.length), buf = new Uint8Array(6 + n), dv = new DataView(buf.buffer);
         dv.setUint8(0, 1); dv.setUint32(1, seq, true); dv.setUint8(5, n);
@@ -224,7 +231,7 @@ export async function start(ctx) {
       }
     }
     evBuf.length = 0; W.ev = evBuf;
-    stepWorld(W);
+    stepWorld(W); quantize(W);
     liveEvents(evBuf);
   }
   ctx.tick((dt) => {
@@ -257,7 +264,7 @@ export async function start(ctx) {
       const ack = snapAcks[myIdx];
       while (hist.length && hist[0].seq <= ack) hist.shift();
       W.ev = null;
-      for (const h of hist) { W.cars[myIdx].inp = h.b; stepWorld(W); }
+      for (const h of hist) { W.cars[myIdx].inp = h.b; stepWorld(W); quantize(W); }   // same float32 rounding as the host: replays match exactly
     }
     // fold the correction into offsets that decay, so nothing pops
     W.cars.forEach((c, i) => { off[i].add(pre[i].sub(new THREE.Vector3(c.x, c.y, c.z))); if (off[i].length() > 7) off[i].set(0, 0, 0); });
@@ -280,7 +287,7 @@ export async function start(ctx) {
     quantize(W);
     ref = new Referee(W, ctx.rng(0x6b1c ^ (W.tick | 0)));
     ref.stats = stats.map((s) => ({ ...s })); ref.goals = W.sA + W.sB;
-    for (const q of queues) { q.q.length = 0; q.max = 0; q.ack = 0; }
+    for (const q of queues) { q.q.length = 0; q.max = 0; q.ack = 0; q.wait = true; q.need = 2; q.smooth = 0; }
     isSim = true; acc = 0;
     ctx.log('took over the match simulation at tick', W.tick);
   });
@@ -549,6 +556,7 @@ export async function start(ctx) {
     view.update(dt, Math.min(1.3, cheer + (ctx.started ? dangerC * 0.35 : 0.1)));
     // ball streak at speed, tinted by the team that last hit it
     const bsrc = replay ? Wr2.ball : W.ball, bsp = speedOf(bsrc);
+    { const lt0 = (replay ? Wr2 : W).lastTouch; view.ball.setGlow(Math.max(0, Math.min(1, (bsp - 14) / 40)), lt0 >= 0 && roster[lt0] ? TEAM[roster[lt0].team].glow : null, dt); }
     if (bsp > 30 && view.ball.root.visible) {
       const lt = (replay ? Wr2 : W).lastTouch, tint = lt >= 0 && roster[lt] ? TEAM[roster[lt].team].glow : 0xffffff;
       for (let k = 0; k < (bsp > 48 ? 3 : 1); k++) fx.emit(ballPos.x + (Math.random() - 0.5) * 2.4, ballPos.y + (Math.random() - 0.5) * 2.4, ballPos.z + (Math.random() - 0.5) * 2.4, 0, 0, 0, Math.random() < 0.5 ? 0xffffff : tint, 0.4, 1.3, 0);

@@ -61,3 +61,12 @@ fixed rate. In head-to-head 2v2 tests (24 matches each): hard beat normal 44–3
   speed FOV kick, off-screen ball arrow, slow-mo goal replay from beside the net, confetti for the winners.
 - **Quality**: Low = no shadows, no bloom, fewer particles, a thinner crowd of box fans (~27k triangles);
   Medium = shadows; High = shadows + bloom and a fuller crowd (~240k triangles).
+
+## Handling update (after playtest feedback)
+- Turning: about twice as sharp as the first version (a full-throttle U-turn needs ~12 units instead of ~23),
+  with a short steering ramp so key taps stay gentle. **Brake-turn**: S + A/D while rolling forward spins the car
+  round in a skid (180 degrees in ~0.5 s).
+- Air: without boost the car only tilts gently and levels itself; boost gives full flying control.
+- Netcode: clients round to float32 after every step like the host (replays now match bit for bit), send inputs
+  every step, and the host keeps an adaptive jitter buffer per player (dry spells fell from 41% to ~4% of steps
+  in the busy test machine).

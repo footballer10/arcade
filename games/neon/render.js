@@ -5,7 +5,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { worldPos, extent, scalar, sample, ENTRY } from './tracks.js';
+import { worldPos, extent, scalar, sample, ENTRY, SC_LEAD } from './tracks.js';
 
 // Per-track moods: sky gradient, fog, accent colours for edges / walls / pads.
 export const MOODS = {
@@ -285,6 +285,7 @@ export function createWorld(ctx, track, moodKey, rng) {
   const edgeBase = edgeMat.color.clone();
   const wallMat = own(new THREE.MeshBasicMaterial({ map: texWall, color: new THREE.Color(mood.wall).multiplyScalar(0.9), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, opacity: 0.7 }));
   const padMat = own(new THREE.MeshBasicMaterial({ map: texChev, color: new THREE.Color(mood.alt).multiplyScalar(1.1), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+  const scMarkMat = own(new THREE.MeshBasicMaterial({ map: texChev, color: 0xc89bff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
   const checkMat = own(new THREE.MeshBasicMaterial({ map: texCheck, polygonOffset: true, polygonOffsetFactor: -2 }));
   const trackGroup = new THREE.Group(); scene.add(trackGroup);
   const tmp = [0, 0, 0];
@@ -377,6 +378,22 @@ export function createWorld(ctx, track, moodKey, rng) {
       const gg = own(new THREE.BufferGeometry());
       gg.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); gg.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2)); gg.setIndex(I);
       trackGroup.add(new THREE.Mesh(gg, padMat));
+    }
+    // shortcut markers: violet chevrons along the lead-in + entry, pointing toward the opening in the wall
+    for (const sc of path.shortcuts || []) {
+      const P = [], U = [], I = [];
+      const n2 = 16;
+      for (let r = 0; r <= n2; r++) {
+        const s = sc.a - SC_LEAD + (SC_LEAD + ENTRY * 0.55) * (r / n2);
+        const hw = scalar(path, path.hw, s);
+        const inner = sc.side * hw * 0.3, outer = sc.side * (hw + sc.hwSc * 0.7);
+        worldPos(path, s, inner, 0.08, tmp); P.push(...tmp); worldPos(path, s, outer, 0.08, tmp); P.push(...tmp);
+        U.push(0, -r / 2, 1, -r / 2);
+        if (r) { const a = (r - 1) * 2; I.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+      }
+      const gg = own(new THREE.BufferGeometry());
+      gg.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); gg.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2)); gg.setIndex(I);
+      trackGroup.add(new THREE.Mesh(gg, scMarkMat));
     }
     // jump chevrons (warning stripes before the lip)
     for (const j of path.jumps) {
