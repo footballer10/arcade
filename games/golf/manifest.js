@@ -2,6 +2,13 @@ export const manifest = {
   id: 'golf',
   name: 'Mini-Golf Battle',
   tagline: "Same hole, same time. Knock 'em in the water!",
+  // Shown on the pre-round screen next to the settings: goal, how to win, key tips (short sentences).
+  howTo: [
+    "Everyone plays the same hole at the same time, and the balls bump into each other.",
+    "Click and drag back from your ball, then let go to putt. The dots show where it will roll.",
+    "Classic: fewest strokes wins. Water or falling off costs +1 stroke. Speed Golf: be first in the cup for points.",
+    "Roll through ? boxes for power-ups and press E to use them. Knock a rival into the water for a KO bonus.",
+  ],
   minPlayers: 2,
   maxPlayers: 8,
   teams: false,

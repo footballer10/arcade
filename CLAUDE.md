@@ -41,10 +41,16 @@ authoritative state from the latest state you saw. Players who join mid-round sp
 `async start(ctx) → { stop(), standings?() }`.
 ```js
 manifest = { id, dir?, name, tagline, minPlayers, maxPlayers, teams: false|2, supportsBots, roundLengthSec,
+             howTo: ['goal', 'how to win', 'key tips'],          // 2–4 short plain sentences, shown on the pre-round screen
              controlsHelp: [[keys, action]], thumbnail: 'games/<id>/thumb.svg',
              picks:   [{ key, label, default, choices: [{ value, label, desc? }] }],   // every player chooses (pre-round screen)
              options: [{ key, label, default, choices: [...] }] }                      // the host chooses
 ```
+Every game goes through the hub's **pre-round screen**: picks/options on the left, and on the right "How to play"
+(`tagline` + `howTo`) and every key from `controlsHelp`. That is where players learn the game, so write `howTo` for
+someone who has never played: what you're trying to do, how a round is won, and the 1–2 things that matter most.
+Don't add your own in-game controls panels at the start; the loading screen deliberately shows no controls.
+
 `ctx` (see `core/runtime.js`):
 | | |
 |---|---|

@@ -475,8 +475,10 @@ function beginGame(id) {
   S.votes = {}; S.results = null;
   S.game = { id, round: null, options: opts, picks: {}, setupReady: {}, botLevel: S.botLevel };
   for (const b of S.players.filter((p) => p.isBot)) S.game.picks[b.id] = Object.fromEntries((m.picks || []).map((pk) => [pk.key, pk.choices[Math.floor(Math.random() * pk.choices.length)].value]));
-  if ((m.picks || []).length || (m.options || []).length) { S.phase = 'setup'; S.game.deadline = hnow() + (S.shuffle ? 12000 : 25000); }
-  else startLoading();
+  // Every game gets the pre-round screen: settings / picks on one side, How to play + controls on the other.
+  // It ends early as soon as every human presses Ready.
+  const hasChoices = (m.picks || []).length || (m.options || []).length;
+  S.phase = 'setup'; S.game.deadline = hnow() + (S.shuffle ? (hasChoices ? 15000 : 12000) : (hasChoices ? 30000 : 25000));
 }
 function startLoading() {
   const g = S.game, m = GAME_MAP[g.id];
@@ -758,7 +760,15 @@ function renderSetup() {
     html += host ? `<div class="pick-group"><h3>${esc(o.label)} <small class="muted">(host)</small></h3><div class="choices">${o.choices.map((c) => `<button class="ph-btn small choice ${g.options[o.key] === c.value ? 'sel' : ''}" data-opt="${o.key}" data-v="${esc(c.value)}">${esc(c.label)}</button>`).join('')}</div></div>`
       : `<div class="ph-sub">${esc(o.label)}: <b>${esc(cur?.label || '')}</b></div>`;
   }
+  if (!html) html = '<p class="ph-sub">No settings for this game. Read how to play, then press Ready!</p>';
   if ($('setupBody').dataset.html !== html) { $('setupBody').innerHTML = html; $('setupBody').dataset.html = html; }
+  if ($('howList').dataset.game !== m.id) {
+    $('howList').dataset.game = m.id;
+    $('howTag').textContent = m.tagline;
+    $('howList').innerHTML = (m.howTo || []).map((t) => `<li>${esc(t)}</li>`).join('');
+    $('howList').classList.toggle('hidden', !(m.howTo || []).length);
+    $('howControls').innerHTML = controlsHTML(m);
+  }
   const ready = !!g.setupReady[pid];
   $('setupReady').textContent = ready ? 'Ready ✔' : 'Ready!';
   $('setupReady').classList.toggle('green', ready);
@@ -778,8 +788,6 @@ function renderLoading() {
   const g = S.game, m = GAME_MAP[g.id];
   $('loadTitle').textContent = m.name; $('loadTag').textContent = m.tagline;
   $('loadSub').textContent = S.shuffle ? `Shuffle · game ${S.shuffle.idx + 1} of ${S.shuffle.list.length}` : `Round ${g.round}`;
-  const html = controlsHTML(m);
-  if ($('loadControls').dataset.html !== html) { $('loadControls').innerHTML = html; $('loadControls').dataset.html = html; }
   $('loadWho').innerHTML = g.roster.filter((p) => !p.isBot).map((p) => `<span class="load-chip ${g.loaded.includes(p.id) ? 'ok' : ''}">${g.loaded.includes(p.id) ? '✔' : '⏳'} ${esc(p.name)}</span>`).join(' ')
     + (g.participants.includes(pid) ? '' : '<div class="ph-sub" style="width:100%">You joined mid-party: you\'ll spectate this round.</div>');
 }
@@ -825,7 +833,7 @@ settings.on('change', (k) => { if (k === 'showFps') $('fps').classList.toggle('h
 $('fps').classList.toggle('hidden', !settings.get('showFps'));
 function renderControls() {
   const m = runtime ? GAME_MAP[runtime.manifest.id] : null;
-  $('controlsBody').innerHTML = (m ? `<div class="k"><b>${esc(m.name)}</b></div><div></div>` + controlsHTML(m) + '<div class="k" style="margin-top:8px"><b>Everywhere</b></div><div></div>' : '')
+  $('controlsBody').innerHTML = (m ? `<div class="k"><b>${esc(m.name)}</b></div><div></div>` + (m.howTo || []).map((t, i) => `<div class="k">${i + 1}.</div><div>${esc(t)}</div>`).join('') + '<div class="k" style="margin-top:8px"><b>Controls</b></div><div></div>' + controlsHTML(m) + '<div class="k" style="margin-top:8px"><b>Everywhere</b></div><div></div>' : '')
     + CONTROL_MAP.map(([k, v]) => `<div class="k">${k.split(' / ').map((x) => `<kbd>${esc(x)}</kbd>`).join(' / ')}</div><div>${esc(v)}</div>`).join('');
 }
 $('resumeBtn').onclick = () => closeOverlay('pause');

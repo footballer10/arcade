@@ -3,6 +3,13 @@ export const manifest = {
   id: 'rocketsoccer',
   name: 'Rocket Soccer',
   tagline: 'Rocket-powered cars, one giant ball. Drive up the walls, fly, and blast it into the net!',
+  // Shown on the pre-round screen next to the settings: goal, how to win, key tips (short sentences).
+  howTo: [
+    "Two teams, Blue and Orange, drive rocket cars and hit one giant ball.",
+    "Knock the ball into the other team's goal. Most goals when the clock runs out wins.",
+    "Space jumps (press again to double jump, or with a direction to dodge-flip). Hold Shift to boost and fly.",
+    "Drive up the walls, and ram an opponent at full speed to demolish them.",
+  ],
   minPlayers: 1,
   maxPlayers: 8,
   teams: 2,                     // Blue vs Orange, picked in-game (bots fill both teams)

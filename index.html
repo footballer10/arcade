@@ -115,12 +115,21 @@
 
 <!-- PRE-ROUND SETUP (per-game picks, e.g. skier/snowboarder) -->
 <section id="setup" class="ph-screen hidden">
-  <div class="ph-panel setup-panel">
-    <div class="ph-sub" id="setupCount"></div>
-    <h2 id="setupTitle">Game</h2>
-    <div id="setupBody"></div>
-    <div class="ph-row" style="margin-top:12px"><button id="setupReady" class="ph-btn big">Ready!</button></div>
-    <div id="setupWho" class="ph-sub"></div>
+  <div class="setup-grid">
+    <div class="ph-panel setup-panel">
+      <div class="ph-sub" id="setupCount"></div>
+      <h2 id="setupTitle">Game</h2>
+      <div id="setupBody"></div>
+      <div class="ph-row" style="margin-top:12px"><button id="setupReady" class="ph-btn big">Ready!</button></div>
+      <div id="setupWho" class="ph-sub"></div>
+    </div>
+    <div class="ph-panel dark howto-panel">
+      <h2>How to play</h2>
+      <p class="ph-sub howto-tag" id="howTag"></p>
+      <ol class="howto" id="howList"></ol>
+      <h3>Controls</h3>
+      <div id="howControls" class="controls-box"></div>
+    </div>
   </div>
 </section>
 
@@ -130,7 +139,6 @@
     <div class="ph-sub" id="loadSub"></div>
     <div class="ph-title small" id="loadTitle">Game</div>
     <p class="ph-sub" id="loadTag"></p>
-    <div id="loadControls" class="controls-box"></div>
     <div id="loadWho" class="ph-row"></div>
   </div>
 </section>
