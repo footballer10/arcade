@@ -79,7 +79,7 @@ export const KINDS = [
   { id: 'chair', name: 'Chair', icon: '🪑', size: [0.48, 0.92, 0.48], cats: ['chair'], build(b) {
     for (const [x, z] of [[-0.19, -0.19], [0.19, -0.19], [-0.19, 0.19], [0.19, 0.19]]) b.box(x, 0.22, z, 0.05, 0.44, 0.05, 0xa8683a);
     b.box(0, 0.46, 0, 0.48, 0.05, 0.48, 0xc97f45); b.box(0, 0.7, -0.215, 0.46, 0.38, 0.05, 0xc97f45); b.box(0, 0.48, 0.02, 0.38, 0.03, 0.38, 0xff7aa0, { out: false }); } },
-  { id: 'teddy', name: 'Teddy bear', icon: '🧸', size: [0.34, 0.44, 0.28], cats: ['bed', 'toy', 'sofa'], build(b) {
+  { id: 'teddy', name: 'Teddy bear', icon: '🧸', size: [0.34, 0.44, 0.28], cats: ['bed', 'toy', 'sofa', 'toys'], build(b) {
     const C = 0xc98b52; b.sph(0, 0.13, 0, 0.13, C, { sy: 1.05 }); b.sph(0, 0.32, 0, 0.1, C); for (const s of [-1, 1]) { b.sph(s * 0.075, 0.41, 0, 0.04, C); b.sph(s * 0.12, 0.17, 0.05, 0.05, C); b.sph(s * 0.07, 0.04, 0.08, 0.05, C); }
     b.sph(0, 0.3, 0.085, 0.04, 0xf2d0a4, { out: false }); for (const s of [-1, 1]) b.sph(s * 0.035, 0.345, 0.088, 0.013, INK, { out: false }); b.box(0, 0.24, 0.05, 0.16, 0.03, 0.08, 0xff5a5f, { out: false }); } },
   { id: 'clock', name: 'Clock', icon: '⏰', size: [0.24, 0.28, 0.12], cats: ['shelf', 'table', 'night'], build(b) {
@@ -88,7 +88,7 @@ export const KINDS = [
     for (const s of [-1, 1]) { b.sph(s * 0.07, 0.25, 0, 0.035, 0xffd23f); b.box(s * 0.06, 0.02, 0, 0.025, 0.04, 0.025, INK); } } },
   { id: 'vase', name: 'Flower vase', icon: '🌷', size: [0.22, 0.48, 0.22], cats: ['table', 'shelf'], build(b) {
     b.cyl(0, 0.1, 0, 0.06, 0.08, 0.2, 0x4f7cff); b.sph(0, 0.1, 0, 0.085, 0x4f7cff, { sy: 0.9 }); for (const [x, z, c] of [[0, 0, 0xff6ec7], [0.05, 0.03, 0xffd23f], [-0.05, -0.02, 0xff5a5f]]) { b.cyl(x * 0.6, 0.29, z * 0.6, 0.006, 0.006, 0.2, 0x3a9a4a, { out: false }); b.sph(x, 0.4, z, 0.045, c); } } },
-  { id: 'duck', name: 'Rubber duck', icon: '🦆', size: [0.2, 0.2, 0.22], cats: ['bath', 'toy'], build(b) {
+  { id: 'duck', name: 'Rubber duck', icon: '🦆', size: [0.2, 0.2, 0.22], cats: ['bath', 'toy', 'toys'], build(b) {
     b.sph(0, 0.06, 0, 0.09, 0xffd23f, { sz: 1.25, sy: 0.75 }); b.sph(0, 0.14, 0.05, 0.06, 0xffd23f); b.cone(0, 0.135, 0.12, 0.025, 0.05, 0xff8c42, { rx: Math.PI / 2 }); for (const s of [-1, 1]) b.sph(s * 0.03, 0.16, 0.09, 0.011, INK, { out: false }); } },
   { id: 'laundry', name: 'Laundry basket', icon: '🧺', size: [0.52, 0.44, 0.4], cats: ['floor', 'bath'], build(b) {
     b.box(0, 0.18, 0, 0.5, 0.36, 0.38, 0xe9d6a6); for (const [x, c] of [[-0.1, 0x3ea6ff], [0.08, 0xff6ec7], [0, 0x4cd964]]) b.sph(x, 0.36, x * 0.4, 0.11, c, { sy: 0.6 }); } },
@@ -98,7 +98,7 @@ export const KINDS = [
     b.cyl(0, 0.02, 0, 0.1, 0.12, 0.04, DARK); b.cyl(0, 0.12, 0, 0.015, 0.015, 0.18, DARK); b.sph(0, 0.32, 0, 0.15, 0x3ea6ff, { seg: 16 }); b.sph(0.05, 0.36, 0.08, 0.08, 0x4cd964, { sy: 0.7, out: false }); b.sph(-0.08, 0.27, -0.06, 0.07, 0x4cd964, { sy: 0.8, out: false }); b.tor(0, 0.32, 0, 0.17, 0.01, 0xffcc33, { ry: 0.4, out: false }); } },
   { id: 'backpack', name: 'Backpack', icon: '🎒', size: [0.36, 0.46, 0.24], cats: ['floor', 'school'], build(b) {
     b.box(0, 0.21, 0, 0.34, 0.42, 0.2, 0x3ea6ff); b.sph(0, 0.42, 0, 0.17, 0x3ea6ff, { sy: 0.4, sz: 0.58 }); b.box(0, 0.15, 0.115, 0.24, 0.18, 0.05, 0xffcc00); b.box(0, 0.47, 0, 0.1, 0.03, 0.03, DARK); } },
-  { id: 'ball', name: 'Basketball', icon: '🏀', size: [0.26, 0.26, 0.26], cats: ['gym'], build(b) {
+  { id: 'ball', name: 'Basketball', icon: '🏀', size: [0.26, 0.26, 0.26], cats: ['gym', 'toys', 'toy'], build(b) {
     b.sph(0, 0.13, 0, 0.13, 0xff8c42, { seg: 16 }); b.tor(0, 0.13, 0, 0.131, 0.006, INK, { rx: Math.PI / 2, out: false }); b.tor(0, 0.13, 0, 0.131, 0.006, INK, { out: false }); } },
   { id: 'cone', name: 'Traffic cone', icon: '🚧', size: [0.36, 0.56, 0.36], cats: ['gym', 'floor2'], build(b) {
     b.box(0, 0.02, 0, 0.36, 0.04, 0.36, 0xff6a1a); b.cone(0, 0.3, 0, 0.14, 0.52, 0xff7a2a); b.cyl(0, 0.28, 0, 0.085, 0.1, 0.07, W, { out: false, t: 0 }); } },
@@ -120,6 +120,21 @@ export const KINDS = [
     b.box(0, 0.12, 0, 0.48, 0.24, 0.32, 0xff4b5e); b.box(0, 0.23, 0, 0.44, 0.02, 0.28, 0xb8243a, { out: false }); b.tor(0, 0.24, 0, 0.17, 0.015, DARK, { arc: Math.PI }); } },
   { id: 'wetfloor', name: 'Wet floor sign', icon: '⚠️', size: [0.36, 0.64, 0.34], cats: ['floor2', 'floor3'], build(b) {
     b.box(0, 0.32, 0.07, 0.34, 0.64, 0.03, 0xffd23f, { rx: -0.22 }); b.box(0, 0.32, -0.07, 0.34, 0.64, 0.03, 0xffd23f, { rx: 0.22 }); b.box(0, 0.32, 0.142, 0.14, 0.14, 0.005, INK, { rx: -0.22, out: false }); } },
+  { id: 'guitar', name: 'Guitar', icon: '🎸', size: [0.4, 1.0, 0.16], cats: ['music', 'toy2'], build(b) {
+    b.sph(0, 0.22, 0, 0.19, 0xd9733a, { sz: 0.4 }); b.sph(0, 0.45, 0, 0.14, 0xd9733a, { sz: 0.4 }); b.cyl(0, 0.33, 0.07, 0.06, 0.06, 0.01, 0x3a2418, { rx: Math.PI / 2, out: false });
+    b.box(0, 0.75, 0, 0.06, 0.48, 0.04, 0x6b3b1f); b.box(0, 1.0, 0, 0.1, 0.12, 0.05, 0x3a2418); for (const x of [-0.015, 0.015]) b.box(x, 0.6, 0.03, 0.004, 0.8, 0.004, 0xeeeeee, { out: false }); } },
+  { id: 'monitor', name: 'Computer', icon: '🖥️', size: [0.5, 0.42, 0.22], cats: ['computer'], build(b) {
+    b.box(0, 0.015, 0, 0.22, 0.03, 0.16, DARK); b.box(0, 0.09, -0.02, 0.05, 0.14, 0.04, DARK); b.box(0, 0.28, 0, 0.5, 0.3, 0.04, 0x2a2a35);
+    b.box(0, 0.28, 0.021, 0.44, 0.24, 0.005, 0x3ea6ff, { out: false }); b.box(-0.08, 0.31, 0.024, 0.18, 0.05, 0.003, 0xffffff, { out: false }); b.box(0.06, 0.24, 0.024, 0.2, 0.04, 0.003, 0x7ed957, { out: false }); } },
+  { id: 'cactus', name: 'Cactus', icon: '🌵', size: [0.2, 0.32, 0.2], cats: ['table', 'shelf', 'desk', 'night'], build(b) {
+    b.cyl(0, 0.05, 0, 0.08, 0.065, 0.1, 0xff8ab0); b.cyl(0, 0.19, 0, 0.045, 0.05, 0.2, 0x3fae5a); b.sph(0, 0.29, 0, 0.045, 0x3fae5a);
+    b.cyl(0.06, 0.2, 0, 0.022, 0.022, 0.08, 0x3fae5a, { rz: -1.1 }); b.sph(0, 0.33, 0, 0.022, 0xff6ec7, { out: false }); } },
+  { id: 'wcan', name: 'Watering can', icon: '🚿', size: [0.42, 0.3, 0.2], cats: ['storage', 'garden'], build(b) {
+    b.cyl(0, 0.12, 0, 0.1, 0.11, 0.24, 0x4cd964); b.cyl(0.17, 0.17, 0, 0.015, 0.025, 0.28, 0x4cd964, { rz: -1.0 }); b.cyl(0.29, 0.25, 0, 0.04, 0.02, 0.05, 0x4cd964, { rz: -1.0 });
+    b.tor(-0.02, 0.24, 0, 0.08, 0.014, 0x3a9a4a, { arc: Math.PI }); } },
+  { id: 'gift', name: 'Gift box', icon: '🎁', size: [0.36, 0.36, 0.36], cats: ['toy', 'toys'], build(b) {
+    b.box(0, 0.15, 0, 0.34, 0.3, 0.34, 0xff5a8a); b.box(0, 0.15, 0, 0.07, 0.31, 0.35, 0xffd23f, { out: false }); b.box(0, 0.15, 0, 0.35, 0.31, 0.07, 0xffd23f, { out: false });
+    b.tor(-0.05, 0.33, 0, 0.05, 0.016, 0xffd23f, { rz: 0.5 }); b.tor(0.05, 0.33, 0, 0.05, 0.016, 0xffd23f, { rz: -0.5 }); } },
 ];
 export const KIND_INDEX = Object.fromEntries(KINDS.map((k, i) => [k.id, i]));
 
