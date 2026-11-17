@@ -6,7 +6,7 @@ export const manifest = {
   // Shown on the pre-round screen next to the settings: goal, how to win, key tips (short sentences).
   howTo: [
     "Each round some players are Seekers and the rest are Hiders. Roles rotate so everyone gets to seek.",
-    "Hiders: point roughly at an object (a yellow label shows which) and press E or click to turn into it, then hide before the seekers are let out. Props can hop onto counters and shelves. Taunt with F for bonus points.",
+    "Hiders: point roughly at an object (a yellow label shows which) and press E or click to turn into it, then hide before the seekers are let out. Props can hop onto counters and shelves. Taunt with F for bonus points; if you stay silent for 45 s you're forced to, and any taunt resets that timer, so pick your moment.",
     "Seekers: left click to bonk suspicious objects. A wrong guess costs health; Q gives a hot / cold hint.",
     "Points for surviving, taunting and finding hiders. Highest total wins, and the last round counts double.",
   ],

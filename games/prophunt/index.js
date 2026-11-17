@@ -46,7 +46,7 @@ export async function start(ctx) {
   const tauntOf = (id) => (TAUNTS.includes(ctx.picks[id]?.taunt) ? ctx.picks[id].taunt : 'kazoo');
   const api = { autopilot: false, turbo: 1, stats: { snaps: 0, finds: 0, taunts: 0 } };   // test-only hooks
   window.__prophunt = api;
-  api.dbg = () => ({ sim: sim && [...sim.players.values()].map((p) => [p.id, +p.x.toFixed(1), +p.z.toFixed(1), p.role, p.alive]), view: [...view.values()].map((v) => [v.id, +v.x?.toFixed(1), +v.z?.toFixed(1)]), me: me && [me.x, me.z, +me.y.toFixed(2), me.kind, me.role], L: L && [L.ox, L.oz, L.w, L.d, L.mapId], round });
+  api.dbg = () => ({ sim: sim && [...sim.players.values()].map((p) => [p.id, +p.x.toFixed(1), +p.z.toFixed(1), p.role, p.alive]), view: [...view.values()].map((v) => [v.id, +v.x?.toFixed(1), +v.z?.toFixed(1)]), me: me && [me.x, me.z, +me.y.toFixed(2), me.kind, me.role], L: L && [L.ox, L.oz, L.w, L.d, L.mapId], round, intro: +gfx.cam.intro.toFixed(2), phase });
 
   const style = document.createElement('style'); style.textContent = CSS; ctx.container.appendChild(style);
   const cross = ui.el('div', 'pr-cross'); const hint = ui.el('div', 'pr-hint'); const vig = ui.el('div', 'pr-vig');
@@ -179,7 +179,7 @@ export async function start(ctx) {
     lastSnap = s; api.stats.snaps++;
     if (s.r !== round) useRound(s.r);
     if (s.ph !== phase) onPhase(s.ph, phase);
-    phase = s.ph; pt = s.pt; ft = s.ft; score = s.sc || score; stats = s.st || stats;
+    phase = s.ph; pt = s.pt; ft = s.fz?.[ctx.myId] ?? -1; score = s.sc || score; stats = s.st || stats;
     const now = performance.now();
     for (const r of s.p) {
       const id = r[0];
@@ -203,7 +203,6 @@ export async function start(ctx) {
   function onPhase(ph, prev) {
     if (!me) return;
     if (ph === 'intro') {
-      gfx.cam.intro = 1;
       const seeker = levelFor(round) && plan[round].seekers.includes(ctx.myId);
       ui.banner(seeker ? '🔨 YOU ARE A SEEKER' : '🫖 YOU ARE A HIDER', 2600);
       ctx.setTimeout(() => ui.toast(seeker ? 'You will be blindfolded while they hide. Then bonk anything suspicious!' : 'Look at an object and press E to become it. Right click locks you in place.', 'gold', 4200), 900);
@@ -225,7 +224,7 @@ export async function start(ctx) {
         if (m.id === ctx.myId) { ui.toast(m.forced ? '📢 Forced taunt!' : m.daring ? `😈 DARING TAUNT! +${m.pts}` : `📢 Taunt +${m.pts}`, m.daring ? 'gold' : '', 1600); if (m.forced) lastTauntAt = clock; }
         break;
       }
-      case 'fwarn': ui.banner(`📢 FORCED TAUNT IN ${m.in}`, 1800, { small: true }); sfx.warn(); break;
+      case 'fwarn': if (m.id === ctx.myId) { ui.banner(`📢 FORCED TAUNT IN ${m.in}! Taunt now to pick the moment`, 1800, { small: true }); sfx.warn(); } break;
       case 'swing': if (m.id !== ctx.myId) gfx.fx.swing(m.id); break;
       case 'found': {
         api.stats.finds++;
@@ -340,7 +339,9 @@ export async function start(ctx) {
     }
     if (api.autopilot && me && me.role === 'S') { focusId = ctx.myId; }
     if (api.focus && view.get(api.focus)) { focusId = api.focus; mode = 'tp'; }   // test-only: follow someone (screenshots)
-    if (cam.intro > 0) cam.intro = Math.max(0, cam.intro - dt / (phase === 'intro' ? T.INTRO * 0.9 : 1.5));
+    // the fly-over plays exactly once per round: held at the top during the hub countdown ('wait'), swoops down over
+    // the intro phase; if we joined later it just settles quickly
+    if (cam.intro > 0 && phase !== 'wait') cam.intro = Math.max(0, cam.intro - dt / (phase === 'intro' ? T.INTRO * 0.9 : 0.8));
     // --- what am I looking at (hider: copyable object; seeker: crosshair)
     highlight = -1; let hintTxt = '';
     if (alive && L && me.role === 'H' && (phase === 'hide' || phase === 'hunt') && !api.autopilot) {
@@ -395,7 +396,7 @@ export async function start(ctx) {
           { key: 'RMB', label: me.locked ? 'Unlock' : 'Lock', ready: me.kind >= 0, dim: me.kind < 0 },
           { key: 'F', label: 'Taunt', cd: tcd / R.TAUNT_CD, ready: tcd <= 0 && phase === 'hunt', wide: false },
         ]);
-        ui.bar(ft >= 0 && ft < 20 ? 1 - ft / 20 : null, ft >= 0 && ft < 20 ? `📢 Forced taunt in ${Math.ceil(ft)} s` : '');
+        ui.bar(phase === 'hunt' && ft >= 0 ? 1 - ft / 45 : null, phase === 'hunt' && ft >= 0 ? `📢 Forced taunt in ${Math.ceil(ft)} s · taunting resets it` : '');
       } else {
         const bcd = Math.max(0, R.BONK_CD - (clock - lastBonk)), scd = Math.max(0, R.SNIFF_CD - (clock - sniffAt));
         ui.abilities([

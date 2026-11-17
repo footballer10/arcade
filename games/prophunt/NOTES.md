@@ -10,7 +10,7 @@ the highest total score wins.
    press **E** to become it, **Q** to rotate (45° steps), **right click** to lock in place (no wobble).
 3. **Hunt (100 / 155 / 215 s):** seekers bonk suspicious objects (left click, 3.1 m reach). A real object costs
    10 health (0 = fainted for the round); finding a hider gives +20 health. Hiders taunt with **F** for points.
-   Forced taunts hit every hider who has stayed silent for 15 s at 90 s and 45 s before the end (5 s warning).
+   Every hider has their own forced-taunt clock (45 s): staying silent that long forces a taunt (5 s warning, worth 0 points), and **any taunt resets the clock**, so you can choose your moment.
 4. **Post (7 s):** everyone is revealed with name tags.
 
 ## Maps (host option; default: a new map every round)
@@ -97,3 +97,21 @@ play the host's own player. `__prophunt.stats` counts snapshots, finds and taunt
   over 12 bot games.
 - **Hammer:** carried in the seeker's right hand; the whole arm winds up and smashes down. The first-person view
   shows your sleeve and hand gripping it with the same wind-up/smash.
+
+## Update 2: forced-taunt clock, fly-over, more human bots
+- **Fly-over plays once:** the intro camera was started both by the level build (during the hub countdown) and again by
+  the intro phase. It now holds at the top during the countdown and swoops down once during the intro phase.
+- **Forced taunts are per hider:** a 45 s clock that every taunt (chosen or forced) resets; HUD bar shows it.
+- **Hider bots hide like people:** choose cluttered believable spots (surfaces among other objects), never in the
+  seekers' room, spread out from other hiders, become the object first (small body fits on shelves), avoid copying
+  the object right next to them, walk to the edge of a raised spot, line up and hop up slowly, settle exactly onto the
+  surface, and pick *when* to taunt (safe moments, before the forced clock runs out; bold ones dare a seeker who is
+  looking away). Careless (easy/normal) hiders sometimes pick an odd object or a crooked angle.
+- **Seeker bots judge like people:** only notice what is in their field of view; judge from afar but look closer
+  before swinging (close-up noise is much lower); tells are off-spot, crooked, a duplicate of a neighbour, moving or
+  wobbling, or near where a taunt was heard; they commit to a suspect until it's checked, check the nearest first,
+  dismiss it after a close look if unsure, get more desperate as time runs out and more careful after a wrong bonk,
+  sweep rooms by visiting spots next to furniture, and use the sniff when idle. Steering around furniture and
+  give-up rules stop them freezing.
+- Headless balance (360 hiders per level): found 55% / 72% / 73% (easy / normal / hard), ~5 wrong bonks per seeker
+  per round, nobody faints because finds refund 20 health.
