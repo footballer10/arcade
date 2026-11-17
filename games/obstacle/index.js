@@ -128,7 +128,7 @@ export async function start(ctx) {
     const fx = Math.sin(yaw), fz = Math.cos(yaw), rx = -Math.cos(yaw), rz = Math.sin(yaw);
     let mx = rx * ax.x + fx * -ax.y, mz = rz * ax.x + fz * -ax.y;
     const l = Math.hypot(mx, mz); if (l > 1) { mx /= l; mz /= l; }
-    myInput.mx = mx; myInput.mz = mz; myInput.jh = input.down('jump'); myInput.j = input.presses('jump'); myInput.d = input.presses('boost'); myInput.g = input.down('use');
+    myInput.mx = mx; myInput.mz = mz; myInput.jh = input.down('jump'); myInput.j = input.presses('jump'); myInput.g = input.down('use');
   }
   function cycleSpectate() {
     const live = info.roundIn.filter((id) => statusOf(id) === 'in' && id !== ctx.myId);
@@ -515,8 +515,7 @@ export async function start(ctx) {
     const mp = net.isHost && sim ? sim.players.get(ctx.myId) : me;
     const dim = !active;
     ui.abilities([
-      { key: 'Space', label: mp?.hang >= 0 ? 'Climb' : 'Jump', ready: !dim, dim },
-      { key: 'Shift', label: 'Dive', ready: !dim && !!mp && (mp.diveOk || mp.gr >= 0) && !mp.dive, dim },
+      { key: 'Space', label: mp?.hang >= 0 ? 'Climb' : mp && mp.gr < 0 && mp.diveOk && !mp.dive ? 'Dive!' : 'Jump', ready: !dim, dim },
       { key: 'E', label: mp?.grab ? 'Holding!' : mp?.hang >= 0 ? 'Hanging' : 'Grab', cd: mp ? Math.max(0, mp.gcd || 0) / C.GRAB_CD : 0, ready: !dim, dim },
     ]);
     const htxt = !active && phase === 'play' && !ctx.spectator ? 'Space / click: watch someone else' : (active && mp?.hang >= 0 ? 'Space: climb up · let go of E to drop' : '');
