@@ -43,6 +43,14 @@ export const PATTERN_KEYS = Object.keys(PATTERNS);
 const smooth = (a, b, x) => { const u = Math.max(0, Math.min(1, (x - a) / (b - a))); return u * u * (3 - 2 * u); };
 const TAU = Math.PI * 2;
 
+// Furthest horizontal distance a running jump covers to land dh higher (negative = lower). Used by bot AI and by
+// level generation to GUARANTEE every platform it places is actually reachable, not just plausibly spaced.
+export function jumpReach(dh) {
+  const v = C.JUMP, g = C.G, disc = v * v - 2 * g * dh;
+  if (disc < 0) return 0;
+  return C.RUN * ((v + Math.sqrt(disc)) / (g * 1.05));
+}
+
 // ---------------------------------------------------------------- lava clock
 // level at round time t (t < 0 = before the go). Every machine computes the same curve.
 const lavaBase = (lv, t) => lv.from + lv.v0 * t + 0.5 * lv.acc * t * t + (t > lv.T ? lv.acc * (t - lv.T) * (t - lv.T) : 0);
@@ -81,6 +89,54 @@ function relax(cols, step = 1.3, reach = 4.6) {
   }
 }
 const gapOk = (list, x, z, r, pad = 0.35) => list.every((o) => Math.hypot(o.x - x, o.z - z) >= o.r + r + pad);
+
+// Bridge every disconnected cluster of basalt onto the main one with stepping-stone columns, so the starting
+// ground is always one jumpable group. Reachability uses jumpReach() with a comfortable margin (0.62), well
+// inside what the game actually treats as "doable" (bots/level waves use 0.88) so a human has real room to spare.
+const LEG = 0.62;
+function connectBasalt(P, add, brg) {
+  const cols = () => P.filter((o) => o.kind === 'basalt');
+  const canJump = (a, b) => {
+    const dh = b.top - a.top, gap = Math.hypot(a.x - b.x, a.z - b.z) - a.r - b.r;
+    return gap <= jumpReach(dh) * LEG || gap <= jumpReach(-dh) * LEG;
+  };
+  function components() {
+    const list = cols(), uf = new Map(list.map((o) => [o.id, o.id]));
+    const find = (x) => { while (uf.get(x) !== x) { uf.set(x, uf.get(uf.get(x))); x = uf.get(x); } return x; };
+    const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) uf.set(ra, rb); };
+    for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) if (canJump(list[i], list[j])) union(list[i].id, list[j].id);
+    const groups = new Map();
+    for (const o of list) { const r = find(o.id); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(o); }
+    return [...groups.values()].sort((a, b) => b.length - a.length);
+  }
+  for (let guard = 0; guard < 12; guard++) {
+    const groups = components();
+    if (groups.length <= 1) return;
+    const main = groups[0], stray = groups[1];
+    // closest pair (one per side), weighting height difference more than flat distance (height is the scarce resource)
+    let a = main[0], b = stray[0], bestCost = Infinity;
+    for (const p of main) for (const q of stray) {
+      const cost = Math.hypot(p.x - q.x, p.z - q.z) + Math.abs(p.top - q.top) * 2.2;
+      if (cost < bestCost) { bestCost = cost; a = p; b = q; }
+    }
+    const flatReach = Math.max(1.5, jumpReach(0) * LEG), riseMax = Math.max(0.6, (C.JUMP * C.JUMP) / (2 * C.G) * LEG);
+    const dx = b.x - a.x, dz = b.z - a.z, dist = Math.hypot(dx, dz), gap = dist - a.r - b.r, dh = b.top - a.top;
+    const steps = Math.max(1, Math.ceil(Math.max(gap / flatReach, Math.abs(dh) / riseMax)));
+    let prev = a;
+    for (let k = 1; k < steps; k++) {
+      const f = k / steps, r = brg.range(0.75, 0.95);
+      let x = a.x + dx * f + (brg() - 0.5) * 0.6, z = a.z + dz * f + (brg() - 0.5) * 0.6;
+      const rad = Math.hypot(x, z);
+      if (rad > 13.4 - r) { x *= (13.4 - r) / rad; z *= (13.4 - r) / rad; }
+      const top = a.top + dh * f;
+      const stone = add({ kind: 'basalt', x, z, r, top, bot: -40 });
+      prev = stone;
+    }
+    // if we only needed 0 intermediate stones, the pair itself already ought to connect; nudge `b` a hair closer
+    // as a last resort so the union-find actually merges them (keeps guard loop from spinning on edge rounding)
+    if (steps === 1 && !canJump(a, b)) { b.top = a.top + Math.sign(dh || 1) * Math.min(Math.abs(dh), riseMax * 0.9); }
+  }
+}
 
 export function makeLevel(rng, layout, pattern, nPlayers, round = 0) {
   const P = [];
@@ -172,6 +228,11 @@ export function makeLevel(rng, layout, pattern, nPlayers, round = 0) {
   const kept = P.filter((o) => !drop.has(o));
   P.length = 0; kept.forEach((o, i) => { o.id = i; if (o.kind === 'basalt') o.top = 1.6 + (o.top - 0.6) * 0.7; P.push(o); });
   for (const o of P) if (o.kind === 'mover' && o.m.type === 'lift') o.m.y1 = Math.min(o.m.y1, 7);
+  // Guarantee the starting ground is one connected, jumpable group: thinning (and the layouts themselves, e.g.
+  // Archipelago's separately-scattered islands) can rarely strand a few columns where no real jump reaches
+  // anything else. Find every disconnected cluster and drop stepping-stone columns to bridge it to the rest, so
+  // a player is never looking at ground they can see but can never actually reach.
+  connectBasalt(P, add, rng.fork(0x6216));
   // spawns: mid-height basalt columns spread round the arena (greedy farthest-point)
   const cand = P.filter((o) => o.kind === 'basalt' && o.top > 2.2 && o.top < 5);
   const pool = cand.length >= nPlayers ? cand : P.filter((o) => o.kind === 'basalt');
