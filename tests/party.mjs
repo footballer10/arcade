@@ -1,9 +1,9 @@
 // Party features: vote mode, Shuffle playlist ending on the champion podium, mid-game join (spectate, then play),
 // host handover ("make host"), kick.
-import { startStatic, startPeer, launch, openPage, createParty, joinByCode, waitFor, state, sleep, check } from './harness.mjs';
+import { startStatic, startPeer, startRelay, RELAY, launch, openPage, createParty, joinByCode, waitFor, state, sleep, check } from './harness.mjs';
 
-const BASE = 'http://127.0.0.1:8080/index.html?dev=1&peer=127.0.0.1:9000&testfps=' + (process.env.TESTFPS || 4) + (process.env.NETLOG ? '&netlog=1' : '');
-const srv = await startStatic(8080); await startPeer(9000);
+const BASE = 'http://127.0.0.1:8080/index.html?dev=1&peer=127.0.0.1:9000' + RELAY + (process.env.EXTRA || '') + '&testfps=' + (process.env.TESTFPS || 4) + (process.env.NETLOG ? '&netlog=1' : '');
+const srv = await startStatic(8080); await startPeer(9000); await startRelay(9002);
 const { browser, context } = await launch();
 const pages = [];
 const setupReadyAll = async (ps) => { for (const p of ps) { if (await p.evaluate(() => window.__hub.screen === 'setup' && !window.__hub.state.game.setupReady[window.__hub.pid]).catch(() => false)) await p.click('#setupReady').catch(() => {}); } };
