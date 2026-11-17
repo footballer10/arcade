@@ -18,6 +18,7 @@ export const manifest = {
   controlsHelp: [
     ['WASD / Arrows', 'Move'], ['Mouse', 'Aim'], ['Left click (hold)', 'Attack (3 ammo, refills)'], ['Right click / Q', 'Special'],
     ['Shift / Space', 'Dash (brief invulnerability)'], ['Mouse wheel', 'Zoom'], ['1 – 4', 'Emotes'], ['Click while out', 'Switch who you spectate'],
+    ['Click a character @ round end', 'Change character for next round'],
   ],
   picks: [
     { key: 'char', label: 'Character', default: 'blaster', choices: [
