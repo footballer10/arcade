@@ -1,8 +1,8 @@
 // Screenshot helper: node shot.mjs <gameId> [seconds-into-game]  -> artifacts/shot-<game>.png (+ lobby/results shots)
-import { startStatic, startPeer, launch, openPage, createParty, joinByCode, waitFor, sleep, wiggle } from './harness.mjs';
+import { startStatic, startPeer, startRelay, RELAY, launch, openPage, createParty, joinByCode, waitFor, sleep, wiggle } from './harness.mjs';
 const game = process.argv[2] || 'coingrab', secs = +(process.argv[3] || 5);
-const BASE = 'http://127.0.0.1:8080/index.html?dev=1&peer=127.0.0.1:9000&testfps=' + (process.env.TESTFPS || 10) + (process.env.NETLOG ? '&netlog=1' : '');
-const srv = await startStatic(8080); await startPeer(9000);
+const BASE = 'http://127.0.0.1:8080/index.html?dev=1&peer=127.0.0.1:9000' + RELAY + (process.env.EXTRA || '') + '&testfps=' + (process.env.TESTFPS || 10) + (process.env.NETLOG ? '&netlog=1' : '');
+const srv = await startStatic(8080); await startPeer(9000); await startRelay(9002);
 const { browser, context } = await launch();
 const A = await openPage(await context({ full: true }), BASE, 'A');
 const code = await createParty(A, 'Alice');

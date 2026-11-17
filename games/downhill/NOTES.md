@@ -3,7 +3,7 @@
 # Downhill Rush — Test Guide
 
 ## 1. Where to play
-- **Live:** https://footballer10.github.io/arcade-prototypes/downhill/ (once GitHub Pages is enabled for the repo: Settings → Pages → Deploy from branch → `main` / root).
+- **Live:** https://footballer10.github.io/arcade/downhill/ (once GitHub Pages is enabled for the repo: Settings → Pages → Deploy from branch → `main` / root).
 - **Locally:** from the repo root run `python3 -m http.server 8000`, then open http://localhost:8000/downhill/ in Chrome.
   (Opening `index.html` as a file won't work because ES modules need http. You still need internet for the Three.js/PeerJS CDN and the free PeerJS server.)
 

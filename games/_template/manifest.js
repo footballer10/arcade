@@ -5,6 +5,11 @@ export const manifest = {
   dir: '_template',             // folder name under /games (defaults to id)
   name: 'Coin Grab',
   tagline: 'Grab the most coins in 45 seconds!',
+  // Shown on the pre-round screen next to the settings: goal, how to win, key tips (short sentences).
+  howTo: [
+    "Run around and grab as many coins as you can before time runs out.",
+    "Gold coins are worth 1, gems are worth 3. Most points wins.",
+  ],
   minPlayers: 1,
   maxPlayers: 8,
   teams: false,                 // false | 2
@@ -12,7 +17,7 @@ export const manifest = {
   roundLengthSec: 45,
   thumbnail: 'games/_template/thumb.svg',
   // Extra keys this game uses on top of the standard control map (CLAUDE.md). Shown on the loading screen.
-  controlsHelp: [['WASD / Arrows', 'Run'], ['Space', 'Jump'], ['Shift', 'Dash'], ['Gold coin', '1 point · Gem = 3 points']],
+  controlsHelp: [['WASD / Arrows', 'Run'], ['Space', 'Jump'], ['Gold coin', '1 point · Gem = 3 points']],
   // Optional pre-round screen. picks = each player chooses; options = host chooses.
   picks: [],
   options: [

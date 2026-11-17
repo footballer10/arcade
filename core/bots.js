@@ -3,7 +3,7 @@
 // party-wide difficulty from ctx.bots.level:
 //   for (const p of ctx.players) if (p.isBot) brains.set(p.id, myGameBot(p, ctx.bots.level));
 //   ctx.bots.level = { key, reaction /*s*/, aimError /*rad*/, skill /*0..1*/, mistakes /*0..1*/ }
-import { HATS } from './avatar.js';
+import { HATS, SKINS, HAIRS, HAIR_COLORS } from './avatar.js';
 
 export const BOT_NAMES = ['Bolt', 'Nova', 'Rex', 'Pixel', 'Juno', 'Mochi', 'Ziggy', 'Blip', 'Tango', 'Waffles', 'Echo', 'Noodle'];
 export const BOT_LEVELS = {
@@ -18,6 +18,7 @@ export function makeBot(players, freeColor) {
   return {
     id: 'bot-' + Math.random().toString(36).slice(2, 7), name, isBot: true, connected: true, ready: true,
     color: freeColor, hat: HATS[1 + Math.floor(Math.random() * (HATS.length - 1))], trophies: 0, wins: 0,
+    skin: Math.floor(Math.random() * SKINS.length), hair: HAIRS[Math.floor(Math.random() * HAIRS.length)], hairColor: Math.floor(Math.random() * HAIR_COLORS.length),
   };
 }
 

@@ -7,7 +7,7 @@ import { settings, store } from './settings.js';
 import { audio, startMusic, stopMusic } from './audio.js';
 import { input, CONTROL_MAP } from './input.js';
 import { $, el, esc, toast, banner, countdown, clearCenter, tableHTML } from './ui.js';
-import { buildAvatar, disposeAvatar, HATS, HAT_LABELS } from './avatar.js';
+import { buildAvatar, disposeAvatar, HATS, HAT_LABELS, SKINS, HAIRS, HAIR_LABELS, HAIR_COLORS } from './avatar.js';
 import { PALETTE, css } from './palette.js';
 import { makeBot, BOT_LEVELS } from './bots.js';
 import { randomSeed } from './rng.js';
@@ -42,8 +42,10 @@ const find = (id) => S?.players.find((p) => p.id === id);
 const humans = () => S.players.filter((p) => !p.isBot);
 const connectedHumans = () => S.players.filter((p) => !p.isBot && p.connected);
 const hnow = () => (net ? net.now() : performance.now());
-const netKind = () => (params.get('net') === 'local' || $('localNet').checked ? 'local' : 'peer');
-const profile = () => ({ name: (settings.get('name') || '').trim().slice(0, 14) || 'Player', color: settings.get('color'), hat: settings.get('hat') });
+// Online (PeerJS) always, except ?net=local (automated tests) or the offline fallback for Play Solo.
+let forceLocal = params.get('net') === 'local';
+const netKind = () => (forceLocal ? 'local' : 'peer');
+const profile = () => ({ name: (settings.get('name') || '').trim().slice(0, 14) || 'Player', color: settings.get('color'), hat: settings.get('hat'), skin: settings.get('skin'), hair: settings.get('hair'), hairColor: settings.get('hairColor') });
 
 // ---------------------------------------------------------------- screens
 const SCREENS = ['home', 'lobby', 'setup', 'loading', 'results', 'podium'];
@@ -92,7 +94,7 @@ function stageBuild(mode) {
   if (mode === 'me') list = [{ id: pid, ...profile(), color: me()?.color ?? (settings.get('color') >= 0 ? settings.get('color') : 1), hat: me()?.hat ?? settings.get('hat') }];
   else if (mode === 'party') list = S ? S.players.filter((p) => p.connected) : [];
   else if (mode === 'podium') list = (S?.podium?.top || []).map((t) => find(t.id) || t).filter(Boolean);
-  const key = mode + '|' + list.map((p) => p.id + p.color + p.hat).join(',');
+  const key = mode + '|' + list.map((p) => [p.id, p.color, p.hat, p.skin, p.hair, p.hairColor].join(':')).join(',');
   if (key === stage.key) return;
   stage.key = key; stage.mode = mode;
   for (const it of stage.items) disposeAvatar(it);
@@ -107,7 +109,7 @@ function stageBuild(mode) {
       block.position.set(x, h / 2 - 1.2, 0); block.userData.podium = true; stage.scene.add(block);
       a.position.set(x, h - 1.2, 0.1);
     } else {
-      const sp = mode === 'me' ? 0 : 1.5;
+      const sp = mode === 'me' ? 0 : 1.15;
       a.position.set((i - (n - 1) / 2) * sp, mode === 'me' ? -0.95 : -0.85, 0);
     }
     a.userData.phase = i * 0.7;
@@ -131,8 +133,11 @@ function stageLoop(now) {
   if (size.x !== w || size.y !== h) stage.renderer.setSize(w, h, false);
   stageBuild(t.mode);
   const cam = stage.camera; cam.aspect = w / h;
-  if (t.mode === 'me') { cam.fov = 30; cam.position.set(0, 0.6, 5.4); cam.lookAt(0, 0, 0); }
-  else if (t.mode === 'party') { const span = stage.items.length * 1.5 + 0.6; cam.fov = 30; cam.position.set(0, 0.7, Math.max(4.8, span / (2 * Math.tan(15 * Math.PI / 180) * (w / h)) + 0.6)); cam.lookAt(0, -0.05, 0); }
+  if (t.mode === 'me') { cam.fov = 30; cam.position.set(0, 0.75, 4.7); cam.lookAt(0, 0.02, 0); }
+  else if (t.mode === 'party') {
+    const span = stage.items.length * 1.15 + 0.5, tan = Math.tan(15 * Math.PI / 180);
+    cam.fov = 30; cam.position.set(0, 0.25, Math.max(2.3 / (2 * tan), span / (2 * tan * (w / h))) + 0.5); cam.lookAt(0, -0.05, 0);
+  }
   else { cam.fov = 38; cam.position.set(0, 1.4, 9); cam.lookAt(0, 0.2, 0); }
   cam.updateProjectionMatrix();
   const ts = now / 1000;
@@ -142,12 +147,22 @@ function stageLoop(now) {
   });
   stage.renderer.render(stage.scene, cam);
   if (t.mode === 'party') stage.items.forEach((a, i) => {
-    const v = new THREE.Vector3(a.position.x, -1.05, 0).project(cam), lab = stage.labels[i];
-    if (lab) { lab.style.left = ((v.x + 1) / 2 * 100) + '%'; lab.style.bottom = '-4px'; }
+    const v = new THREE.Vector3(a.position.x, -0.95, 0).project(cam), lab = stage.labels[i];
+    if (lab) { lab.style.left = ((v.x + 1) / 2 * 100) + '%'; lab.style.top = ((1 - v.y) / 2 * 100) + '%'; lab.style.bottom = 'auto'; lab.style.maxWidth = Math.max(60, (r.width / Math.max(1, stage.items.length)) - 4) + 'px'; }
   });
 }
 
 // ---------------------------------------------------------------- home / profile
+const LOOKS = [['skin', SKINS.length], ['hairColor', HAIR_COLORS.length]];
+function buildLookPickers(skinId, hairId, hairColId) {
+  const hx = (n) => '#' + n.toString(16).padStart(6, '0');
+  $(skinId).innerHTML = SKINS.map((c, i) => `<button data-v="${i}" style="background:${hx(c)}" title="Skin tone"></button>`).join('');
+  $(hairColId).innerHTML = HAIR_COLORS.map((c, i) => `<button data-v="${i}" style="background:${hx(c)}" title="Hair color"></button>`).join('');
+  $(hairId).innerHTML = HAIRS.map((h) => `<button data-v="${h}">${HAIR_LABELS[h]}</button>`).join('');
+  $(skinId).onclick = (e) => { const b = e.target.closest('button'); if (!b) return; audio.play('click'); settings.set('skin', +b.dataset.v); profileChanged(); };
+  $(hairColId).onclick = (e) => { const b = e.target.closest('button'); if (!b) return; audio.play('click'); settings.set('hairColor', +b.dataset.v); profileChanged(); };
+  $(hairId).onclick = (e) => { const b = e.target.closest('button'); if (!b) return; audio.play('click'); settings.set('hair', b.dataset.v); profileChanged(); };
+}
 function buildPickers(colorId, hatId) {
   $(colorId).innerHTML = PALETTE.map((_, i) => `<button data-c="${i}" style="background:${css(i)}" title="Color"></button>`).join('');
   $(hatId).innerHTML = HATS.map((h) => `<button data-h="${h}">${HAT_LABELS[h]}</button>`).join('');
@@ -159,6 +174,7 @@ function renderProfile() {
   const taken = new Set(S ? S.players.filter((p) => p.id !== pid).map((p) => p.color) : []);
   for (const id of ['colorPick', 'colorPick2']) for (const b of $(id).children) { b.classList.toggle('sel', +b.dataset.c === myColor); b.classList.toggle('taken', taken.has(+b.dataset.c)); }
   for (const id of ['hatPick', 'hatPick2']) for (const b of $(id).children) b.classList.toggle('sel', b.dataset.h === (me()?.hat ?? settings.get('hat')));
+  for (const [k, ids] of [['skin', ['skinPick', 'skinPick2']], ['hairColor', ['hairColPick', 'hairColPick2']], ['hair', ['hairPick', 'hairPick2']]]) for (const id of ids) for (const b of $(id).children) b.classList.toggle('sel', String(settings.get(k)) === b.dataset.v);
   if (document.activeElement !== $('nameIn')) $('nameIn').value = settings.get('name');
   if (document.activeElement !== $('nameIn2')) $('nameIn2').value = settings.get('name');
 }
@@ -169,11 +185,15 @@ function profileChanged() {
   profileT = setTimeout(() => { if (S) act({ type: 'profile', ...profile() }); }, 150);
 }
 buildPickers('colorPick', 'hatPick'); buildPickers('colorPick2', 'hatPick2');
+buildLookPickers('skinPick', 'hairPick', 'hairColPick'); buildLookPickers('skinPick2', 'hairPick2', 'hairColPick2');
 for (const id of ['nameIn', 'nameIn2']) $(id).addEventListener('input', () => { settings.set('name', $(id).value.trim().slice(0, 14)); profileChanged(); });
 if (settings.get('color') < 0) settings.set('color', Math.floor(Math.random() * 8));
+if (settings.get('skin') < 0) settings.set('skin', Math.floor(Math.random() * SKINS.length));
+if (!HAIRS.includes(settings.get('hair'))) settings.set('hair', HAIRS[Math.floor(Math.random() * (HAIRS.length - 1))]);
+if (settings.get('hairColor') < 0) settings.set('hairColor', Math.floor(Math.random() * HAIR_COLORS.length));
 renderProfile();
 
-function homeMsg(t, offerLocal = false) { $('homeMsg').textContent = t || ''; $('homeExtra').classList.toggle('hidden', !offerLocal); }
+function homeMsg(t) { $('homeMsg').textContent = t || ''; }
 function busy(b) { for (const id of ['createBtn', 'joinBtn', 'joinLinkBtn', 'soloBtn']) $(id).disabled = b; }
 $('createBtn').onclick = () => { audio.play('click'); createParty(); };
 // Solo: straight into a lobby with 3 bots. Uses the online party (so friends can still join with the code);
@@ -181,7 +201,7 @@ $('createBtn').onclick = () => { audio.play('click'); createParty(); };
 $('soloBtn').onclick = async () => {
   audio.play('click');
   let ok = await createParty();
-  if (!ok) { $('localNet').checked = true; ok = await createParty(); }
+  if (!ok) { forceLocal = true; ok = await createParty(); forceLocal = params.get('net') === 'local'; }   // server unreachable: offline solo
   if (!ok) return;
   for (let i = 0; i < 3; i++) act({ type: 'bot+' });
   toast('Solo party with 3 bots — pick a game and press Start!', 'good', 4000);
@@ -189,8 +209,6 @@ $('soloBtn').onclick = async () => {
 $('joinBtn').onclick = () => { audio.play('click'); joinParty($('codeIn').value); };
 $('joinLinkBtn').onclick = () => { audio.play('click'); joinParty(params.get('room')); };
 $('codeIn').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinParty($('codeIn').value); });
-$('tryLocalBtn').onclick = () => { $('localNet').checked = true; homeMsg('Same-computer mode on: open more tabs of this page to join.'); };
-if (params.get('net') === 'local') $('localNet').checked = true;
 function needName() { if (!settings.get('name')) { settings.set('name', 'Player' + Math.floor(10 + Math.random() * 89)); renderProfile(); } }
 
 // ---------------------------------------------------------------- connecting
@@ -213,13 +231,13 @@ function setUrl(code, kind) {
   const q = new URLSearchParams();
   if (code) q.set('room', code);
   if (kind === 'local') q.set('net', 'local');
-  for (const k of ['peer', 'dev', 'testfps', 'netlog']) if (params.get(k) !== null) q.set(k, params.get(k));
+  for (const k of ['peer', 'relay', 'forcerelay', 'dev', 'testfps', 'netlog']) if (params.get(k) !== null) q.set(k, params.get(k));
   history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : ''));
 }
 function shareLink() {
   const q = new URLSearchParams({ room: S.code });
   if (net.kind === 'local') q.set('net', 'local');
-  for (const k of ['peer', 'dev']) if (params.get(k) !== null) q.set(k, params.get(k));
+  for (const k of ['peer', 'relay', 'dev']) if (params.get(k) !== null) q.set(k, params.get(k));
   return location.origin + location.pathname + '?' + q;
 }
 
@@ -229,7 +247,7 @@ async function createParty(code = null, restored = null) {
   net = newNet(kind);
   try { await net.host(code); } catch (e) {
     net.leave(); net = null; busy(false);
-    homeMsg('Could not reach the PeerJS server (' + (e.type || e.message) + ').', kind === 'peer');
+    homeMsg('Could not reach the game server (' + (e.type || e.message) + '). Check your internet connection and try again.');
     return false;
   }
   busy(false); homeMsg('');
@@ -248,12 +266,17 @@ async function joinParty(code, quiet = false) {
   code = String(code || '').toUpperCase().replace(/[^A-Z]/g, '');
   if (code.length !== 4) { homeMsg('Enter the 4-letter party code.'); return false; }
   needName(); busy(true); if (!quiet) homeMsg('Joining ' + code + '…');
-  const kind = params.get('net') === 'local' || $('localNet').checked ? 'local' : 'peer';
+  const kind = netKind();
   net = newNet(kind);
-  try { await net.join(code, { ...profile(), rejoin: !!ss.get(SESSION_KEY) }); } catch (e) {
+  const stage = (st) => { if (!quiet) homeMsg(st === 'server' ? 'Connecting to the game server…' : `Connecting to party ${code}… (can take up to 20 s on some networks)`); };
+  try { await net.join(code, { ...profile(), rejoin: !!ss.get(SESSION_KEY) }, stage); } catch (e) {
     net.leave(); net = null; busy(false);
-    const msg = e.reason || (e.type === 'peer-unavailable' || e.type === 'timeout' ? `Party ${code} not found.` : e.type === 'network' ? 'Could not reach the PeerJS server.' : 'Could not join: ' + (e.message || e.type));
-    if (!quiet) homeMsg(msg, e.type === 'network');
+    const msg = e.reason
+      || (e.type === 'peer-unavailable' ? `No party with code ${code}. Check the code, and make sure the host still has the game open.`
+      : e.type === 'timeout' || e.type === 'closed' ? `Found party ${code} but couldn't connect to it. One of your networks is probably blocking peer-to-peer games (common on school / work Wi-Fi). Try again, or try a different network such as a phone hotspot.`
+      : e.type === 'network' || e.type === 'server-error' || e.type === 'socket-error' ? 'Could not reach the game server. Check your internet connection and try again.'
+      : 'Could not join: ' + (e.message || e.type));
+    if (!quiet) homeMsg(msg);
     return e.reason ? 'rejected' : false;
   }
   busy(false); homeMsg('');
@@ -281,8 +304,13 @@ function freeColor(pref) {
   return 0;
 }
 function addHuman(id, h) {
-  S.players.push({ id, name: cleanName(h.name), color: freeColor(h.color), hat: HATS.includes(h.hat) ? h.hat : 'cap', isBot: false, connected: true, ready: false, trophies: 0, wins: 0, addr: h.addr, joinedAt: Date.now() });
+  S.players.push({ id, name: cleanName(h.name), color: freeColor(h.color), hat: HATS.includes(h.hat) ? h.hat : 'cap', ...cleanLooks(h), isBot: false, connected: true, ready: false, trophies: 0, wins: 0, addr: h.addr, joinedAt: Date.now() });
 }
+const cleanLooks = (h) => ({
+  skin: Number.isInteger(h.skin) && h.skin >= 0 && h.skin < SKINS.length ? h.skin : 1,
+  hair: HAIRS.includes(h.hair) ? h.hair : 'short',
+  hairColor: Number.isInteger(h.hairColor) && h.hairColor >= 0 && h.hairColor < HAIR_COLORS.length ? h.hairColor : 0,
+});
 const cleanName = (n) => String(n || 'Player').replace(/[<>]/g, '').trim().slice(0, 14) || 'Player';
 function admit(id, hello) {
   if (!S) return { ok: false, reason: 'Party is starting, try again.' };
@@ -295,15 +323,15 @@ function admit(id, hello) {
   }
   return { ok: true };
 }
-function onPeerJoin(id, hello) {
+function onPeerJoin(id, hello, via = 'direct') {
   const p = find(id);
   if (p) {
     const was = p.connected;
-    p.connected = true; p.addr = hello.addr; delete p.leftAt;
+    p.connected = true; p.addr = hello.addr; p.via = via; delete p.leftAt;
     if (!was) { sys(`${p.name} reconnected`); runtime?.emit('rejoin', id); }
   } else {
-    addHuman(id, hello);
-    sys(`${cleanName(hello.name)} joined the party`); audio.play('join');
+    addHuman(id, hello); find(id).via = via;
+    sys(`${cleanName(hello.name)} joined the party${via === 'relay' ? ' (via relay)' : ''}`); audio.play('join');
   }
   commit();
 }
@@ -360,6 +388,7 @@ function reduce(a, from) {
       p.name = cleanName(a.name);
       if (Number.isInteger(a.color) && a.color >= 0 && a.color < 8 && !S.players.some((q) => q !== p && q.color === a.color)) p.color = a.color;
       if (HATS.includes(a.hat)) p.hat = a.hat;
+      Object.assign(p, cleanLooks(a));
       break;
     }
     case 'ready': if (S.phase === 'lobby') p.ready = !!a.v; break;
@@ -451,8 +480,10 @@ function beginGame(id) {
   S.votes = {}; S.results = null;
   S.game = { id, round: null, options: opts, picks: {}, setupReady: {}, botLevel: S.botLevel };
   for (const b of S.players.filter((p) => p.isBot)) S.game.picks[b.id] = Object.fromEntries((m.picks || []).map((pk) => [pk.key, pk.choices[Math.floor(Math.random() * pk.choices.length)].value]));
-  if ((m.picks || []).length || (m.options || []).length) { S.phase = 'setup'; S.game.deadline = hnow() + (S.shuffle ? 12000 : 25000); }
-  else startLoading();
+  // Every game gets the pre-round screen: settings / picks on one side, How to play + controls on the other.
+  // It ends early as soon as every human presses Ready.
+  const hasChoices = (m.picks || []).length || (m.options || []).length;
+  S.phase = 'setup'; S.game.deadline = hnow() + (S.shuffle ? (hasChoices ? 15000 : 12000) : (hasChoices ? 30000 : 25000));
 }
 function startLoading() {
   const g = S.game, m = GAME_MAP[g.id];
@@ -460,7 +491,7 @@ function startLoading() {
   g.round = S.round; g.seed = randomSeed(); g.loaded = [];
   const list = S.players.filter((p) => p.connected).sort((a, b) => a.isBot - b.isBot).slice(0, m.maxPlayers);
   g.participants = list.map((p) => p.id);
-  g.roster = list.map(({ id, name, color, hat, isBot }) => ({ id, name, color, hat, isBot }));
+  g.roster = list.map(({ id, name, color, hat, skin, hair, hairColor, isBot }) => ({ id, name, color, hat, skin, hair, hairColor, isBot }));
   for (const p of list) { g.picks[p.id] = { ...Object.fromEntries((m.picks || []).map((pk) => [pk.key, pk.default])), ...(g.picks[p.id] || {}) }; }
   g.deadline = hnow() + 20000;
   for (const [k, v] of Object.entries(g.options)) store.set(`opt.${g.id}.${k}`, v);
@@ -532,7 +563,7 @@ function advance() {
       if (!fits(GAME_MAP[id], partyCount())) id = GAMES.find((m) => fits(m, partyCount()))?.id;
       if (id) { beginGame(id); return; }
     }
-    const gained = S.players.map((p) => ({ id: p.id, name: p.name, color: p.color, hat: p.hat, trophies: p.trophies - (S.shuffle.start[p.id] ?? 0) })).sort((a, b) => b.trophies - a.trophies);
+    const gained = S.players.map((p) => ({ id: p.id, name: p.name, color: p.color, hat: p.hat, skin: p.skin, hair: p.hair, hairColor: p.hairColor, trophies: p.trophies - (S.shuffle.start[p.id] ?? 0) })).sort((a, b) => b.trophies - a.trophies);
     S.podium = { top: gained.slice(0, 3), all: gained, games: S.shuffle.list.length };
     S.phase = 'podium'; S.deadline = hnow() + 25000; S.game = null; S.results = null;
     return;
@@ -651,16 +682,15 @@ setInterval(() => {
 function renderLobby() {
   const host = isHost(), m = me();
   $('roomCode').textContent = S.code;
-  $('netBadge').textContent = net.kind === 'local' ? '🖥 Same-computer mode (tabs)' : '🌐 Online (PeerJS)';
+  $('netBadge').textContent = net.kind === 'local' ? '⚠ Offline party: the game server could not be reached, so friends can\'t join (bots only)' : '🌐 Online: friends join with the code or link';
   $('playerList').innerHTML = S.players.map((p) => {
     const tags = [];
     if (p.id === S.hostId) tags.push('<span class="ph-tag gold">HOST</span>');
-    if (p.id === pid) tags.push('<span class="ph-tag">YOU</span>');
     if (p.isBot) tags.push('<span class="ph-tag">BOT</span>');
-    const ping = !p.isBot && pings[p.id] ? `<span class="ph-tag">${pings[p.id]}ms</span>` : '';
+    const ping = (!p.isBot && pings[p.id] ? `<span class="ph-tag">${pings[p.id]}ms</span>` : '') + (p.via === 'relay' && p.connected ? '<span class="ph-tag" title="Connected through the backup relay (a direct link was blocked). Works fine, just a little slower.">relay</span>' : '');
     const acts = host && p.id !== pid ? (p.isBot ? `<button class="ph-btn small danger" data-kick="${p.id}" title="Remove bot">✕</button>`
       : `<button class="ph-btn small" data-host="${p.id}" title="Make host">👑</button><button class="ph-btn small danger" data-kick="${p.id}" title="Kick">✕</button>`) : '';
-    return `<li class="${p.connected ? '' : 'off'}"><span class="ph-dot" style="background:${css(p.color)}"></span><span class="nm">${esc(p.name)}</span>${tags.join('')}${ping}
+    return `<li class="${p.connected ? '' : 'off'} ${p.id === pid ? 'me' : ''}" title="${p.id === pid ? 'You' : ''}"><span class="ph-dot" style="background:${css(p.color)}"></span><span class="nm">${esc(p.name)}</span>${tags.join('')}${ping}
       <span class="trophy">🏆${p.trophies}</span><span class="ready">${p.isBot || p.ready ? '✔' : '…'}</span><span class="acts">${acts}</span></li>`;
   }).join('') + `<li style="justify-content:center;opacity:.6">${S.players.length}/${MAX_PARTY} players${S.players.some((p) => !p.connected) ? ' · greyed = reconnecting' : ''}</li>`;
   $('botLevel').value = S.botLevel;
@@ -735,7 +765,15 @@ function renderSetup() {
     html += host ? `<div class="pick-group"><h3>${esc(o.label)} <small class="muted">(host)</small></h3><div class="choices">${o.choices.map((c) => `<button class="ph-btn small choice ${g.options[o.key] === c.value ? 'sel' : ''}" data-opt="${o.key}" data-v="${esc(c.value)}">${esc(c.label)}</button>`).join('')}</div></div>`
       : `<div class="ph-sub">${esc(o.label)}: <b>${esc(cur?.label || '')}</b></div>`;
   }
+  if (!html) html = '<p class="ph-sub">No settings for this game. Read how to play, then press Ready!</p>';
   if ($('setupBody').dataset.html !== html) { $('setupBody').innerHTML = html; $('setupBody').dataset.html = html; }
+  if ($('howList').dataset.game !== m.id) {
+    $('howList').dataset.game = m.id;
+    $('howTag').textContent = m.tagline;
+    $('howList').innerHTML = (m.howTo || []).map((t) => `<li>${esc(t)}</li>`).join('');
+    $('howList').classList.toggle('hidden', !(m.howTo || []).length);
+    $('howControls').innerHTML = controlsHTML(m);
+  }
   const ready = !!g.setupReady[pid];
   $('setupReady').textContent = ready ? 'Ready ✔' : 'Ready!';
   $('setupReady').classList.toggle('green', ready);
@@ -755,8 +793,6 @@ function renderLoading() {
   const g = S.game, m = GAME_MAP[g.id];
   $('loadTitle').textContent = m.name; $('loadTag').textContent = m.tagline;
   $('loadSub').textContent = S.shuffle ? `Shuffle · game ${S.shuffle.idx + 1} of ${S.shuffle.list.length}` : `Round ${g.round}`;
-  const html = controlsHTML(m);
-  if ($('loadControls').dataset.html !== html) { $('loadControls').innerHTML = html; $('loadControls').dataset.html = html; }
   $('loadWho').innerHTML = g.roster.filter((p) => !p.isBot).map((p) => `<span class="load-chip ${g.loaded.includes(p.id) ? 'ok' : ''}">${g.loaded.includes(p.id) ? '✔' : '⏳'} ${esc(p.name)}</span>`).join(' ')
     + (g.participants.includes(pid) ? '' : '<div class="ph-sub" style="width:100%">You joined mid-party: you\'ll spectate this round.</div>');
 }
@@ -802,7 +838,7 @@ settings.on('change', (k) => { if (k === 'showFps') $('fps').classList.toggle('h
 $('fps').classList.toggle('hidden', !settings.get('showFps'));
 function renderControls() {
   const m = runtime ? GAME_MAP[runtime.manifest.id] : null;
-  $('controlsBody').innerHTML = (m ? `<div class="k"><b>${esc(m.name)}</b></div><div></div>` + controlsHTML(m) + '<div class="k" style="margin-top:8px"><b>Everywhere</b></div><div></div>' : '')
+  $('controlsBody').innerHTML = (m ? `<div class="k"><b>${esc(m.name)}</b></div><div></div>` + (m.howTo || []).map((t, i) => `<div class="k">${i + 1}.</div><div>${esc(t)}</div>`).join('') + '<div class="k" style="margin-top:8px"><b>Controls</b></div><div></div>' + controlsHTML(m) + '<div class="k" style="margin-top:8px"><b>Everywhere</b></div><div></div>' : '')
     + CONTROL_MAP.map(([k, v]) => `<div class="k">${k.split(' / ').map((x) => `<kbd>${esc(x)}</kbd>`).join(' / ')}</div><div>${esc(v)}</div>`).join('');
 }
 $('resumeBtn').onclick = () => closeOverlay('pause');
@@ -858,7 +894,7 @@ async function boot() {
   if (sess && (!room || sess.code === room)) {
     // Refresh / dropped Wi-Fi: rejoin the party we were in (and become host again if we were alone).
     $('reconnect').classList.remove('hidden'); $('reconnectText').textContent = `Rejoining party ${sess.code}…`;
-    if (sess.net === 'local') $('localNet').checked = true;
+    if (sess.net === 'local') forceLocal = true;
     const saved = ss.get(SAVE_KEY);
     const end = performance.now() + 20000;
     while (performance.now() < end) {

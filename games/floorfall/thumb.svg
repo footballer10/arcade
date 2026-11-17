@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="160" viewBox="0 0 320 160">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8fd6ff"/><stop offset=".45" stop-color="#ffd0e8"/><stop offset=".75" stop-color="#6a3cc8"/><stop offset="1" stop-color="#150a35"/></linearGradient>
+    <radialGradient id="void" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fff"/><stop offset=".25" stop-color="#a0f0ff"/><stop offset=".6" stop-color="#965aff" stop-opacity=".6"/><stop offset="1" stop-color="#28007a" stop-opacity="0"/></radialGradient>
+    <g id="h"><polygon points="-14,0 -7,-6 7,-6 14,0 7,6 -7,6" stroke="#1d1633" stroke-width="2.5" stroke-linejoin="round"/></g>
+  </defs>
+  <rect width="320" height="160" fill="url(#sky)"/>
+  <ellipse cx="160" cy="166" rx="150" ry="34" fill="url(#void)"/>
+  <!-- bottom layer (cyan) -->
+  <g fill="#37d6ff">
+    <use href="#h" x="88" y="128"/><use href="#h" x="110" y="122"/><use href="#h" x="132" y="128"/><use href="#h" x="176" y="128"/><use href="#h" x="198" y="122"/><use href="#h" x="220" y="128"/><use href="#h" x="242" y="122"/><use href="#h" x="154" y="122"/>
+  </g>
+  <!-- middle layer (gold) with a hole -->
+  <g fill="#ffd23a">
+    <use href="#h" x="100" y="92"/><use href="#h" x="122" y="86"/><use href="#h" x="144" y="92"/><use href="#h" x="210" y="86"/><use href="#h" x="232" y="92"/><use href="#h" x="188" y="92"/>
+  </g>
+  <!-- top layer (rose), one tile falling -->
+  <g fill="#ff4fa8">
+    <use href="#h" x="118" y="56"/><use href="#h" x="140" y="50"/><use href="#h" x="184" y="50"/><use href="#h" x="206" y="56"/>
+  </g>
+  <g fill="#ff4fa8" transform="translate(166 74) rotate(25)"><use href="#h"/></g>
+  <!-- cracks -->
+  <path d="M136 48 l4 3 l-3 3 M180 50 l5 -2 l2 3" stroke="#fff" stroke-width="2" fill="none"/>
+  <!-- players -->
+  <g stroke="#1d1633" stroke-width="2.5">
+    <rect x="133" y="28" width="15" height="20" rx="7.5" fill="#ff5a5f"/><rect x="199" y="34" width="15" height="20" rx="7.5" fill="#3ea6ff"/>
+    <rect x="215" y="66" width="15" height="20" rx="7.5" fill="#4cd964"/>
+  </g>
+  <g fill="#fff"><circle cx="139" cy="35" r="2.4"/><circle cx="144" cy="35" r="2.4"/><circle cx="205" cy="41" r="2.4"/><circle cx="210" cy="41" r="2.4"/><circle cx="221" cy="73" r="2.4"/><circle cx="226" cy="73" r="2.4"/></g>
+  <text x="14" y="30" font-family="Lilita One, Arial Black, sans-serif" font-size="25" fill="#fff" stroke="#1d1633" stroke-width="5" paint-order="stroke">FLOOR IS</text>
+  <text x="14" y="58" font-family="Lilita One, Arial Black, sans-serif" font-size="25" fill="#ffd23a" stroke="#1d1633" stroke-width="5" paint-order="stroke">FALLING</text>
+</svg>

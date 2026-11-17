@@ -32,7 +32,15 @@
       <div class="ph-panel profile">
         <div id="homeAvatar" class="avatar-slot"></div>
         <label class="ph-field">Name <input id="nameIn" maxlength="14" placeholder="Your name" autocomplete="off"></label>
+        <div class="pick-label">Shirt</div>
         <div class="swatches" id="colorPick"></div>
+        <div class="pick-label">Skin</div>
+        <div class="swatches small" id="skinPick"></div>
+        <div class="pick-label">Hair color</div>
+        <div class="swatches small" id="hairColPick"></div>
+        <div class="pick-label">Hair</div>
+        <div class="hats" id="hairPick"></div>
+        <div class="pick-label">Hat</div>
         <div class="hats" id="hatPick"></div>
       </div>
       <div class="ph-panel play">
@@ -47,9 +55,7 @@
           <input id="codeIn" maxlength="4" placeholder="CODE" autocomplete="off">
           <button id="joinBtn" class="ph-btn green">Join</button>
         </div>
-        <label class="offline"><input type="checkbox" id="localNet"> Same-computer mode (tabs, no internet)</label>
         <div id="homeMsg" class="ph-msg"></div>
-        <div id="homeExtra" class="hidden"><button id="tryLocalBtn" class="ph-btn small">Use same-computer mode instead</button></div>
         <div class="ph-row" style="margin-top:6px"><button class="ph-btn ghost small" data-open="settings">⚙ Settings</button><button class="ph-btn ghost small" data-open="controls">🎮 Controls</button></div>
       </div>
     </div>
@@ -107,12 +113,21 @@
 
 <!-- PRE-ROUND SETUP (per-game picks, e.g. skier/snowboarder) -->
 <section id="setup" class="ph-screen hidden">
-  <div class="ph-panel setup-panel">
-    <div class="ph-sub" id="setupCount"></div>
-    <h2 id="setupTitle">Game</h2>
-    <div id="setupBody"></div>
-    <div class="ph-row" style="margin-top:12px"><button id="setupReady" class="ph-btn big">Ready!</button></div>
-    <div id="setupWho" class="ph-sub"></div>
+  <div class="setup-grid">
+    <div class="ph-panel setup-panel">
+      <div class="ph-sub" id="setupCount"></div>
+      <h2 id="setupTitle">Game</h2>
+      <div id="setupBody"></div>
+      <div class="ph-row" style="margin-top:12px"><button id="setupReady" class="ph-btn big">Ready!</button></div>
+      <div id="setupWho" class="ph-sub"></div>
+    </div>
+    <div class="ph-panel dark howto-panel">
+      <h2>How to play</h2>
+      <p class="ph-sub howto-tag" id="howTag"></p>
+      <ol class="howto" id="howList"></ol>
+      <h3>Controls</h3>
+      <div id="howControls" class="controls-box"></div>
+    </div>
   </div>
 </section>
 
@@ -122,7 +137,6 @@
     <div class="ph-sub" id="loadSub"></div>
     <div class="ph-title small" id="loadTitle">Game</div>
     <p class="ph-sub" id="loadTag"></p>
-    <div id="loadControls" class="controls-box"></div>
     <div id="loadWho" class="ph-row"></div>
   </div>
 </section>
@@ -189,7 +203,15 @@
     <h2>You</h2>
     <div id="profileAvatar" class="avatar-slot"></div>
     <label class="ph-field">Name <input id="nameIn2" maxlength="14" autocomplete="off"></label>
+    <div class="pick-label">Shirt</div>
     <div class="swatches" id="colorPick2"></div>
+    <div class="pick-label">Skin</div>
+    <div class="swatches small" id="skinPick2"></div>
+    <div class="pick-label">Hair color</div>
+    <div class="swatches small" id="hairColPick2"></div>
+    <div class="pick-label">Hair</div>
+    <div class="hats" id="hairPick2"></div>
+    <div class="pick-label">Hat</div>
     <div class="hats" id="hatPick2"></div>
     <button class="ph-btn big" data-close>Done</button>
   </div>
