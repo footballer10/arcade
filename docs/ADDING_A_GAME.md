@@ -5,7 +5,7 @@ One session = one game. Read `CLAUDE.md` first (contract, control map, HUD and s
 ## Steps
 1. **Copy the template:** `cp -r games/_template games/<id>` (lowercase id, e.g. `games/bumpercars`).
 2. **Manifest** (`games/<id>/manifest.js`, no imports): delete the TEMPLATE comment, set `id`, remove `dir` (or set it to your folder), `name`,
-   `tagline`, `minPlayers`/`maxPlayers` (party max is 8, bots count), `teams`, `supportsBots`, `roundLengthSec`
+   `tagline`, `howTo` (2–4 short sentences: goal, how to win, key tips — shown next to the settings before every round), `minPlayers`/`maxPlayers` (party max is 8, bots count), `teams`, `supportsBots`, `roundLengthSec`
    (aim for 1–4 minutes), `controlsHelp`, `thumbnail` (draw `thumb.svg`, 320×160, bright cartoon style), and any
    `picks` (each player chooses, e.g. a character) / `options` (host chooses, e.g. map, rounds).
 3. **Register it:** one import + add it to `PLAYABLE` in `games/registry.js`.
@@ -28,7 +28,7 @@ One session = one game. Read `CLAUDE.md` first (contract, control map, HUD and s
 
 ## Checklist (all must be true)
 - [ ] Lives entirely in `games/<id>/`, plus one line in `games/registry.js` and a driver in `tests/drivers.mjs`.
-- [ ] `manifest.js` imports nothing; thumbnail exists; `controlsHelp` lists every key the game uses.
+- [ ] `manifest.js` imports nothing; thumbnail exists; `howTo` explains the goal, how to win and the key tips in 2–4 short sentences a first-time player understands; `controlsHelp` lists every key the game uses.
 - [ ] Uses `/core` for networking (`ctx.net`), input (`ctx.input`), HUD (`ctx.ui`), audio (`ctx.audio`), settings, bots, rng. No own PeerJS, lobby, menu, results screen, settings or mute buttons.
 - [ ] Uses only the standard control map plus clearly needed extras; never binds Tab, Esc or Enter.
 - [ ] Has only the actions its design needs: no boost/dash/jump/item added just because the control map has a key for it (the template has no dash on purpose).
