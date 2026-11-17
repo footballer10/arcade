@@ -481,7 +481,7 @@ export async function start(ctx) {
     for (const t of hole.tiles) {
       course.add(tileFloor(hole, t));
       const low = Math.min(t.h0, t.h1) - (t.type === 'jump' ? 1.1 : t.cupKind === 'bowl' ? 0.27 : 0.02);
-      if (low - gy > 0.01) add(G.box(T, low - gy, T, t.type === 'jump' ? M.pit : M.stone, { uvScale: 1.6 }), t.cx, (low + gy) / 2, t.cz).castShadow = false;
+      if (low - gy > 0.01) add(G.box(T, low - gy, T, t.type === 'jump' ? M.pit : M.stone, { uvScale: 1.6 }), t.cx, (low + gy) / 2, t.cz).userData.noInk = true;
       if (t.type === 'jump') {
         for (const s of [-1, 1]) add(G.box(t.d[0] ? T : 0.1, t.h0 - gy, t.d[0] ? 0.1 : T, M.stone, { uvScale: 1.6 }), t.cx - t.d[1] * s * (T / 2 - 0.05), (t.h0 + gy) / 2, t.cz + t.d[0] * s * (T / 2 - 0.05));
         const [fx, fz] = at(t, -T / 2 + 1.5, 0);
@@ -498,9 +498,9 @@ export async function start(ctx) {
         for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const a = v(i, j), b = v(i + 1, j), c = v(i, j + 1), d = v(i + 1, j + 1); if (ok[a] && ok[b] && ok[c] && ok[d]) idx.push(a, c, b, b, c, d); }
         const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
         g.setAttribute('uv', new THREE.Float32BufferAttribute(pos.filter((_, k) => k % 3 !== 1).map(v => v / 1.6), 2)); g.setIndex(idx); g.computeVertexNormals();
-        const pm = new THREE.Mesh(g, M.stone); pm.receiveShadow = true; course.add(pm);
+        const pm = new THREE.Mesh(g, M.stone); pm.receiveShadow = true; pm.userData.noInk = true; course.add(pm);
         const ox = t.cx + (t.din[0] - t.d[0]) * (T / 2 - 0.75), oz = t.cz + (t.din[1] - t.d[1]) * (T / 2 - 0.75);
-        const bush = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 1), new THREE.MeshStandardMaterial({ color: th.bush, flatShading: true, roughness: 0.9 }));
+        const bush = new THREE.Mesh(new THREE.SphereGeometry(0.55, 14, 10), G.toon({ color: th.bush })); bush.userData.inkMe = true;
         bush.castShadow = true; add(bush, ox, t.h0 + 0.85, oz).scale.set(1.1, 0.9, 1.1);
       }
       if (t.type === 'tee') {
@@ -548,7 +548,7 @@ export async function start(ctx) {
       const rim = 0.09;
       for (const [rx, rz, rw, rd] of [[w.x, w.z - w.hz - rim / 2, w.hx * 2 + rim * 2, rim], [w.x, w.z + w.hz + rim / 2, w.hx * 2 + rim * 2, rim], [w.x - w.hx - rim / 2, w.z, rim, w.hz * 2], [w.x + w.hx + rim / 2, w.z, rim, w.hz * 2]]) {
         const rt = C.tileAt(hole, rx, rz); if (!rt || Math.abs(rx - rt.cx) > T / 2 - 0.15 || Math.abs(rz - rt.cz) > T / 2 - 0.15) continue;
-        add(G.box(rw, 0.06, rd, M.stone, { uvScale: 0.6 }), rx, w.y + 0.03, rz).castShadow = false;
+        const rim = add(G.box(rw, 0.06, rd, M.stone, { uvScale: 0.6 }), rx, w.y + 0.03, rz); rim.castShadow = false; rim.userData.noInk = true;
       }
     }
     for (const zn of hole.zones) {
@@ -601,10 +601,12 @@ export async function start(ctx) {
     turnRing = new THREE.Mesh(new THREE.RingGeometry(0.26, 0.36, 40), new THREE.MeshBasicMaterial({ color: '#ffd84a', transparent: true, opacity: 0.9, depthWrite: false }));
     turnRing.rotation.x = -Math.PI / 2; turnRing.visible = false; course.add(turnRing);
       for (const p of S.players) {
-      const ball = new THREE.Mesh(ballGeo, G.ballMaterial(p.color)); ball.castShadow = true;
+      const ball = new THREE.Mesh(ballGeo, G.ballMaterial(p.color)); ball.castShadow = true; ball.userData.inkMe = true;
+      const blob = new THREE.Mesh(G.blobGeo, M.blob); blob.renderOrder = 1;
       const label = G.makeLabel(p.id === S.myId ? 'You' : p.name, p.color);
-      course.add(ball, label); ballMeshes.set(p.id, { ball, label, trail: new G.Trail(course, p.color), sink: 0, wasSunk: false });
+      course.add(ball, label, blob); ballMeshes.set(p.id, { ball, label, blob, trail: new G.Trail(course, p.color), sink: 0, wasSunk: false });
     }
+    G.inkCourse(course);
     course.add(G.buildScenery(hole, gy, th));
     const dir = G.applyTheme(th, themeCtx); weather.set(th.weather);
     const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2, ext = Math.max(maxX - minX, maxZ - minZ) / 2 + 3;
@@ -636,7 +638,7 @@ export async function start(ctx) {
     const steps = [[0, 0.75, M.gold], [-0.72, 0.55, M.silver], [0.72, 0.42, M.bronze]];
     steps.forEach(([off, h, mat], i) => {
       if (!ps[i]) return;
-      const b = G.box(0.7, h + 0.3, 0.7, mat, { round: 0.04 }); b.position.set(cx + px * off, y0 + (h + 0.3) / 2, cz + pz * off); course.add(b);
+      const b = G.box(0.7, h + 0.3, 0.7, mat, { round: 0.04 }); b.position.set(cx + px * off, y0 + (h + 0.3) / 2, cz + pz * off); G.outline(b); course.add(b);
       pos.set(ps[i].id, new THREE.Vector3(cx + px * off, t.h0 + h, cz + pz * off));
     });
     ps.slice(3).forEach((p, i) => { const o = (i - (ps.length - 4) / 2) * 0.5; pos.set(p.id, new THREE.Vector3(cx + px * o + t.d[0] * 1.0, t.h0, cz + pz * o + t.d[1] * 1.0)); });
@@ -854,26 +856,32 @@ export async function start(ctx) {
       mineMeshes.forEach((g, i) => { const m = S.mines[i]; g.visible = !!m; if (m) g.position.set(m[0], m[1], m[2]); });
       const bs = balls(), cup = S.hole.cup, pod = S.phase === 'matchEnd' ? S.podium : null;
       for (const [id, bm] of ballMeshes) {
-        const { ball, label, trail } = bm;
-        const b = bs.get(id); if (!b) { ball.visible = label.visible = false; continue; }
+        const { ball, label, trail, blob } = bm;
+        const b = bs.get(id); if (!b) { ball.visible = label.visible = blob.visible = false; continue; }
         const gone = S.players.find((p) => p.id === id)?.gone;
         const sc = b.r / C.BALL_R;
         if (pod) {
           const p = pod.pos.get(id); ball.visible = label.visible = !!p && !gone; trail.mesh.visible = false;
-          if (p) { const hop = id === pod.win ? Math.abs(Math.sin(tsec * 5)) * 0.35 : 0; ball.scale.setScalar(1); ball.position.set(p.x, p.y + C.BALL_R + hop, p.z); label.position.set(p.x, p.y + C.BALL_R + 0.5 + hop, p.z); ball.material.opacity = 1; }
+          blob.visible = !!p && !gone;
+          if (p) { const hop = id === pod.win ? Math.abs(Math.sin(tsec * 5)) * 0.35 : 0; ball.scale.setScalar(1); ball.position.set(p.x, p.y + C.BALL_R + hop, p.z); label.position.set(p.x, p.y + C.BALL_R + 0.5 + hop, p.z); ball.material.opacity = 1; blob.position.set(p.x, p.y + 0.01, p.z); blob.scale.setScalar(C.BALL_R * 1.5); }
           continue;
         }
         if (b.sunk && !bm.wasSunk) bm.sink = 0.4;
         bm.wasSunk = b.sunk;
         if (bm.sink > 0) {
           bm.sink -= dt; const k = Math.max(0, bm.sink / 0.4);
-          ball.visible = true; label.visible = false; ball.scale.setScalar(sc * (0.6 + 0.4 * k)); ball.position.set(cup.x, cup.y + b.r * k - 0.25 * (1 - k), cup.z);
+          ball.visible = true; label.visible = blob.visible = false; ball.scale.setScalar(sc * (0.6 + 0.4 * k)); ball.position.set(cup.x, cup.y + b.r * k - 0.25 * (1 - k), cup.z);
         } else {
           const vis = !b.sunk && !gone;
           ball.visible = vis; label.visible = vis;
           ball.scale.setScalar(sc); ball.position.set(b.x, b.y + b.r, b.z); label.position.set(b.x, b.y + b.r * 2 + 0.25, b.z);
           ball.rotation.x += b.vz * dt / b.r; ball.rotation.z -= b.vx * dt / b.r;
+          const fy = vis ? C.heightAt(S.hole, b.x, b.z) : null;
+          blob.visible = fy !== null && b.y - fy < 3;
+          if (blob.visible) { const k = Math.max(0.35, 1 - (b.y - fy) * 0.4); blob.position.set(b.x, fy + 0.035, b.z); blob.scale.setScalar(b.r * 1.5 * k); }
         }
+        bm.ink ??= ball.children.find((c) => c.userData.ink);
+        if (bm.ink) bm.ink.visible = !(b.ghost > 0);
         ball.material.emissive.set(b.frozen > 0 ? '#3aa8ff' : b.sticky > 0 ? '#2f7a00' : b.magnet > 0 ? '#a01818' : '#000000');
         ball.material.opacity = b.ghost > 0 ? 0.4 : 1;
         trail.update(b.x, b.y, b.z, b.r, Math.hypot(b.vx, b.vz), !b.sunk && !gone);
