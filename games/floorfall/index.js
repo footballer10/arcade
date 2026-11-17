@@ -8,6 +8,7 @@
 // plausible and otherwise forces a correction (auth counter). Tile cracks are reliable events with an absolute
 // drop time on the round clock, so every client drops the same tile at the same moment. Snapshots at 15 Hz.
 export { manifest } from './manifest.js';
+import './tuning.js';
 import { C, makeLevel, newPlayer, stepPlayer, syncCounters, layerOf, solidCount, LAYER_NAMES, tileAt } from './world.js';
 import { HostSim, standingsOf } from './sim.js';
 import { makeBot, botThink } from './bots.js';

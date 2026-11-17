@@ -8,6 +8,7 @@
 // adopts a client's state when it is close to its own (smooth, responsive jumps) and otherwise forces a
 // correction (auth counter). Knockback, heat, crumbling, deaths and scoring are decided by the host only.
 export { manifest } from './manifest.js';
+import './tuning.js';
 import { C, LAYOUTS, PATTERNS, makeLevel, roundPlan, makeSolids, updateSolids, newPlayer, stepPlayer, separate, lavaAt, surgeIn, encodeSnap, decodeSnap, syncCounters, groundAt } from './world.js';
 import { HostSim, INTRO_T, standingsOf } from './host.js';
 import { makeBot, botThink } from './bots.js';

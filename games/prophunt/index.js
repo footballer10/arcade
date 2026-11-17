@@ -8,6 +8,7 @@
 // exact: there are no player collisions) and reports it at 20 Hz; the host checks it and decides everything that
 // matters (roles, timers, bonks, finds, taunt points). Discrete actions ('act') are sent reliably.
 export { manifest } from './manifest.js';
+import './tuning.js';
 import { KINDS } from './props.js';
 import { makeLevel, stepBody, bodySize, roomAt, lineOfSight, MAP_IDS, BEAN, PHYS } from './level.js';
 import { HostSim, makePlan, standingsOf, applyRow, pickTarget, T, R, TAUNTS } from './sim.js';

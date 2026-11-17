@@ -2,7 +2,7 @@
 // Stages are lists of solids (boxes / cylinders). Every moving obstacle is a pure function of the stage clock
 // (spin, slide, piston, pendulum), so clients predict them exactly. Only collapsing tiles and doors carry state
 // (`W.dyn`, sent in snapshots). Players are vertical capsules (feet at y) with a bouncy, readable move set:
-// run, variable jump, dive (also in the air, once per jump), belly slide, ledge hang + climb, grab.
+// run, variable jump, dive (Space again in mid-air, once per jump), belly slide, ledge hang + climb, grab.
 export const C = {
   R: 0.42, H: 1.5, HL: 0.8,                  // radius, standing height, low height (diving / knocked down)
   RUN: 7.4, ACC: 62, AIR_ACC: 22,
@@ -96,7 +96,7 @@ const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= Math.PI * 2;
 // W: {solids, moving, dyn, t, killY, doorHit(fn)}. Returns EV bits.
 export function stepPlayer(p, inp, dt, W) {
   let ev = 0;
-  const jp = inp.j !== p.lj, dp = inp.d !== p.ld; p.lj = inp.j; p.ld = inp.d;
+  const jp = inp.j !== p.lj, dp0 = inp.d !== p.ld; p.lj = inp.j; p.ld = inp.d;
   if (jp) p.jbuf = C.JBUF; else p.jbuf -= dt;
   p.down -= dt; p.hcd -= dt; p.gcd -= dt; p.hitCd -= dt;
   if (p.down <= 0 && p.gr >= 0) { p.tumble = false; p.slide = false; }
@@ -130,7 +130,8 @@ export function stepPlayer(p, inp, dt, W) {
   // ---- jump (also: a jump press gets you up early from a belly slide)
   if (p.slide && jp && grounded && p.down > 0.05) { p.down = 0; p.slide = false; p.tumble = false; p.jbuf = 0; p.vy = 6; p.gr = -1; ev |= EV.JUMP; }
   else if (ctl && p.jbuf > 0 && p.coy > 0) { p.vy = C.JUMP; p.gr = -1; p.coy = 0; p.jbuf = 0; p.jumping = true; ev |= EV.JUMP; }
-  // ---- dive (once per airtime)
+  // ---- dive: press Space a second time in mid-air (once per airtime). `inp.d` is only used by bots.
+  const dp = dp0 || (jp && p.jbuf > 0 && p.gr < 0 && p.coy <= 0);
   if (dp && !down && !p.dive && p.diveOk) {
     let dir = p.face; if (ml > 0.2) dir = Math.atan2(mx, mz);
     const sp = Math.min(C.DIVE_MAX, Math.max(C.DIVE, Math.hypot(p.vx, p.vz) * 1.12));

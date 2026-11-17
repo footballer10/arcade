@@ -4,19 +4,20 @@
 // host migration ('hostchange'), mid-round spectators ('join'), endGame(placements) and full cleanup.
 import * as THREE from 'three';
 export { manifest } from './manifest.js';
+import { RULES } from './tuning.js';   // tunable feel constants (developer portal)
 
-const ROUND = 45, SIZE = 13, SPEED = 7, R = 0.55, SNAP_HZ = 15;
+const SIZE = 13, R = 0.55, SNAP_HZ = 15;
 
 // ---------------------------------------------------------------- shared rules (host AND clients run this)
 function stepPlayer(p, inp, dt, level) {
   const len = Math.hypot(inp.mx, inp.mz) || 1;
   const k = Math.min(1, Math.hypot(inp.mx, inp.mz));
-  let tx = (inp.mx / len) * SPEED * k, tz = (inp.mz / len) * SPEED * k;
-  p.vx += (tx - p.vx) * Math.min(1, dt * 12); p.vz += (tz - p.vz) * Math.min(1, dt * 12);
-  if (inp.jump !== p.lastJump) { p.lastJump = inp.jump; if (p.y <= 0) p.vy = 7; }
+  let tx = (inp.mx / len) * RULES.SPEED * k, tz = (inp.mz / len) * RULES.SPEED * k;
+  p.vx += (tx - p.vx) * Math.min(1, dt * RULES.ACCEL); p.vz += (tz - p.vz) * Math.min(1, dt * RULES.ACCEL);
+  if (inp.jump !== p.lastJump) { p.lastJump = inp.jump; if (p.y <= 0) p.vy = RULES.JUMP; }
   let vx = p.vx, vz = p.vz;
   p.x += vx * dt; p.z += vz * dt;
-  p.vy -= 22 * dt; p.y = Math.max(0, p.y + p.vy * dt); if (p.y === 0) p.vy = Math.max(0, p.vy);
+  p.vy -= RULES.GRAV * dt; p.y = Math.max(0, p.y + p.vy * dt); if (p.y === 0) p.vy = Math.max(0, p.vy);
   // arena walls + pillars (from the seeded level)
   p.x = Math.max(-SIZE + R, Math.min(SIZE - R, p.x)); p.z = Math.max(-SIZE + R, Math.min(SIZE - R, p.z));
   for (const o of level.pillars) {
@@ -79,7 +80,7 @@ export async function start(ctx) {
 
   // ---------------------------------------------------------------- state
   // HOST: authoritative `sim`. CLIENTS: `view` = latest host snapshot (+ local prediction for my own player).
-  let sim = null, view = null, prevView = null, viewAt = 0, prevAt = 0, me = null, timeLeft = ROUND, ended = false;
+  let sim = null, view = null, prevView = null, viewAt = 0, prevAt = 0, me = null, timeLeft = RULES.ROUND, ended = false;
   const inputs = new Map();
   const myInput = { mx: 0, mz: 0, jump: 0 };
 
@@ -87,7 +88,7 @@ export async function start(ctx) {
     const s = { players: new Map(), coins: [], nextCoin: 1, t: 0, bots: new Map() };
     ctx.players.forEach((p, i) => s.players.set(p.id, newPlayer(p.id, i, ctx.players.length)));
     if (fromView) { // host migration: continue from the last snapshot we saw
-      s.t = ROUND - fromView.left;
+      s.t = RULES.ROUND - fromView.left;
       for (const [id, x, z, y, score] of fromView.p) { const q = s.players.get(id); if (q) Object.assign(q, { x, z, y, score }); }
       s.coins = fromView.c.map(([id, x, z, kind]) => ({ id, x, z, kind }));
       s.nextCoin = Math.max(1, ...s.coins.map((c) => c.id + 1));
@@ -125,10 +126,10 @@ export async function start(ctx) {
         if (Math.hypot(c.x - p.x, c.z - p.z) < 1 && p.y < 1.5) { p.score += c.kind ? 3 : 1; sim.coins.splice(i, 1); net.toAll({ t: 'got', id: p.id, kind: c.kind, x: c.x, z: c.z }); }
       }
     }
-    if (sim.t >= ROUND) finish();
+    if (sim.t >= RULES.ROUND) finish();
   }
   function snapshot() {
-    return { t: 's', left: Math.max(0, ROUND - sim.t), p: [...sim.players.values()].map((p) => [p.id, +p.x.toFixed(2), +p.z.toFixed(2), +p.y.toFixed(2), p.score]), c: sim.coins.map((c) => [c.id, +c.x.toFixed(2), +c.z.toFixed(2), c.kind]) };
+    return { t: 's', left: Math.max(0, RULES.ROUND - sim.t), p: [...sim.players.values()].map((p) => [p.id, +p.x.toFixed(2), +p.z.toFixed(2), +p.y.toFixed(2), p.score]), c: sim.coins.map((c) => [c.id, +c.x.toFixed(2), +c.z.toFixed(2), c.kind]) };
   }
   function standings() {
     const src = sim ? [...sim.players.values()].map((p) => [p.id, p.score]) : (view?.p || []).map((r) => [r[0], r[4]]);
@@ -196,7 +197,7 @@ export async function start(ctx) {
       a.position.set(p.x, p.y || 0, p.z);
       const sp = Math.hypot(p.x - lx, p.z - lz) / Math.max(dt, 1e-3);
       if (sp > 0.3) a.rotation.y = Math.atan2(p.x - lx, p.z - lz);
-      a.userData.setPose({ run: Math.min(1, sp / SPEED), t: now / 1000 });
+      a.userData.setPose({ run: Math.min(1, sp / RULES.SPEED), t: now / 1000 });
     }
     // coins
     const coins = net.isHost && sim ? sim.coins.map((c) => [c.id, c.x, c.z, c.kind]) : view?.c || [];
@@ -215,12 +216,12 @@ export async function start(ctx) {
     camera.lookAt(focus.x * 0.8, 0, focus.z * 0.8);
     renderer.render(scene, camera);
     // HUD (shared zones)
-    if (net.isHost && sim) timeLeft = Math.max(0, ROUND - sim.t);
+    if (net.isHost && sim) timeLeft = Math.max(0, RULES.ROUND - sim.t);
     else if (ctx.started && !ended) timeLeft = Math.max(0, timeLeft - dt);
     const scores = [...pos.entries()].map(([id, p]) => ({ id, s: p.score || 0 })).sort((a, b) => b.s - a.s);
     const myScore = pos.get(ctx.myId)?.score ?? 0;
     ui.status(ctx.spectator ? '👀 Spectating' : `🪙 ${myScore} coin${myScore === 1 ? '' : 's'}`);
-    ui.timer(ctx.started ? timeLeft : ROUND, { warn: 10 });
+    ui.timer(ctx.started ? timeLeft : RULES.ROUND, { warn: 10 });
     ui.mini(scores.map(({ id, s }) => { const pl = ctx.player(id); return { id, name: pl?.name || '?', color: pl?.color ?? 0, value: s, me: id === ctx.myId }; }));
     ui.abilities([{ key: 'Space', label: 'Jump', ready: true }]);   // only show the actions your game really has
   });

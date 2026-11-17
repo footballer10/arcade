@@ -8,7 +8,7 @@ export const manifest = {
     "A game show in rounds: race through obstacle courses or survive the hazards to qualify.",
     "Fewer players qualify each round. If you don't qualify, you're out.",
     "The final is Crown Summit (grab the crown first), or Bean Arena / Sumo Slam (be the last one standing).",
-    "Jump with Space, dive with Shift, and hold E to grab other players or a ledge.",
+    "Jump with Space, then press Space again in the air to dive. Hold E to grab other players or a ledge.",
   ],
   minPlayers: 1,
   maxPlayers: 8,
@@ -17,7 +17,7 @@ export const manifest = {
   roundLengthSec: 240,          // a show of 3–4 rounds, each ~40–110 s; qualifying spots shrink to a final
   thumbnail: 'games/obstacle/thumb.svg',
   controlsHelp: [
-    ['WASD / Arrows', 'Run (camera-relative)'], ['Space', 'Jump (hold = higher)'], ['Shift', 'Dive (also in mid-air, once)'],
+    ['WASD / Arrows', 'Run (camera-relative)'], ['Space', 'Jump (hold = higher) · press Space again in mid-air to DIVE'],
     ['E (hold)', 'Grab a player, or a ledge in mid-air · Space to climb up'], ['Mouse', 'Look (click to lock) · wheel = zoom'],
     ['When you\'re out / qualified', 'Space or click = watch someone else'],
   ],

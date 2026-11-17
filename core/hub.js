@@ -12,6 +12,7 @@ import { PALETTE, css } from './palette.js';
 import { makeBot, BOT_LEVELS } from './bots.js';
 import { randomSeed } from './rng.js';
 import { GameRuntime, liveStats } from './runtime.js';
+import { DEV_HOST } from './tune.js';
 import { GAMES, GAME_MAP, loadGame } from '../games/registry.js';
 
 const params = new URLSearchParams(location.search);
@@ -231,7 +232,7 @@ function setUrl(code, kind) {
   const q = new URLSearchParams();
   if (code) q.set('room', code);
   if (kind === 'local') q.set('net', 'local');
-  for (const k of ['peer', 'relay', 'forcerelay', 'dev', 'testfps', 'netlog']) if (params.get(k) !== null) q.set(k, params.get(k));
+  for (const k of ['peer', 'relay', 'forcerelay', 'dev', 'testfps', 'netlog', 'portal']) if (params.get(k) !== null) q.set(k, params.get(k));
   history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : ''));
 }
 function shareLink() {
@@ -917,3 +918,11 @@ window.__hub = {
   get state() { return S; }, get pid() { return pid; }, get net() { return net; }, get runtime() { return runtime; }, get screen() { return screen; },
   act, liveStats, leaveParty,
 };
+
+// Developer tuning portal: only on this computer (localhost) and only with ?portal=1. See docs/PORTAL.md.
+if (DEV_HOST && params.has('portal')) {
+  import('./portal.js').then((m) => m.initPortal({
+    act, GAME_MAP, get state() { return S; }, get pid() { return pid; },
+    solo: () => $('soloBtn').onclick(),
+  })).catch((e) => console.error('portal failed to load', e));
+}

@@ -33,7 +33,9 @@ core/audio.js       one AudioContext, master/music/sfx buses   core/settings.js 
 core/avatar.js      shared player character + hats    core/rng.js   seeded RNG    core/bots.js   bot slots + difficulty
 core/palette.js     8 party colors (player.color is an index)  core/three-utils.js   renderer + dispose helpers
 games/registry.js   list of game manifests (PLAYABLE = what players see); games are loaded with import() only when a round starts
-games/<id>/         one folder per game: manifest.js, index.js (start), thumb.svg, game modules
+games/<id>/         one folder per game: manifest.js, index.js (start), tuning.js (feel constants), thumb.svg, game modules
+core/tune.js        tunable(): registers a game's tuning.js values   core/portal.js   developer tuning portal (localhost only)
+tools/portal.py     local server for the portal (127.0.0.1 only; can save games/<id>/tuning.js)
 ```
 Host-authoritative: the host runs the game simulation and every bot; clients send inputs and predict. If the host
 leaves, the first remaining human (join order) becomes host and the game gets `'hostchange'` — rebuild your
@@ -76,6 +78,10 @@ Don't add your own in-game controls panels at the start; the loading screen deli
 
 **Relay trap:** `toAll(msg)` also delivers `msg` to the host's own `onMessage` (from = host). Never relay a message under the same type you are handling (e.g. client `{t:'emote'}` → host relays `{t:'emoted'}`), or the host re-broadcasts its own copy forever and the game locks up.
 
+**Tuning:** every game has `games/<id>/tuning.js` listing its feel constants (speeds, jump, gravity, cooldowns,
+knockback, timings) via `tunable()`; the values there are the defaults. `index.js` imports it first, and the game reads
+those values when it uses them (not copies made at load), so the developer portal can change them live. See `docs/PORTAL.md`.
+
 `standings()` (optional) returns current placements; used if the host ends the game early (otherwise no trophies).
 Trophies: 1st 5, 2nd 3, 3rd 2, everyone else 1 (ties share the higher place).
 
@@ -117,4 +123,6 @@ PeerJS server and a local MQTT broker (relay), launch Chromium with 2–3 browse
 - `node party.mjs` — vote, shuffle + podium, mid-game join, host handover, kick · `node local.mjs` — BroadcastChannel tabs
 - Add a driver for your game in `tests/drivers.mjs` so the tests can play it to the end.
 - Locally by hand: `python3 -m http.server 8000` in the repo root, open `http://localhost:8000/?net=local` in two tabs.
-- Dev URL flags: `?dev=1` (show the template in the lobby), `?relay=url` (own MQTT broker; `off` = no relay), `?forcerelay=1` (skip the direct link, tests), `?net=local` (tabs, no internet), `?peer=host:port` (own PeerJS server), `?netlog=1` (net log), `?testfps=N` (tests only).
+- Tuning portal: `python3 tools/portal.py` opens `http://localhost:8000/?portal=1` (play any game, sliders for its
+  `tuning.js`, save new defaults). Only works on localhost. Details in [`docs/PORTAL.md`](docs/PORTAL.md). `node portal.mjs` tests it.
+- Dev URL flags: `?dev=1` (show the template in the lobby), `?relay=url` (own MQTT broker; `off` = no relay), `?forcerelay=1` (skip the direct link, tests), `?net=local` (tabs, no internet), `?peer=host:port` (own PeerJS server), `?netlog=1` (net log), `?testfps=N` (tests only), `?portal=1` (tuning portal, localhost only).
