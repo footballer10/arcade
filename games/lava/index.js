@@ -8,6 +8,7 @@
 // adopts a client's state when it is close to its own (smooth, responsive jumps) and otherwise forces a
 // correction (auth counter). Knockback, heat, crumbling, deaths and scoring are decided by the host only.
 export { manifest } from './manifest.js';
+import './tuning.js';
 import { C, LAYOUTS, PATTERNS, makeLevel, roundPlan, makeSolids, updateSolids, newPlayer, stepPlayer, separate, lavaAt, surgeIn, encodeSnap, decodeSnap, syncCounters, groundAt } from './world.js';
 import { HostSim, INTRO_T, standingsOf } from './host.js';
 import { makeBot, botThink } from './bots.js';
@@ -352,7 +353,9 @@ export async function start(ctx) {
     if (f) { const k = Math.min(1, dt * 10); cam.x += (f.x - cam.x) * k; cam.z += (f.z - cam.z) * k; cam.y += (f.y - cam.y) * Math.min(1, dt * 6); }
     if (vic) { victoryT += dt; cam.yaw += dt * 0.7; cam.dist += (6.5 - cam.dist) * Math.min(1, dt * 2); cam.pitch += (0.3 - cam.pitch) * Math.min(1, dt * 2); input.takeMouseDelta(1); }
     else if (input.mouse.locked) { const d = input.takeMouseDelta(ctx.settings.get('sens') || 1); cam.yaw -= d.x * 0.0032; cam.pitch = Math.max(0.12, Math.min(1.2, cam.pitch + d.y * 0.0026)); }
-    else if (f && Math.hypot(f.x, f.z) > 2.5) { const want = Math.atan2(-f.x, -f.z); let da = want - cam.yaw; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2; cam.yaw += Math.max(-1, Math.min(1, da)) * dt * 0.9; }
+    // No mouse lock: a chase camera that eases round to sit behind wherever you're facing (updated by your own
+    // WASD movement), instead of fighting your input by swinging to face the arena center.
+    else if (f && Number.isFinite(f.face)) { let da = f.face - cam.yaw; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2; cam.yaw += da * Math.min(1, dt * 2.6); }
     if (cam.intro > 0) cam.intro = Math.max(0, cam.intro - dt / (phase === 'intro' ? INTRO_T - 0.6 : 3.2));
     // --- audio bed
     const my = view.get(focusId);

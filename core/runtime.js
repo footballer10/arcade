@@ -12,6 +12,7 @@ import { createRenderer, disposeObject, applyQuality } from './three-utils.js';
 import { createRng } from './rng.js';
 import { BOT_LEVELS, BotBrain } from './bots.js';
 import { css, hex } from './palette.js';
+import { applyTuning } from './tune.js';
 
 // One worker-driven ticker for the whole page: keeps host simulations running when the tab is in the background.
 const tickFns = new Set();
@@ -95,6 +96,7 @@ export class GameRuntime extends Emitter {
     liveStats.mounted++;
   }
   async start(mod) {
+    applyTuning(this.manifest.id);   // the developer portal's values (localhost only); no-op on the public site
     this.instance = (await mod.start(this.ctx)) || {};
     return this.instance;
   }

@@ -9,6 +9,7 @@
 // The host adopts a client's state when it is close to its own and otherwise forces a correction (auth
 // counter). Bumps, grabs, tiles, qualifying and eliminations are decided by the host.
 export { manifest } from './manifest.js';
+import './tuning.js';
 import { C, EV, setPoses, stepPlayer, separate, knock, newPlayer, syncCounters, encodeSnap, decodeSnap, groundAt, isDown } from './world.js';
 import { STAGES, planMatch, buildStage, makeWorld, spawnOf, respawnOf, quota, progressOf } from './stages.js';
 import { HostSim, standingsOf, INTRO_T } from './host.js';
@@ -128,7 +129,7 @@ export async function start(ctx) {
     const fx = Math.sin(yaw), fz = Math.cos(yaw), rx = -Math.cos(yaw), rz = Math.sin(yaw);
     let mx = rx * ax.x + fx * -ax.y, mz = rz * ax.x + fz * -ax.y;
     const l = Math.hypot(mx, mz); if (l > 1) { mx /= l; mz /= l; }
-    myInput.mx = mx; myInput.mz = mz; myInput.jh = input.down('jump'); myInput.j = input.presses('jump'); myInput.d = input.presses('boost'); myInput.g = input.down('use');
+    myInput.mx = mx; myInput.mz = mz; myInput.jh = input.down('jump'); myInput.j = input.presses('jump'); myInput.g = input.down('use');
   }
   function cycleSpectate() {
     const live = info.roundIn.filter((id) => statusOf(id) === 'in' && id !== ctx.myId);
@@ -428,6 +429,11 @@ export async function start(ctx) {
     const cam = gfx.cam;
     if (f) { const k = Math.min(1, dt * 9); cam.x += (f.x - cam.x) * k; cam.z += (f.z - cam.z) * k; cam.y += ((f.grounded || f.hang ? f.y : Math.min(cam.y + 3, f.y)) - cam.y) * Math.min(1, dt * 5); }
     if (input.mouse.locked) { const d = input.takeMouseDelta(ctx.settings.get('sens') || 1); cam.yaw -= d.x * 0.0032; cam.pitch = Math.max(0.05, Math.min(1.25, cam.pitch + d.y * 0.0026)); }
+    else if (st?.crown && f && Math.hypot(f.x - st.crown.x, f.z - st.crown.z) < 11 && f.y > 0.8) {
+      // on the tower: the camera swings round behind the direction you're running, so the column is always beside you
+      const sp = Math.hypot(f.vx || 0, f.vz || 0);
+      if (sp > 2) { let da = Math.atan2(f.vx, f.vz) - cam.yaw; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2; cam.yaw += da * Math.min(1, dt * 2.4); }
+    }
     else if (st?.len && f) { let da = 0 - cam.yaw; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2; cam.yaw += da * Math.min(1, dt * 0.8); }
     // ---- audio bed
     const left = info.roundIn.filter((id) => statusOf(id) === 'in').length;
@@ -510,8 +516,7 @@ export async function start(ctx) {
     const mp = net.isHost && sim ? sim.players.get(ctx.myId) : me;
     const dim = !active;
     ui.abilities([
-      { key: 'Space', label: mp?.hang >= 0 ? 'Climb' : 'Jump', ready: !dim, dim },
-      { key: 'Shift', label: 'Dive', ready: !dim && !!mp && (mp.diveOk || mp.gr >= 0) && !mp.dive, dim },
+      { key: 'Space', label: mp?.hang >= 0 ? 'Climb' : mp && mp.gr < 0 && mp.diveOk && !mp.dive ? 'Dive!' : 'Jump', ready: !dim, dim },
       { key: 'E', label: mp?.grab ? 'Holding!' : mp?.hang >= 0 ? 'Hanging' : 'Grab', cd: mp ? Math.max(0, mp.gcd || 0) / C.GRAB_CD : 0, ready: !dim, dim },
     ]);
     const htxt = !active && phase === 'play' && !ctx.spectator ? 'Space / click: watch someone else' : (active && mp?.hang >= 0 ? 'Space: climb up · let go of E to drop' : '');

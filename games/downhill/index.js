@@ -3,6 +3,7 @@
 // replays unacknowledged inputs; other riders are interpolated ~0.1 s in the past.
 // Net (ctx.net): client→host {t:'in', i:[[seq,...input]]}; host→each player {t:'snap', rt, e, me, ack, pr, endIn}.
 import * as THREE from 'three';
+import './tuning.js';
 import { makeCourse, mulberry32, MAPS, MAP_IDS } from './course.js';
 import { CLASSES, newEntity, stepEntity, bump, botInput, newBrain, sanitizeInput, packInput, trickName, landingPreview, GRAB_KEYS, ITEMS, snowballHit } from './physics.js';
 import { createRenderer, buildCourse, disposeGroup, makeRider, poseRider, COLORS, Spray, makeMinimap, Trails, AirGuide, buildItemBoxes, spinItemBoxes, Snowballs } from './render.js';

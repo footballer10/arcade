@@ -8,9 +8,9 @@ connected while the host switches between 3D games. Hosted on GitHub Pages at
 Start from `games/_template` (Coin Grab). That template is **hidden from players**: it only appears in the lobby with `?dev=1` (used by developers and the tests). One game per session.
 
 ## Hard rules
-- 100% free: static files on GitHub Pages; Three.js `0.160.0` and PeerJS `1.5.4` from jsDelivr via the import map in `index.html`; the public PeerJS server. No build step, no npm to play, no paid services, no API keys, no accounts.
+- 100% free: static files on GitHub Pages; Three.js `0.160.0` and PeerJS `1.5.4` from jsDelivr via the import map in `index.html`; the public PeerJS server; free public MQTT brokers (broker.emqx.io, broker.hivemq.com) as the connection fallback. No build step, no npm to play, no paid services, no API keys, no accounts.
 - **Relative paths only** (the site lives under `/arcade/`). Import other core files as `../../core/x.js` from a game.
-- Never reload the page or touch the party connection from a game. Games talk only through `ctx`.
+- Never reload the page or touch the party connection from a game. Games talk only through `ctx`. Keep network traffic modest (≈20 Hz snapshots, compact data): some players are on the slower relay.
 - Don't edit another game's folder while working on yours. Changes to `/core` must stay backward compatible with every game in `games/registry.js`, and must be re-tested with `tests/` (all games).
 
 ## Architecture
@@ -21,7 +21,10 @@ core/hub.js         party loop: home → lobby → (host pick | vote | shuffle) 
 core/net.js         PartyNet: party connection behind a transport interface; host-authoritative star; 4-letter
                     room codes + ?room=CODE links; heartbeats + host clock sync; host migration; handover;
                     rejoin after refresh / Wi-Fi drop; per-round game channels (makeChannel → ctx.net)
-core/transport-peer.js   PeerJS/WebRTC transport (reliable JSON 'ctrl' + unreliable binary 'fast' channel)
+core/transport-dual.js   the online transport every party uses: direct WebRTC first, automatic relay fallback
+core/transport-peer.js   PeerJS/WebRTC transport (reliable JSON 'ctrl' + unreliable binary 'fast' channel; free STUN/TURN)
+core/transport-relay.js  backup relay: party messages through free public MQTT brokers over wss (core/mqtt.js), for
+                         networks / managed laptops that block WebRTC. Lobby tags those players "relay"
 core/transport-local.js  BroadcastChannel transport: tabs of one browser, no internet (?net=local)
 core/runtime.js     builds ctx for a game, runs its frame/tick loops, and force-cleans everything on stop
 core/party state    lives in hub.js (`S`): players {id,name,color,hat,ready,trophies,wins,isBot,connected}, phase, game, results
@@ -30,7 +33,9 @@ core/audio.js       one AudioContext, master/music/sfx buses   core/settings.js 
 core/avatar.js      shared player character + hats    core/rng.js   seeded RNG    core/bots.js   bot slots + difficulty
 core/palette.js     8 party colors (player.color is an index)  core/three-utils.js   renderer + dispose helpers
 games/registry.js   list of game manifests (PLAYABLE = what players see); games are loaded with import() only when a round starts
-games/<id>/         one folder per game: manifest.js, index.js (start), thumb.svg, game modules
+games/<id>/         one folder per game: manifest.js, index.js (start), tuning.js (feel constants), thumb.svg, game modules
+core/tune.js        tunable(): registers a game's tuning.js values   core/portal.js   developer tuning portal (localhost only)
+tools/portal.py     local server for the portal (127.0.0.1 only; can save games/<id>/tuning.js)
 ```
 Host-authoritative: the host runs the game simulation and every bot; clients send inputs and predict. If the host
 leaves, the first remaining human (join order) becomes host and the game gets `'hostchange'` — rebuild your
@@ -73,6 +78,10 @@ Don't add your own in-game controls panels at the start; the loading screen deli
 
 **Relay trap:** `toAll(msg)` also delivers `msg` to the host's own `onMessage` (from = host). Never relay a message under the same type you are handling (e.g. client `{t:'emote'}` → host relays `{t:'emoted'}`), or the host re-broadcasts its own copy forever and the game locks up.
 
+**Tuning:** every game has `games/<id>/tuning.js` listing its feel constants (speeds, jump, gravity, cooldowns,
+knockback, timings) via `tunable()`; the values there are the defaults. `index.js` imports it first, and the game reads
+those values when it uses them (not copies made at load), so the developer portal can change them live. See `docs/PORTAL.md`.
+
 `standings()` (optional) returns current placements; used if the host ends the game early (otherwise no trophies).
 Trophies: 1st 5, 2nd 3, 3rd 2, everyone else 1 (ties share the higher place).
 
@@ -107,11 +116,13 @@ E + Space; Downhill has no boost key). Add extra keys only when the game truly n
 
 ## How to test
 `cd tests && npm install && node run-all.mjs` (details in `tests/README.md`). Tests serve the repo, run a local
-PeerJS server, launch Chromium with 2–3 browser contexts (real WebRTC), and route the CDN to local copies.
+PeerJS server and a local MQTT broker (relay), launch Chromium with 2–3 browser contexts (real WebRTC), and route the CDN to local copies.
 - `node e2e.mjs <gameId>` — create, join by link + code, ready, play to results, back to lobby, refresh-rejoin, no console errors
 - `node memory.mjs <ids…>` — 10 load/unload cycles; renderers/canvases/HUD return to zero, heap stays flat
 - `node migration.mjs <gameId>` — host closes their tab mid-game; party and game survive
 - `node party.mjs` — vote, shuffle + podium, mid-game join, host handover, kick · `node local.mjs` — BroadcastChannel tabs
 - Add a driver for your game in `tests/drivers.mjs` so the tests can play it to the end.
 - Locally by hand: `python3 -m http.server 8000` in the repo root, open `http://localhost:8000/?net=local` in two tabs.
-- Dev URL flags: `?dev=1` (show the template in the lobby), `?net=local` (tabs, no internet), `?peer=host:port` (own PeerJS server), `?netlog=1` (net log), `?testfps=N` (tests only).
+- Tuning portal: `python3 tools/portal.py` opens `http://localhost:8000/?portal=1` (play any game, sliders for its
+  `tuning.js`, save new defaults). Only works on localhost. Details in [`docs/PORTAL.md`](docs/PORTAL.md). `node portal.mjs` tests it.
+- Dev URL flags: `?dev=1` (show the template in the lobby), `?relay=url` (own MQTT broker; `off` = no relay), `?forcerelay=1` (skip the direct link, tests), `?net=local` (tabs, no internet), `?peer=host:port` (own PeerJS server), `?netlog=1` (net log), `?testfps=N` (tests only), `?portal=1` (tuning portal, localhost only).

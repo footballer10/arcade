@@ -12,6 +12,7 @@ import { PALETTE, css } from './palette.js';
 import { makeBot, BOT_LEVELS } from './bots.js';
 import { randomSeed } from './rng.js';
 import { GameRuntime, liveStats } from './runtime.js';
+import { DEV_HOST } from './tune.js';
 import { GAMES, GAME_MAP, loadGame } from '../games/registry.js';
 
 const params = new URLSearchParams(location.search);
@@ -231,13 +232,13 @@ function setUrl(code, kind) {
   const q = new URLSearchParams();
   if (code) q.set('room', code);
   if (kind === 'local') q.set('net', 'local');
-  for (const k of ['peer', 'dev', 'testfps', 'netlog']) if (params.get(k) !== null) q.set(k, params.get(k));
+  for (const k of ['peer', 'relay', 'forcerelay', 'dev', 'testfps', 'netlog', 'portal']) if (params.get(k) !== null) q.set(k, params.get(k));
   history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : ''));
 }
 function shareLink() {
   const q = new URLSearchParams({ room: S.code });
   if (net.kind === 'local') q.set('net', 'local');
-  for (const k of ['peer', 'dev']) if (params.get(k) !== null) q.set(k, params.get(k));
+  for (const k of ['peer', 'relay', 'dev']) if (params.get(k) !== null) q.set(k, params.get(k));
   return location.origin + location.pathname + '?' + q;
 }
 
@@ -323,15 +324,15 @@ function admit(id, hello) {
   }
   return { ok: true };
 }
-function onPeerJoin(id, hello) {
+function onPeerJoin(id, hello, via = 'direct') {
   const p = find(id);
   if (p) {
     const was = p.connected;
-    p.connected = true; p.addr = hello.addr; delete p.leftAt;
+    p.connected = true; p.addr = hello.addr; p.via = via; delete p.leftAt;
     if (!was) { sys(`${p.name} reconnected`); runtime?.emit('rejoin', id); }
   } else {
-    addHuman(id, hello);
-    sys(`${cleanName(hello.name)} joined the party`); audio.play('join');
+    addHuman(id, hello); find(id).via = via;
+    sys(`${cleanName(hello.name)} joined the party${via === 'relay' ? ' (via relay)' : ''}`); audio.play('join');
   }
   commit();
 }
@@ -687,7 +688,7 @@ function renderLobby() {
     const tags = [];
     if (p.id === S.hostId) tags.push('<span class="ph-tag gold">HOST</span>');
     if (p.isBot) tags.push('<span class="ph-tag">BOT</span>');
-    const ping = !p.isBot && pings[p.id] ? `<span class="ph-tag">${pings[p.id]}ms</span>` : '';
+    const ping = (!p.isBot && pings[p.id] ? `<span class="ph-tag">${pings[p.id]}ms</span>` : '') + (p.via === 'relay' && p.connected ? '<span class="ph-tag" title="Connected through the backup relay (a direct link was blocked). Works fine, just a little slower.">relay</span>' : '');
     const acts = host && p.id !== pid ? (p.isBot ? `<button class="ph-btn small danger" data-kick="${p.id}" title="Remove bot">✕</button>`
       : `<button class="ph-btn small" data-host="${p.id}" title="Make host">👑</button><button class="ph-btn small danger" data-kick="${p.id}" title="Kick">✕</button>`) : '';
     return `<li class="${p.connected ? '' : 'off'} ${p.id === pid ? 'me' : ''}" title="${p.id === pid ? 'You' : ''}"><span class="ph-dot" style="background:${css(p.color)}"></span><span class="nm">${esc(p.name)}</span>${tags.join('')}${ping}
@@ -917,3 +918,11 @@ window.__hub = {
   get state() { return S; }, get pid() { return pid; }, get net() { return net; }, get runtime() { return runtime; }, get screen() { return screen; },
   act, liveStats, leaveParty,
 };
+
+// Developer tuning portal: only on this computer (localhost) and only with ?portal=1. See docs/PORTAL.md.
+if (DEV_HOST && params.has('portal')) {
+  import('./portal.js').then((m) => m.initPortal({
+    act, GAME_MAP, get state() { return S; }, get pid() { return pid; },
+    solo: () => $('soloBtn').onclick(),
+  })).catch((e) => console.error('portal failed to load', e));
+}
