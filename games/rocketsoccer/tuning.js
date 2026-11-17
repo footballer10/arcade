@@ -11,6 +11,8 @@ tunable('rocketsoccer', [
     THROTTLE:  { value: 40, label: 'Acceleration', min: 10, max: 90 },
     BRAKE:     { value: 45, label: 'Brake strength', min: 10, max: 100 },
     GRIP:      { value: 14, label: 'Tyre grip', min: 3, max: 30 },
+    TURN_RATE: { value: 4.5, label: 'Turn rate', hint: 'at low speed; less at top speed', min: 2.5, max: 8 },
+    STEER_RAMP: { value: 5.5, label: 'Steering ramp-up', hint: 'higher = full lock sooner', min: 2, max: 16 },
   } },
   { target: C, group: 'Boost', items: {
     BOOST_ACC:   { value: 30, label: 'Boost acceleration', min: 8, max: 70 },
