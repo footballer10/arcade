@@ -5,11 +5,13 @@
 //   - Heat (basalt), sinking (pumice) and crumbling are host state, shipped as one byte per platform.
 
 export const C = {
-  G: 30, JUMP: 10.6, RUN: 7.2, ACC_G: 70, ACC_A: 30, PR: 0.42, PH: 1.6,
-  COYOTE: 0.11, BUFFER: 0.14, FALL_MUL: 1.18, CUT_MUL: 2.3,
-  DASH_V: 15.5, DASH_T: 0.16, DASH_CD: 1.1,
+  // Movement is tuned to be forgiving, not twitchy: generous coyote/buffer time, a short guaranteed minimum
+  // hop (MIN_JUMP_T) so even a quick tap of Space clears a gap, strong air control so you can correct a bad jump.
+  G: 27, JUMP: 11.2, RUN: 7.8, ACC_G: 85, ACC_A: 50, PR: 0.42, PH: 1.6,
+  COYOTE: 0.18, BUFFER: 0.22, FALL_MUL: 1.15, CUT_MUL: 1.4, MIN_JUMP_T: 0.16,
+  DASH_V: 15.5, DASH_T: 0.16, DASH_CD: 0.9,
   SHOVE_CD: 0.75, SHOVE_R: 2.0, SHOVE_KB: 11.5, SHOVE_UP: 5.2, STUN: 0.38, BUMP_KB: 8,
-  WALL_R: 15.2, LAND_LENIENCY: 0.18,
+  WALL_R: 15.2, LAND_LENIENCY: 0.26,
   // platforms
   HEAT_UP: 0.21, HEAT_CROWD: 0.14, COOL: 0.26, LAVA_HEAT: 0.14, CRUMBLE_T: 0.5, REGROW_T: 6.5,
   PUMICE_FLOAT: 0.42, PUMICE_SINK: 0.12, PUMICE_RISE: 0.1,
@@ -84,7 +86,7 @@ export function makeLevel(rng, layout, pattern, nPlayers, round = 0) {
   const P = [];
   const add = (o) => { o.id = P.length; P.push(o); return o; };
   const col = (x, z, r, top) => add({ kind: 'basalt', x, z, r, top, bot: -40 });
-  const mover = (r, top, m) => add({ kind: 'mover', x: 0, z: 0, r, top, thick: 0.55, m });
+  const mover = (r, top, m) => add({ kind: 'mover', x: 0, z: 0, r, top, thick: 0.85, m });
   const glass = (x, z, r, top, per, ph) => add({ kind: 'glass', x, z, r, top, thick: 0.45, per, on: 0.62, ph });
   const pumice = (cx, cz, R, w, ph, r = 1.25) => add({ kind: 'pumice', x: cx, z: cz, r, top: 0, thick: 0.8, cx, cz, R, w, ph });
 
@@ -272,7 +274,7 @@ export function updateSolids(level, S, st, t, lava, dt = 1 / 60) {
 // ---------------------------------------------------------------- players
 export function newPlayer(id, plat) {
   return { id, x: plat ? plat.x : 0, y: plat ? plat.top : 3, z: plat ? plat.z : 0, vx: 0, vy: 0, vz: 0, face: plat ? Math.atan2(-plat.x, -plat.z) : 0,
-    gr: plat ? plat.id : -1, coyote: 0, jbuf: 0, jumping: false, dashT: 0, dashCd: 0, airDash: false, dx: 0, dz: 0, shoveCd: 0, shoveT: 0, stun: 0,
+    gr: plat ? plat.id : -1, coyote: 0, jbuf: 0, jumping: false, jumpT: 0, dashT: 0, dashCd: 0, airDash: false, dx: 0, dz: 0, shoveCd: 0, shoveT: 0, stun: 0,
     alive: true, lj: 0, ld: 0, ls: 0, bumped: null, landed: 0 };
 }
 export function syncCounters(p, inp) { p.lj = inp.j; p.ld = inp.d; p.ls = inp.s; }
@@ -309,12 +311,13 @@ export function stepPlayer(p, inp, dt, S) {
   }
   // jump (buffered + coyote)
   if (p.jbuf > 0 && (p.gr >= 0 || p.coyote > 0) && p.stun <= 0) {
-    p.vy = C.JUMP + (g && g.vy > 0 ? g.vy * 0.5 : 0); p.jbuf = 0; p.coyote = 0; p.gr = -1; p.jumping = true; ev |= 1;
+    p.vy = C.JUMP + (g && g.vy > 0 ? g.vy * 0.5 : 0); p.jbuf = 0; p.coyote = 0; p.gr = -1; p.jumping = true; p.jumpT = 0; ev |= 1;
   }
   // gravity (short hop when jump is released early, snappier falls)
   if (p.gr < 0 && p.dashT <= 0) {
+    p.jumpT += dt;
     let gm = 1;
-    if (p.vy > 0 && p.jumping && !inp.jh) gm = C.CUT_MUL; else if (p.vy < 0) gm = C.FALL_MUL;
+    if (p.vy > 0 && p.jumping && !inp.jh && p.jumpT > C.MIN_JUMP_T) gm = C.CUT_MUL; else if (p.vy < 0) gm = C.FALL_MUL;
     p.vy -= C.G * gm * dt;
     if (p.vy < -24) p.vy = -24;
   }

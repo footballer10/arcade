@@ -2,7 +2,7 @@
 // Stages are lists of solids (boxes / cylinders). Every moving obstacle is a pure function of the stage clock
 // (spin, slide, piston, pendulum), so clients predict them exactly. Only collapsing tiles and doors carry state
 // (`W.dyn`, sent in snapshots). Players are vertical capsules (feet at y) with a bouncy, readable move set:
-// run, variable jump, dive (also in the air, once per jump), belly slide, ledge hang + climb, grab.
+// run, variable jump, dive (Space again in mid-air, once per jump), belly slide, ledge hang + climb, grab.
 export const C = {
   R: 0.42, H: 1.5, HL: 0.8,                  // radius, standing height, low height (diving / knocked down)
   RUN: 7.4, ACC: 62, AIR_ACC: 22,
@@ -20,7 +20,7 @@ export const TILE_FALL = 0.9;                // seconds a tile shakes before it 
 // ---------------------------------------------------------------- solids
 export function solid(o) {
   const s = Object.assign({ shape: 'box', hx: 1, hy: 0.5, hz: 1, r: 1, bx: 0, by: 0, bz: 0, bry: 0, ox: 0, oz: 0, anim: null, hit: 0, belt: null, bounce: 0,
-    tile: -1, door: -1, fake: false, until: 0, blink: null, finish: false, noHang: false, look: 'floor', col: 0 }, o);
+    tile: -1, door: -1, fake: false, noStand: false, until: 0, blink: null, finish: false, noHang: false, look: 'floor', col: 0 }, o);
   s.q = {}; s.br = s.shape === 'cyl' ? s.r : Math.hypot(s.hx, s.hz);
   pose(s, 0, s); pose(s, 0, s.q);
   return s;
@@ -96,7 +96,7 @@ const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= Math.PI * 2;
 // W: {solids, moving, dyn, t, killY, doorHit(fn)}. Returns EV bits.
 export function stepPlayer(p, inp, dt, W) {
   let ev = 0;
-  const jp = inp.j !== p.lj, dp = inp.d !== p.ld; p.lj = inp.j; p.ld = inp.d;
+  const jp = inp.j !== p.lj, dp0 = inp.d !== p.ld; p.lj = inp.j; p.ld = inp.d;
   if (jp) p.jbuf = C.JBUF; else p.jbuf -= dt;
   p.down -= dt; p.hcd -= dt; p.gcd -= dt; p.hitCd -= dt;
   if (p.down <= 0 && p.gr >= 0) { p.tumble = false; p.slide = false; }
@@ -130,7 +130,8 @@ export function stepPlayer(p, inp, dt, W) {
   // ---- jump (also: a jump press gets you up early from a belly slide)
   if (p.slide && jp && grounded && p.down > 0.05) { p.down = 0; p.slide = false; p.tumble = false; p.jbuf = 0; p.vy = 6; p.gr = -1; ev |= EV.JUMP; }
   else if (ctl && p.jbuf > 0 && p.coy > 0) { p.vy = C.JUMP; p.gr = -1; p.coy = 0; p.jbuf = 0; p.jumping = true; ev |= EV.JUMP; }
-  // ---- dive (once per airtime)
+  // ---- dive: press Space a second time in mid-air (once per airtime). `inp.d` is only used by bots.
+  const dp = dp0 || (jp && p.jbuf > 0 && p.gr < 0 && p.coy <= 0);
   if (dp && !down && !p.dive && p.diveOk) {
     let dir = p.face; if (ml > 0.2) dir = Math.atan2(mx, mz);
     const sp = Math.min(C.DIVE_MAX, Math.max(C.DIVE, Math.hypot(p.vx, p.vz) * 1.12));
@@ -207,17 +208,11 @@ function collide(p, W, dt, wasGr) {
         }
       }
       const footIn = d < R * 0.75;
-      if (!s.hit) {
+      if (!s.hit && !s.noStand) {
         // land / stand on top
         const rise = s.anim ? Math.max(0, s.y - s.q.y) : 0;
         const tol = Math.max(0.28, -p.vy * dt + 0.12) + rise + (wasGr === i ? 0.25 : 0);
         if (footIn && p.vy <= 0.5 + rise / dt && p.y >= top - tol) { p.y = top; if (p.vy < 0) p.vy = 0; p.gr = i; continue; }
-        // step up small ledges
-        if ((wasGr >= 0 || p.coy > 0) && top - p.y <= C.STEP_UP && top > p.y && s.door < 0 && p.vy <= 0.5 && !s.hit) {
-          const sx = nlx * s.c + nlz * s.sn, sz = -nlx * s.sn + nlz * s.c, k = s.shape === 'cyl' ? 0 : Math.max(0, d - R * 0.5);
-          if (s.shape !== 'cyl') { p.x -= sx * k; p.z -= sz * k; }
-          p.y = top; p.vy = 0; p.gr = i; continue;
-        }
         // bump head
         if (footIn && p.vy > 0 && p.y + H - bot < 0.45 && p.y < bot) { p.y = bot - H; p.vy = 0; p.jumping = false; continue; }
         if (p.y >= top - 0.05) continue;          // level with the top: a seam between platforms, not a wall
@@ -230,7 +225,7 @@ function collide(p, W, dt, wasGr) {
       if (s.hit && p.hitCd <= 0) {
         const v = pointVel(s, p.x - wx * R, p.z - wz * R, dt);
         const m = Math.hypot(v[0], v[2]);
-        if (m > 1.2) {
+        if (m > 0.45) {
           const sp = Math.max(C.HIT_MIN, Math.min(C.HIT_MAX, 4 + m * s.hit));
           let kx = v[0] / m * 0.75 + wx * 0.45, kz = v[2] / m * 0.75 + wz * 0.45; const kl = Math.hypot(kx, kz) || 1;
           knock(p, kx / kl * sp, 5 + sp * 0.18, kz / kl * sp); ev |= EV.HIT; p.lastBy = null;
@@ -243,7 +238,7 @@ function collide(p, W, dt, wasGr) {
       }
       p.wall = i; p.wn[0] = wx; p.wn[1] = wz; p.wtop = top;
       if (s.door >= 0 && !s.fake && W.dyn[s.door] === 0) { W.dyn[s.door] = 1; ev |= EV.DOOR; W.doorHit?.(s.door, p); }
-      else if (s.door >= 0 && s.fake && -vn > 2.5) { ev |= EV.BONK; W.fakeHit?.(s.door, p); }
+      else if (s.door >= 0 && s.fake && -vn > 2.5) { ev |= EV.BONK; knock(p, wx * 6.5, 5, wz * 6.5, 0.55); W.fakeHit?.(s.door, p); }
     }
   }
   return ev;

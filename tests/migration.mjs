@@ -1,12 +1,12 @@
 // Host migration: 3 players in a game, the host closes their tab mid-game, the party must survive,
 // the game must continue under the new host, finish, and everyone returns to the lobby together.
 // usage: node migration.mjs [gameId]
-import { startStatic, startPeer, launch, openPage, createParty, joinByCode, waitFor, state, sleep, check, wiggle } from './harness.mjs';
+import { startStatic, startPeer, startRelay, RELAY, launch, openPage, createParty, joinByCode, waitFor, state, sleep, check, wiggle } from './harness.mjs';
 import { play } from './drivers.mjs';
 
 const game = process.argv[2] || 'coingrab';
-const BASE = 'http://127.0.0.1:8080/index.html?dev=1&peer=127.0.0.1:9000&testfps=' + (process.env.TESTFPS || 2) + (process.env.NETLOG ? '&netlog=1' : '');
-const srv = await startStatic(8080); await startPeer(9000);
+const BASE = 'http://127.0.0.1:8080/index.html?dev=1&peer=127.0.0.1:9000' + RELAY + (process.env.EXTRA || '') + '&testfps=' + (process.env.TESTFPS || 2) + (process.env.NETLOG ? '&netlog=1' : '');
+const srv = await startStatic(8080); await startPeer(9000); await startRelay(9002);
 const { browser, context } = await launch();
 const pages = [];
 try {
