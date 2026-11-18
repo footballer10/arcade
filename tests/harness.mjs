@@ -62,7 +62,7 @@ export async function launch({ headless = true, realChrome = false } = {}) {
   async function context({ full = false, viewport = null } = {}) {
     if (viewport) full = true;
     const ctx = await browser.newContext({ viewport: viewport || (full ? { width: 1366, height: 800 } : { width: 640, height: 400 }) });
-    if (!full) await ctx.addInitScript(() => { try { const k = 'partyhub.settings.v1'; const s = JSON.parse(localStorage.getItem(k) || '{}'); if (!s.quality) localStorage.setItem(k, JSON.stringify({ ...s, quality: 'low' })); } catch { /* */ } });
+    if (!full) await ctx.addInitScript(() => { try { const k = 'partyhub.settings.v1'; const s = JSON.parse(localStorage.getItem(k) || '{}'); if (!s.quality) localStorage.setItem(k, JSON.stringify({ ...s, quality: 'low', qv: 2 })); } catch { /* */ } });
     await ctx.route('https://cdn.jsdelivr.net/**', (route) => {
       const u = new URL(route.request().url());
       const m = u.pathname.match(/^\/npm\/three@0\.160\.0\/(.*)$/);

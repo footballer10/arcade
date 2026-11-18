@@ -11,11 +11,19 @@ async function loadPeer() {
 }
 
 // Unreliable snapshots: PeerJS only exposes `ordered`, so patch the channel config for our 'fast' label.
+// Also record what each connection's network check (ICE) saw, for the connection report: PeerJS closes a failed
+// connection and drops its details before we could read them.
 if (window.RTCPeerConnection && !RTCPeerConnection.prototype.__phPatched) {
   const orig = RTCPeerConnection.prototype.createDataChannel;
   RTCPeerConnection.prototype.createDataChannel = function (label, cfg) {
     if (String(label).startsWith('fast')) cfg = { ordered: false, maxRetransmits: 0 };
+    watchIce(this);
     return orig.call(this, label, cfg);
+  };
+  const addCand = RTCPeerConnection.prototype.addIceCandidate;
+  RTCPeerConnection.prototype.addIceCandidate = function (c, ...rest) {
+    watchIce(this); const m = / typ (\w+)/.exec(c?.candidate || ''); if (m) this.__ice.remote.add(m[1] + (/\.local /.test(c.candidate) ? '(mdns)' : ''));
+    return addCand.call(this, c, ...rest);
   };
   RTCPeerConnection.prototype.__phPatched = true;
 }
@@ -77,6 +85,13 @@ class PeerConn {
   close() { if (this.closed) return; try { this.ctrl?.close(); } catch { /* */ } try { this.fast?.close(); } catch { /* */ } this._closed(); }
 }
 
+function watchIce(pc) {
+  if (pc.__ice) return;
+  const ice = pc.__ice = { local: new Set(), remote: new Set(), states: [] };
+  pc.addEventListener('icecandidate', (e) => { const m = / typ (\w+)/.exec(e.candidate?.candidate || ''); if (m) ice.local.add(m[1] + (/\.local /.test(e.candidate.candidate) ? '(mdns)' : '')); });
+  pc.addEventListener('iceconnectionstatechange', () => ice.states.push(pc.iceConnectionState));
+}
+const iceSeen = (pc) => pc?.__ice ? `states=${pc.__ice.states.join('>') || 'none'} mine=[${[...pc.__ice.local].join(',')}] theirs=[${[...pc.__ice.remote].join(',')}]` : null;
 // What a WebRTC connection is using (or what it had when it failed), for the connection report.
 // Candidate types: host = same network, srflx = through the internet (NAT), relay = through a TURN server.
 async function iceInfo(pc) {
@@ -187,15 +202,19 @@ export class PeerTransport {
       let done = false;
       const fail = (e) => {
         if (done) return; done = true; clearTimeout(t); this.pending.delete(target);
-        iceInfo(ctrl?.peerConnection).then((i) => { e.ice = i.text; c.close(); reject(e); });
+        const pc = ctrl?.peerConnection;
+        if (!pc && pcSeen) { e.ice = iceSeen(pcSeen); if (/failed/.test(e.ice)) e.type = 'ice-failed'; c.close(); reject(e); return; }
+        iceInfo(pc).then((i) => { e.ice = i.text + (iceSeen(pc) ? ' · ' + iceSeen(pc) : ''); c.close(); reject(e); });
       };
-      let ctrl = null;
+      let ctrl = null, pcSeen = null;
       const t = setTimeout(() => fail(Object.assign(new Error('timeout'), { type: 'timeout' })), timeout);
       this.pending.set(target, fail);
       ctrl = this.peer.connect(target, { label: 'ctrl-' + cid, reliable: true, serialization: 'json', metadata: { cid, kind: 'ctrl' } });
       const fast = this.peer.connect(target, { label: 'fast-' + cid, reliable: false, serialization: 'raw', metadata: { cid, kind: 'fast' } });
       c._attach(fast, 'fast');
       c._attach(ctrl, 'ctrl');
+      pcSeen = ctrl.peerConnection;   // kept: PeerJS drops it if the network check fails
+      ctrl.on('error', (err) => { if (pcSeen?.__ice?.states.includes('failed')) fail(Object.assign(new Error('direct link failed'), { type: 'ice-failed' })); });
       ctrl.on('open', () => {
         if (done) return; done = true; clearTimeout(t); this.pending.delete(target); resolve(c);
         setTimeout(() => iceInfo(ctrl.peerConnection).then((i) => { c.path = i.pair || 'connected'; }), 1500);

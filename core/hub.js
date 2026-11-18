@@ -280,7 +280,7 @@ async function joinParty(code, quiet = false) {
     net.leave(); net = null; busy(false);
     const msg = e.reason
       || (e.type === 'peer-unavailable' ? `No party with code ${code}. Check the code, and make sure the host still has the game open.`
-      : e.type === 'timeout' || e.type === 'closed' ? `Found party ${code} but couldn't connect to it: neither the direct link nor the backup relay got through. Try again in a moment. If it keeps happening, press Copy details and send it to whoever looks after the arcade.`
+      : e.type === 'timeout' || e.type === 'closed' || e.type === 'ice-failed' ? `Found party ${code} but couldn't connect to it: neither the direct link nor the backup relay got through. Try again in a moment. If it keeps happening, press Copy details and send it to whoever looks after the arcade.`
       : e.type === 'network' || e.type === 'server-error' || e.type === 'socket-error' ? 'Could not reach the game server. Check your internet connection and try again.'
       : 'Could not join: ' + (e.message || e.type));
     if (!quiet) { homeMsg(msg); if (!e.reason) $('failReport').classList.remove('hidden'); }
