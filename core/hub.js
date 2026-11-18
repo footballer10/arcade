@@ -913,10 +913,14 @@ async function boot() {
 }
 boot();
 
+$('connReport').onclick = async () => {
+  const text = net ? net.report() : 'Not in a party yet: join or create one, then copy the report.';
+  try { await navigator.clipboard.writeText(text); toast('Connection report copied', 'good'); } catch { prompt('Copy this report:', text); }
+};
 // Handy for debugging and for the automated tests.
 window.__hub = {
   get state() { return S; }, get pid() { return pid; }, get net() { return net; }, get runtime() { return runtime; }, get screen() { return screen; },
-  act, liveStats, leaveParty,
+  act, liveStats, leaveParty, netReport: () => net?.report(),
 };
 
 // Developer tuning portal: only on this computer (localhost) and only with ?portal=1. See docs/PORTAL.md.

@@ -3,10 +3,11 @@
 // to the relay automatically if WebRTC can't connect. Same interface as the other transports (see core/net.js).
 // Addresses combine both parts: "p:<peerjs id>|r:<relay id>"; room aliases are "room:<CODE>".
 import { PeerTransport } from './transport-peer.js';
-import { RelayTransport } from './transport-relay.js';
+import { RelayTransport, BROKERS } from './transport-relay.js';
 
 const params = new URLSearchParams(location.search);
 const FORCE_RELAY = params.has('forcerelay');          // test-only: skip the direct link to exercise the relay
+const RELAY_ONLY = FORCE_RELAY && params.get('forcerelay') !== 'join';   // ?forcerelay=join: relay at first, upgrade allowed
 const NO_RELAY = params.get('relay') === 'off';         // test-only: direct link only
 
 function parse(addr) {
@@ -51,12 +52,23 @@ export class DualTransport {
       try { const c = await this.peer.connect(peerTarget, this.relayOk && relayTarget ? Math.round(timeout * 0.6) : timeout); c.via = 'direct'; return c; } catch (e) { directErr = e; }
     }
     if (this.relayOk && relayTarget) {
-      try { return await this.relay.connect(relayTarget, Math.max(4000, Math.round(timeout * 0.4))); } catch (e) {
+      try {
+        const c = await this.relay.connect(relayTarget, Math.max(4000, Math.round(timeout * 0.4)));
+        c.directErr = FORCE_RELAY ? 'skipped (test)' : directErr ? `${directErr.type || directErr.message}${directErr.ice ? ' · ' + directErr.ice : ''}` : 'direct link server unreachable';
+        return c;
+      } catch (e) {
         if (directErr && directErr.type !== 'peer-unavailable') throw directErr;   // room exists, direct link failed
         throw e;
       }
     }
     throw directErr || Object.assign(new Error('No route to peer'), { type: 'network' });
   }
+  // Direct (WebRTC) only: used to move a player off the relay once a direct link works.
+  connectDirect(target, timeout = 20000) {
+    if (!this.peerOk || RELAY_ONLY) return Promise.reject(Object.assign(new Error('direct unavailable'), { type: 'network' }));
+    const a = parse(target);
+    return this.peer.connect(a.room ? this.peer.roomAddr(a.room) : a.p, timeout).then((c) => { c.via = 'direct'; return c; });
+  }
+  relayInfo() { return this.relay ? this.relay.clients.map((c, i) => `${new URL(BROKERS[i]).hostname}:${c?.open ? 'ok' : 'down'}`).join(' ') : 'off'; }
   close() { this.peer.close(); this.relay?.close(); }
 }

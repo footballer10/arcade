@@ -10,7 +10,8 @@ Start from `games/_template` (Coin Grab). That template is **hidden from players
 ## Hard rules
 - 100% free: static files on GitHub Pages; Three.js `0.160.0` and PeerJS `1.5.4` from jsDelivr via the import map in `index.html`; the public PeerJS server; free public MQTT brokers (broker.emqx.io, broker.hivemq.com) as the connection fallback. No build step, no npm to play, no paid services, no API keys, no accounts.
 - **Relative paths only** (the site lives under `/arcade/`). Import other core files as `../../core/x.js` from a game.
-- Never reload the page or touch the party connection from a game. Games talk only through `ctx`. Keep network traffic modest (≈20 Hz snapshots, compact data): some players are on the slower relay.
+- Never reload the page or touch the party connection from a game. Games talk only through `ctx`. Keep network traffic modest (≈20 Hz snapshots, compact data): some players are on the slower relay (~200 ms round trip, jittery).
+  Games must stay fun at that: predict your own player locally, interpolate others, never wait on the host for your own movement. Test with `?netsim=100,30,250,4`.
 - Don't edit another game's folder while working on yours. Changes to `/core` must stay backward compatible with every game in `games/registry.js`, and must be re-tested with `tests/` (all games).
 
 ## Architecture
@@ -26,6 +27,9 @@ core/transport-peer.js   PeerJS/WebRTC transport (reliable JSON 'ctrl' + unrelia
 core/transport-relay.js  backup relay: party messages through free public MQTT brokers over wss (core/mqtt.js), for
                          networks / managed laptops that block WebRTC. Lobby tags those players "relay"
 core/transport-local.js  BroadcastChannel transport: tabs of one browser, no internet (?net=local)
+                         A player on the relay keeps retrying the direct link and moves over mid-game when it works.
+                         Settings → "Copy connection report" shows path, ping spread, freezes and why direct failed.
+core/netsim.js      ?netsim=ONEWAY,JITTER,STALL,EVERY lag simulator (e.g. 100,30,250,4 ≈ the school relay); tests/lag.mjs
 core/runtime.js     builds ctx for a game, runs its frame/tick loops, and force-cleans everything on stop
 core/party state    lives in hub.js (`S`): players {id,name,color,hat,ready,trophies,wins,isBot,connected}, phase, game, results
 core/input.js       the control map (below)          core/ui.js + ui.css   theme + HUD components
@@ -125,4 +129,4 @@ PeerJS server and a local MQTT broker (relay), launch Chromium with 2–3 browse
 - Locally by hand: `python3 -m http.server 8000` in the repo root, open `http://localhost:8000/?net=local` in two tabs.
 - Tuning portal: `python3 tools/portal.py` opens `http://localhost:8000/?portal=1` (play any game, sliders for its
   `tuning.js`, save new defaults). Only works on localhost. Details in [`docs/PORTAL.md`](docs/PORTAL.md). `node portal.mjs` tests it.
-- Dev URL flags: `?dev=1` (show the template in the lobby), `?relay=url` (own MQTT broker; `off` = no relay), `?forcerelay=1` (skip the direct link, tests), `?net=local` (tabs, no internet), `?peer=host:port` (own PeerJS server), `?netlog=1` (net log), `?testfps=N` (tests only), `?portal=1` (tuning portal, localhost only).
+- Dev URL flags: `?dev=1` (show the template in the lobby), `?relay=url` (own MQTT broker; `off` = no relay), `?forcerelay=1` (skip the direct link, tests), `?net=local` (tabs, no internet), `?peer=host:port` (own PeerJS server), `?netlog=1` (net log), `?testfps=N` (tests only), `?portal=1` (tuning portal, localhost only), `?netsim=100,30,250,4` (simulate relay lag), `?forcerelay=join` (start on the relay, upgrade allowed).

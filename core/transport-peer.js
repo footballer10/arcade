@@ -76,6 +76,27 @@ class PeerConn {
   close() { if (this.closed) return; try { this.ctrl?.close(); } catch { /* */ } try { this.fast?.close(); } catch { /* */ } this._closed(); }
 }
 
+// What a WebRTC connection is using (or what it had when it failed), for the connection report.
+// Candidate types: host = same network, srflx = through the internet (NAT), relay = through a TURN server.
+async function iceInfo(pc) {
+  if (!pc) return { text: 'no peer connection' };
+  const out = { state: pc.iceConnectionState, gather: pc.iceGatheringState, local: new Set(), remote: new Set(), pair: null };
+  try {
+    const st = await pc.getStats();
+    const byId = new Map(); st.forEach((r) => byId.set(r.id, r));
+    st.forEach((r) => {
+      if (r.type === 'local-candidate') out.local.add(r.candidateType + '/' + (r.relayProtocol || r.protocol));
+      if (r.type === 'remote-candidate') out.remote.add(r.candidateType + '/' + r.protocol);
+      if (r.type === 'candidate-pair' && (r.nominated || r.selected) && r.state === 'succeeded') {
+        const l = byId.get(r.localCandidateId), rm = byId.get(r.remoteCandidateId);
+        out.pair = `${l?.candidateType}->${rm?.candidateType} ${l?.protocol}${r.currentRoundTripTime ? ' ' + Math.round(r.currentRoundTripTime * 1000) + 'ms' : ''}`;
+      }
+    });
+  } catch { /* */ }
+  out.text = `ice=${out.state} gather=${out.gather} mine=[${[...out.local].join(',') || 'none'}] theirs=[${[...out.remote].join(',') || 'none'}]`;
+  return out;
+}
+
 export class PeerTransport {
   constructor() { this.kind = 'peer'; this.addr = null; this.peer = null; this.aliasPeers = new Map(); this.onconnection = null; this.ondown = null; this.pending = new Map(); }
   roomAddr(code) { return PREFIX + 'room-' + code; }
@@ -116,14 +137,21 @@ export class PeerTransport {
       const cid = rid();
       const c = new PeerConn(target);
       let done = false;
-      const fail = (e) => { if (done) return; done = true; clearTimeout(t); this.pending.delete(target); c.close(); reject(e); };
+      const fail = (e) => {
+        if (done) return; done = true; clearTimeout(t); this.pending.delete(target);
+        iceInfo(ctrl?.peerConnection).then((i) => { e.ice = i.text; c.close(); reject(e); });
+      };
+      let ctrl = null;
       const t = setTimeout(() => fail(Object.assign(new Error('timeout'), { type: 'timeout' })), timeout);
       this.pending.set(target, fail);
-      const ctrl = this.peer.connect(target, { label: 'ctrl-' + cid, reliable: true, serialization: 'json', metadata: { cid, kind: 'ctrl' } });
+      ctrl = this.peer.connect(target, { label: 'ctrl-' + cid, reliable: true, serialization: 'json', metadata: { cid, kind: 'ctrl' } });
       const fast = this.peer.connect(target, { label: 'fast-' + cid, reliable: false, serialization: 'raw', metadata: { cid, kind: 'fast' } });
       c._attach(fast, 'fast');
       c._attach(ctrl, 'ctrl');
-      ctrl.on('open', () => { if (done) return; done = true; clearTimeout(t); this.pending.delete(target); resolve(c); });
+      ctrl.on('open', () => {
+        if (done) return; done = true; clearTimeout(t); this.pending.delete(target); resolve(c);
+        setTimeout(() => iceInfo(ctrl.peerConnection).then((i) => { c.path = i.pair || 'connected'; }), 1500);
+      });
       ctrl.on('close', () => fail(Object.assign(new Error('closed'), { type: 'closed' })));
     });
   }

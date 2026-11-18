@@ -11,6 +11,8 @@ node memory.mjs golf downhill arena coingrab   # 10 load/unload cycles
 node migration.mjs arena                    # host closes their tab mid-game
 node party.mjs                              # vote, shuffle + podium, mid-game join, handover, kick
 node local.mjs                              # BroadcastChannel transport (two tabs, no PeerJS)
+node upgrade.mjs [gameId]                   # joiner starts on the relay, moves to direct WebRTC mid-round by itself
+node lag.mjs [gameIds…]                     # how smooth a game looks for a joiner, with and without ?netsim lag
 node portal.mjs                             # developer tuning portal: sliders, save/download, inert off localhost
 node solo.mjs [nopeer]                      # Play Solo vs Bots (with / without a reachable PeerJS server)
 node emotes.mjs [ids]                       # emotes from host + client don't flood or stall games

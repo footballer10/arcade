@@ -40,7 +40,7 @@ export class GameRuntime extends Emitter {
     super();
     this.hub = hub; this.net = net; this.manifest = manifest; this.instance = null; this.stopped = false;
     this.timeouts = new Set(); this.intervals = new Set(); this.listeners = []; this.frames = new Set(); this.ticks = new Set();
-    this.renderers = new Set(); this.cleanups = []; this.started = false;
+    this.renderers = new Set(); this.cleanups = []; this.started = false; this.avatars = new Map();
     this.container = document.createElement('div');
     this.container.className = 'game-root'; this.container.dataset.game = manifest.id;
     document.getElementById('stage').appendChild(this.container);
@@ -59,7 +59,8 @@ export class GameRuntime extends Emitter {
       connected: (id) => hub.isConnected(id),
       net: this.channel, input: this.input, ui: this.ui, audio, settings,
       quality: () => QUALITY[settings.get('quality')] || QUALITY.high,
-      avatar: { build: buildAvatar, hat: buildHat, dispose: disposeAvatar },
+      // avatars are remembered per player so the lag tests can measure how smoothly each one moves
+      avatar: { build: (p, ...a) => { const o = buildAvatar(p, ...a); if (p?.id) rt.avatars.set(p.id, o); return o; }, hat: buildHat, dispose: disposeAvatar },
       three: {
         createRenderer: (opts) => { const r = createRenderer(this.container, opts); this.renderers.add(r); liveStats.renderers++; return r; },
         dispose: disposeObject, applyQuality,
@@ -121,7 +122,7 @@ export class GameRuntime extends Emitter {
     this.channel.dispose(); this.input.dispose(); this.ui.dispose();
     this.container.remove();
     this.clearListeners();
-    this.ctx = null; this.instance = null;
+    this.ctx = null; this.instance = null; this.avatars.clear();
     liveStats.mounted--;
   }
 }

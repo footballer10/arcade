@@ -1,7 +1,9 @@
 // Relay transport: party messages travel through a free public MQTT broker over a normal secure WebSocket (wss).
 // It's the fallback when a direct WebRTC link can't be made (school / managed laptops, strict firewalls, no working
 // TURN relay). Slower than a direct link, but it gets through anywhere a website loads. No account or key needed.
-// Same interface as the other transports (see core/net.js). Messages are JSON; binary packets are base64.
+// Same interface as the other transports (see core/net.js). Control messages are JSON; game packets (sendRaw) go as
+// compact binary frames, and are dropped rather than queued when the connection is backed up, so a slow moment
+// never turns into seconds of built-up delay.
 // The host connects to every broker it can reach and answers on whichever one a joiner used.
 import { MqttClient } from './mqtt.js';
 
@@ -10,14 +12,20 @@ const OVERRIDE = new URLSearchParams(location.search).get('relay');
 export const BROKERS = OVERRIDE ? OVERRIDE.split(',') : ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
 const ROOT = 'fb10-partyhub/v1/';
 const rid = () => Math.random().toString(36).slice(2, 10);
-function b64(buf) { const b = new Uint8Array(buf); let s = ''; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); }
-function unb64(str) { const s = atob(str), b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); return b.buffer; }
+const enc = new TextEncoder(), dec = new TextDecoder();
+// Binary game packet: [1][len][cid ascii][payload]  (JSON messages always start with '{')
+function rawFrame(cid, buf) {
+  const c = enc.encode(cid), out = new Uint8Array(2 + c.length + buf.byteLength);
+  out[0] = 1; out[1] = c.length; out.set(c, 2); out.set(new Uint8Array(buf), 2 + c.length);
+  return out;
+}
+const BACKLOG = 16 * 1024;   // bytes waiting in the socket: beyond this, unreliable packets are dropped
 
 class RelayConn {
   constructor(t, remote, cid, broker) { this.t = t; this.remote = remote; this.cid = cid; this.broker = broker; this.via = 'relay'; this.closed = false; this.onmessage = null; this.onraw = null; this.onclose = null; }
   get open() { return !this.closed && !!this.t.clients[this.broker]?.open; }
   send(obj) { if (!this.closed) this.t._post(this.broker, { k: 'm', to: this.remote, cid: this.cid, d: obj }); }
-  sendRaw(buf) { if (!this.closed) this.t._post(this.broker, { k: 'r', to: this.remote, cid: this.cid, d: b64(buf) }); }
+  sendRaw(buf) { if (!this.closed) this.t._postRaw(this.broker, this.remote, this.cid, buf); }
   _closed() { if (this.closed) return; this.closed = true; this.t.conns.delete(this.cid); this.onclose?.(); }
   close() { if (this.closed) return; this.t._post(this.broker, { k: 'fin', to: this.remote, cid: this.cid }); this._closed(); }
 }
@@ -28,7 +36,10 @@ export class RelayTransport {
   async open() {
     this.addr = 'R' + rid();
     const results = await Promise.allSettled(BROKERS.map((url, i) => new MqttClient(url, {
-      onMessage: (topic, data) => { try { this._on(i, JSON.parse(new TextDecoder().decode(data))); } catch { /* not ours */ } },
+      onMessage: (topic, data) => {
+        if (data[0] === 1) { const n = data[1], cid = dec.decode(data.subarray(2, 2 + n)); const c = this.conns.get(cid); if (c?.onraw) c.onraw(data.slice(2 + n).buffer); return; }
+        try { this._on(i, JSON.parse(dec.decode(data))); } catch { /* not ours */ }
+      },
       onClose: () => { for (const c of [...this.conns.values()]) if (c.broker === i) c._closed(); },
     }).connect(5000)));
     this.clients = results.map((r) => (r.status === 'fulfilled' ? r.value : null));
@@ -38,6 +49,12 @@ export class RelayTransport {
   }
   _sub(name) { for (const c of this.clients) c?.subscribe(ROOT + name); }
   _post(i, m) { m.from = this.addr; const c = this.clients[i]; if (c?.open) c.publish(ROOT + m.to, JSON.stringify(m)); }
+  _postRaw(i, to, cid, buf) {
+    const c = this.clients[i];
+    if (!c?.open) return;
+    if (c.backlog() > BACKLOG) { this.dropped = (this.dropped || 0) + 1; return; }   // unreliable: better lost than late
+    c.publish(ROOT + to, rawFrame(cid, buf));
+  }
   _postAll(m) { this.clients.forEach((c, i) => { if (c) this._post(i, { ...m }); }); }
   _mine(to) { return to === this.addr || this.aliases.has(to); }
   _on(i, m) {
@@ -55,7 +72,6 @@ export class RelayTransport {
       }
       case 'ack': if (m.to === this.addr) this.waiting.get('ack:' + m.cid)?.(i); break;
       case 'm': this.conns.get(m.cid)?.onmessage?.(m.d); break;
-      case 'r': this.conns.get(m.cid)?.onraw?.(unb64(m.d)); break;
       case 'fin': this.conns.get(m.cid)?._closed(); break;
     }
   }

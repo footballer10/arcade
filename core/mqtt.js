@@ -54,6 +54,7 @@ export class MqttClient {
     });
   }
   get open() { return !this.closed && this.ws?.readyState === 1; }
+  backlog() { return this.ws?.bufferedAmount || 0; }
   _send(p) { if (this.ws?.readyState === 1) this.ws.send(p); }
   subscribe(topic) { const id = this.pid = (this.pid % 65535) + 1; this._send(packet(8, 2, [id >> 8, id & 255, ...str(topic), 0])); }
   unsubscribe(topic) { const id = this.pid = (this.pid % 65535) + 1; this._send(packet(10, 2, [id >> 8, id & 255, ...str(topic)])); }
