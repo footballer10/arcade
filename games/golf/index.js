@@ -788,10 +788,13 @@ export async function start(ctx) {
   ctx.input.on('press', (a) => {
     if (a === 'use') useMyItem();
     else if (a === 'jump' && S.phase === 'playing') resetCamera();
-    else if (a === 'left') cycleSpec(-1);
-    else if (a === 'right') cycleSpec(1);
   });
-  ctx.input.on('key', (code, down) => { if (down && /^Digit[1-4]$/.test(code)) emote(+code.slice(5) - 1); });
+  ctx.input.on('key', (code, down) => {
+    if (!down) return;
+    if (/^Digit[1-4]$/.test(code)) emote(+code.slice(5) - 1);
+    else if (code === 'ArrowLeft') cycleSpec(-1);
+    else if (code === 'ArrowRight') cycleSpec(1);
+  });
   ctx.input.on('release', () => { if (!ctx.input.enabled) aimCancel(); });
 
   // ---------------------------------------------------------------- host migration, late joiners, leavers
@@ -828,6 +831,7 @@ export async function start(ctx) {
   // ---------------------------------------------------------------- loops
   ctx.tick((dt) => { try { hostTick(dt); } catch (e) { console.error(e); } });
   let lastSec = 0, liveAt = 0, fpsFrames = 0, fpsAt = performance.now(), slowSecs = 0, autoDone = false;
+  const camSph = new THREE.Spherical(), camOff = new THREE.Vector3();
   const sm = (x) => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
   const preview = { b: null };
   ctx.frame((dt, now) => {
@@ -908,6 +912,16 @@ export async function start(ctx) {
         const tgt = new THREE.Vector3(sunk ? cup.x : cb.x, (sunk ? cup.y : cb.y) + cb.r, sunk ? cup.z : cb.z);
         const d = tgt.sub(controls.target).multiplyScalar(Math.min(1, dt * 6));
         controls.target.add(d); camera.position.add(d);
+        // keyboard camera: A/D orbit, W/S tilt (arrows too while you are still playing; they switch spectated player once you're done)
+        const playing = mb && !mb.sunk && !mb.out, K = (c) => ctx.input.key(c);
+        const rot = ((K('KeyA') || (playing && K('ArrowLeft'))) ? 1 : 0) - ((K('KeyD') || (playing && K('ArrowRight'))) ? 1 : 0);
+        const tilt = ((K('KeyS') || (playing && K('ArrowDown'))) ? 1 : 0) - ((K('KeyW') || (playing && K('ArrowUp'))) ? 1 : 0);
+        if (rot || tilt) {
+          camSph.setFromVector3(camOff.copy(camera.position).sub(controls.target));
+          camSph.theta += rot * dt * 1.9 * ctx.settings.get('sens');
+          camSph.phi = Math.max(0.2, Math.min(controls.maxPolarAngle, camSph.phi + tilt * dt * 1.1 * ctx.settings.get('sens')));
+          camera.position.copy(controls.target).add(camOff.setFromSpherical(camSph));
+        }
       }
       if (turnRing) {
         const ready = mb && canShoot();
@@ -964,7 +978,7 @@ export async function start(ctx) {
     }
   }
 
-  window.__golf = { S, C, applyShot, useItem, balls, canShoot, shoot };
+  window.__golf = { S, C, applyShot, useItem, balls, canShoot, shoot, camera, controls };
   return {
     standings,
     stop() {
