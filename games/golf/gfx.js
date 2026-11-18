@@ -160,6 +160,26 @@ export const M = {
 
 // ---------------------------------------------------------------- ink outlines (inverted hull)
 // A back-face copy pushed out along smoothed normals, so long thin rails get an even line (a scaled copy wouldn't).
+// Relief: slopes get contour lines (a ring every 7 cm of height) and are shaded light/dark by which way they face, so hills,
+// ramps, banks and the mounds and bowls around the cup read at a glance. Flat ground is untouched.
+M.turf.onBeforeCompile = (sh) => {
+  sh.vertexShader = sh.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vWPos; varying vec3 vWN;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz; vWN = normalize(mat3(modelMatrix) * objectNormal);');
+  sh.fragmentShader = sh.fragmentShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vWPos; varying vec3 vWN;')
+    .replace('#include <dithering_fragment>', `
+      float slope = length(normalize(vWN).xz);   // ~ gradient: 0 flat
+      float sl = smoothstep(0.02, 0.08, slope);
+      vec2 dn = normalize(vWN.xz + vec2(1e-5));
+      gl_FragColor.rgb *= 1.0 + sl * dot(dn, normalize(vec2(-0.55, 0.83))) * 0.4;
+      float hh = vWPos.y / 0.07, fw = max(fwidth(hh), 1e-4);
+      float ln = 1.0 - smoothstep(fw * 0.7, fw * 1.7, abs(fract(hh + 0.5) - 0.5));
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb * 0.5, ln * sl);
+      #include <dithering_fragment>`);
+};
+M.turf.customProgramCacheKey = () => 'golf-turf-relief';
+
 export const INK = '#17112e';
 const inkMats = new Map();
 function inkMat(w) {
@@ -679,5 +699,30 @@ export function railShadows(hole) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 4)); geo.setIndex(idx);
   const m = new THREE.Mesh(geo, aoMat); m.renderOrder = 1; m.userData.noInk = true; m.frustumCulled = false;
+  return m;
+}
+
+// Two white rings around the cup that follow the ground (mound, bowl or flat), so the target reads from far away.
+M.cupRing = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+export function cupRings(hole) {
+  const { x, z } = hole.cup, pos = [], idx = [], SEG = 56;
+  const h0 = C.heightAt(hole, x, z) ?? hole.cup.y;
+  for (const [r0, r1] of [[0.62, 0.7], [1.2, 1.28]]) {
+    const ring = [];
+    for (let i = 0; i <= SEG; i++) {
+      const a = i / SEG * Math.PI * 2, c = Math.cos(a), s = Math.sin(a);
+      const ha = C.heightAt(hole, x + c * r0, z + s * r0), hb = C.heightAt(hole, x + c * r1, z + s * r1);
+      const ok = ha !== null && hb !== null && Math.abs(ha - h0) < 0.6 && Math.abs(hb - h0) < 0.6;
+      ring.push(ok ? [x + c * r0, ha + 0.02, z + s * r0, x + c * r1, hb + 0.02, z + s * r1] : null);
+    }
+    for (let i = 0; i < SEG; i++) {
+      const p = ring[i], q = ring[i + 1]; if (!p || !q) continue;
+      const k = pos.length / 3; pos.push(...p, ...q);
+      idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx);
+  const m = new THREE.Mesh(geo, M.cupRing); m.userData.noInk = true; m.renderOrder = 2; m.frustumCulled = false;
   return m;
 }

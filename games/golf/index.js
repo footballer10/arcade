@@ -603,6 +603,7 @@ export async function start(ctx) {
       course.add(ball, label, blob); ballMeshes.set(p.id, { ball, label, blob, trail: new G.Trail(course, p.color), sink: 0, wasSunk: false });
     }
     const rs = G.railShadows(hole); if (rs) course.add(rs);
+    course.add(G.cupRings(hole));
     G.inkCourse(course);
     course.add(G.buildScenery(hole, gy, th));
     const dir = G.applyTheme(th, themeCtx); weather.set(th.weather);
