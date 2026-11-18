@@ -51,6 +51,21 @@ export function botThink(G, p, b, dt) {
       else { mx = mz = 0; }
     }
   }
+  // big fans: lean into the gust
+  if (G.W.winds?.length) for (const f of G.W.winds) {
+    if (p.x < f.x0 || p.x > f.x1 || p.z < f.z0 - 1 || p.z > f.z1 || p.y < f.y0 || p.y > f.y1) continue;
+    const u = (((G.W.t + 0.15) / f.p + f.ph) % 1 + 1) % 1; if (f.on < 1 && u > f.on) continue;
+    mx -= (f.fx / C.RUN) * (0.55 + b.level.skill * 0.5); mz -= (f.fz / C.RUN) * 0.5;
+  }
+  // giant rolling balls: sidestep out of their path
+  const ball = ballThreat(G, p);
+  if (ball && b.rnd() > b.level.mistakes * dt * 3) {
+    const side = Math.abs(p.x - ball.x) > 0.2 ? Math.sign(p.x - ball.x) : (b.ballSide ||= (b.rnd() < 0.5 ? 1 : -1));
+    const room = side > 0 ? 6.6 - p.x : p.x + 6.6;
+    if (room > 1.2) { mx = side; mz = 0.15; } else if (grounded && b.jumpT <= 0 && ball.tau < 0.45) jump(b, 0.5);
+  } else b.ballSide = null;
+  // ice: ease off the throttle near a target so you don't slide past it
+  if (grounded && G.W.solids[p.gr]?.ice) { const k = Math.max(0.3, Math.min(1, dist / 3)); mx *= k; mz *= k; }
   // hazards ahead (sweepers, hammers, punchers)
   const hz = hazard(G, p, mx, mz, lv);
   if (hz && grounded) {
@@ -86,13 +101,40 @@ function raceTarget(G, p, b) {
       return { tx: c.x, tz: c.z, tsolid: -1 };
     }
     let arrived = false;
-    if (n.padAlts) arrived = n.padAlts.includes(p.gr) || (p.gr < 0 && p.vy > 9 && Math.abs(p.z - n.z) < 3);
+    if (n.gates) arrived = p.z > n.z + 1.0;
+    else if (n.padAlts) arrived = n.padAlts.includes(p.gr) || (p.gr < 0 && p.vy > 12.4 && Math.abs(p.z - n.z) < 3);
     else if (n.sidAlts) arrived = n.sidAlts.includes(p.gr);
     else if (n.sid != null) arrived = p.gr === n.sid && (!n.center || Math.hypot(p.x - G.W.solids[n.sid].x, p.z - G.W.solids[n.sid].z) < 1.8 || n.leap);
     else if (n.door != null) arrived = p.z > st.doors[n.door].z + 0.9;
     else arrived = p.z > n.z - (n.r || 1.3) * 0.5 && Math.abs(p.y - n.y) < 1.6 && (p.gr >= 0 || n.y < p.y);
     if (arrived) { b.ni++; if (n.door != null) b.door = null; continue; }
     let tx, tz, tsolid = -1;
+    if (n.gates) {
+      // pick the gate that is open (for long enough) or opens first; wait in front of it until it is open
+      const W = G.W;
+      const info = (id) => { const s = W.solids[id], u = blinkU(s, W.t), P = s.blink.p; return u > s.blink.on ? { open: true, left: (1 - u) * P } : { open: false, wait: (s.blink.on - u) * P }; };
+      if (b.gate == null || b.gateNi !== b.ni || (!info(b.gate).open && b.rnd() < 0.02)) {
+        let best = n.gates[0], bs = -1e9;
+        for (const id of n.gates) { const i = info(id), s = W.solids[id]; const sc = (i.open ? i.left : -i.wait * 1.5) - Math.abs(s.x - p.x) * 0.12 + b.rnd() * 0.3; if (sc > bs) { bs = sc; best = id; } }
+        b.gate = best; b.gateNi = b.ni;
+      }
+      const s = W.solids[b.gate], i = info(b.gate);
+      const near = p.z > n.z - 2.3;
+      if (near && !(i.open && i.left > 0.9 - b.level.skill * 0.3)) return { tx: s.x, tz: n.z - 2.3, tsolid: -1 };       // hold at the gate
+      return { tx: s.x, tz: n.z + 2.4, tsolid: -1 };
+    }
+    if (n.tip && n.sid != null) {
+      // Tip Toe: bots know the path but sometimes misjudge and step on a neighbouring (fake) tile
+      if (b.tipNi !== b.ni) {
+        b.tipNi = b.ni; b.tipWrong = null;
+        if (b.rnd() < b.level.mistakes * 1.6) {
+          let best = null, bd = 9;
+          for (const s of G.W.solids) if (s.tile >= 0 && !s.safe && s.z > p.z - 1) { const d = Math.hypot(s.x - G.W.solids[n.sid].x, s.z - G.W.solids[n.sid].z); if (d < 2.6 && d < bd) { bd = d; best = s.idx; } }
+          b.tipWrong = best;
+        }
+      }
+      if (b.tipWrong != null) { const s = G.W.solids[b.tipWrong]; if (G.W.dyn[s.tile] === 2) b.tipWrong = null; else return { tx: s.x, tz: s.z, tsolid: s.idx }; }
+    }
     if (n.padAlts) {
       if (b.pad == null || !n.padAlts.includes(b.pad)) b.pad = n.padAlts[Math.floor(b.rnd() * n.padAlts.length)];
       const s = G.W.solids[b.pad]; return { tx: s.x, tz: s.z + 0.4, tsolid: -1, leapNode: false };
@@ -229,7 +271,7 @@ function leapPlan(G, p, si, tx, tz) {
 function hazard(G, p, mx, mz, lv) {
   const look = [0.12, 0.24, 0.36, 0.5];
   for (const s of G.W.moving) {
-    if (!s.hit || s.soft) continue;
+    if (!s.hit || s.soft || s.anim.k === 'roll') continue;
     if (Math.abs(s.x - p.x) > s.br + 7 || Math.abs(s.z - p.z) > s.br + 7) continue;
     for (const tau of look) {
       if (tau > 0.25 + lv.skill * 0.3) break;
@@ -241,6 +283,20 @@ function hazard(G, p, mx, mz, lv) {
       const top = TMP.y + s.hy, bot = TMP.y - s.hy;
       if (top < p.y + 0.05 || bot > p.y + C.H) continue;
       return { s, tau, low: top < p.y + 1.15, high: bot > p.y + 0.85 };
+    }
+  }
+  return null;
+}
+
+// a rolling ball that will cross our spot within the next second (returns its x at that time)
+function ballThreat(G, p) {
+  for (const s of G.W.moving) {
+    if (!s.anim || s.anim.k !== 'roll') continue;
+    if (Math.abs(s.z - p.z) > 12) continue;
+    for (const tau of [0.2, 0.4, 0.6, 0.8, 1.0]) {
+      pose(s, G.W.t + tau, TMP);
+      const u = (((G.W.t + tau) / s.anim.P + s.anim.ph) % 1 + 1) % 1; if (u < 0.02 || u > 0.985) continue;
+      if (Math.hypot(TMP.x - p.x, TMP.z - (p.z + 3.5 * tau)) < s.r + 1.1 && Math.abs(TMP.y - s.hy - p.y) < 1.5) return { x: TMP.x, tau };
     }
   }
   return null;

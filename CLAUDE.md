@@ -120,7 +120,8 @@ E + Space; Downhill has no boost key). Add extra keys only when the game truly n
 
 ## Visual style rules
 - Bright cartoon look: saturated colors, toon/flat shading, chunky shapes, dark ink outlines where possible, sunny skies.
-- One font (`var(--font)`, Lilita One), one palette (`core/ui.css` variables + `core/palette.js`), rounded panels with 3–4 px ink borders.
+- One font (`var(--font)`, Lilita One, bundled in `core/fonts/`, no Google Fonts), one palette (`core/ui.css` variables + `core/palette.js`), rounded panels with 3–4 px ink borders.
+  Shared building blocks in `core/ui.css`: `.ph-panel` (+ `.purple` / `.dark`), `.ph-head` header ribbon, `.ph-well` inset area, `.ph-btn` (+ `big`/`green`/`ghost`/`danger`/`purple`/`pink`/`small`), `.ph-x` close button, `.ph-switch` toggle, `.count-pill`.
 - Players keep their party color everywhere; show the player's avatar (`ctx.avatar.build`) or at least their hat (`ctx.avatar.hat`).
 - Respect `ctx.quality()`: low = no shadows, pixel ratio 1, no post-processing.
 

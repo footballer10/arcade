@@ -11,7 +11,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _c = new THREE.Color();
 
 export class Batch {
-  constructor(outline = 0.022) { this.parts = []; this.lines = []; this.t = outline; this.base = new THREE.Matrix4(); }
+  // ao: bake soft ambient occlusion into the vertex colors (darker close to the floor / where things meet it)
+  constructor(outline = 0.022, ao = true) { this.parts = []; this.lines = []; this.t = outline; this.ao = ao; this.base = new THREE.Matrix4(); }
   // all following parts are placed relative to (x, y, z, rotation ry)
   at(x, y, z, ry = 0) { this.base.makeRotationY(ry).setPosition(x, y, z); return this; }
   _add(geo, outGeo, x, y, z, color, o) {
@@ -20,7 +21,12 @@ export class Batch {
     geo.deleteAttribute('uv'); geo.applyMatrix4(_m);
     const n = geo.attributes.position.count, col = new Float32Array(n * 3);
     _c.setHex(color); if (o.shade) _c.multiplyScalar(o.shade);
-    for (let i = 0; i < n; i++) { col[i * 3] = _c.r; col[i * 3 + 1] = _c.g; col[i * 3 + 2] = _c.b; }
+    const pos = geo.attributes.position;
+    for (let i = 0; i < n; i++) {
+      let k = 1;
+      if (this.ao && !o.noao) { const y = pos.getY(i), t = Math.min(1, Math.max(0, y / 0.5)); k = 0.7 + 0.3 * t * t * (3 - 2 * t); if (y > 2.45) k *= 1 - Math.min(0.12, (y - 2.45) * 0.3); }   // floor contact + ceiling corner
+      col[i * 3] = _c.r * k; col[i * 3 + 1] = _c.g * k; col[i * 3 + 2] = _c.b * k;
+    }
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     this.parts.push(geo.index ? geo.toNonIndexed() : geo);
     if (geo.index) geo.dispose();
