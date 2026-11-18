@@ -3,11 +3,13 @@
 import { startStatic, startPeer, startRelay, RELAY, launch, openPage, waitFor, sleep, check, createParty, joinByCode } from './harness.mjs';
 import { play } from './drivers.mjs';
 const game = process.argv[2] || 'coingrab';
+// nopeer: the PeerJS server is unreachable for everyone (like a school network): the direct link must be set up via the relay
+const NOPEER = process.argv[3] === 'nopeer';
 const srv = await startStatic(8080); await startPeer(9000); await startRelay(9002);
-const BASE = `http://127.0.0.1:8080/index.html?dev=1&peer=127.0.0.1:9000${RELAY}&testfps=8`;
+const BASE = `http://127.0.0.1:8080/index.html?dev=1&peer=127.0.0.1:${NOPEER ? 9999 : 9000}${RELAY}&testfps=8`;
 const { browser, context } = await launch();
 const A = await openPage(await context(), BASE, 'A');
-const B = await openPage(await context(), BASE + '&forcerelay=join', 'B');
+const B = await openPage(await context(), BASE + (NOPEER ? '' : '&forcerelay=join'), 'B');
 try {
   const code = await createParty(A, 'Host');
   await joinByCode(B, 'Joiner', code);
