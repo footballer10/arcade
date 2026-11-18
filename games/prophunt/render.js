@@ -8,7 +8,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { CELL, WH, WT, rayWorld } from './level.js';
+import { CELL, WH, WT, rayWorld, roomAt } from './level.js';
 import { SKINS } from '../../core/avatar.js';
 
 // hammer swing curve: u = 0..1 over the swing -> arm angle (wind up high, smash down, recover)
@@ -50,7 +50,7 @@ function comic(g, s, txt, fill, burst) {
 }
 // procedural floor textures (white-ish, tinted by the room color through the material)
 function floorTex(style) {
-  const S = 256, c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d');
+  const S = 256, K = 2, c = document.createElement('canvas'); c.width = c.height = S * K; const g = c.getContext('2d'); g.scale(K, K);
   let seed = style.length * 977; const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   g.fillStyle = '#ffffff'; g.fillRect(0, 0, S, S);
   if (style === 'wood') {
@@ -60,7 +60,7 @@ function floorTex(style) {
       g.fillStyle = 'rgba(70,35,15,.45)'; g.fillRect(0, y, S, 2); g.fillRect(off, y, 2, 32); g.fillRect((off + S / 2) % S, y + 0, 2, 32);
     }
   } else if (style === 'tile') {
-    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) { g.fillStyle = (x + y) % 2 ? 'rgba(0,0,0,.10)' : 'rgba(255,255,255,0)'; g.fillRect(x * 64, y * 64, 64, 64); g.fillStyle = 'rgba(255,255,255,.35)'; g.fillRect(x * 64 + 6, y * 64 + 6, 20, 4); }
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) { g.fillStyle = (x + y) % 2 ? 'rgba(0,0,0,.16)' : 'rgba(255,255,255,0)'; g.fillRect(x * 64, y * 64, 64, 64); g.fillStyle = 'rgba(255,255,255,.35)'; g.fillRect(x * 64 + 6, y * 64 + 6, 20, 4); }
     g.fillStyle = 'rgba(80,80,100,.35)'; for (let i = 0; i <= 4; i++) { g.fillRect(i * 64 - 2, 0, 4, S); g.fillRect(0, i * 64 - 2, S, 4); }
   } else if (style === 'carpet') {
     for (let i = 0; i < 9000; i++) { g.fillStyle = `rgba(0,0,0,${r() * 0.08})`; g.fillRect(r() * S, r() * S, 2, 2); }
@@ -69,7 +69,7 @@ function floorTex(style) {
     for (let i = 0; i < 6000; i++) { g.fillStyle = `rgba(0,0,0,${r() * 0.1})`; g.fillRect(r() * S, r() * S, 2 + r() * 3, 2 + r() * 3); }
     g.strokeStyle = 'rgba(60,60,70,.35)'; g.lineWidth = 3; g.strokeRect(0, 0, S, S);
   }
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; return t;
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; return t;
 }
 const FLOOR_STYLE = (r) => r.def.tile || r.type === 'kitchen' || r.type === 'bath' ? 'tile' : r.def.carpet || ['bedroom', 'kids', 'office', 'principal'].includes(r.type) ? 'carpet' : ['garage', 'storage'].includes(r.type) ? 'concrete' : 'wood';
 // speech bubble with an emoji, for taunts
@@ -95,14 +95,29 @@ export function createView(ctx) {
   const own = new Set();                         // materials/geometries/textures to dispose at the end
   const M = (m) => { own.add(m); return m; };
   const toonV = M(new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: GRAD }));
+  // soft warm rim light on edges facing away from the camera: objects pop out of their surroundings
+  toonV.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', 'float rimK = pow(1.0 - clamp(dot(normalize(vViewPosition), normal), 0.0, 1.0), 3.0);\n outgoingLight += rimK * 0.14 * vec3(1.0, 0.92, 0.78);\n#include <opaque_fragment>'); };
+  toonV.customProgramCacheKey = () => 'ph-rim';
   const inkMat = M(new THREE.MeshBasicMaterial({ color: INK, side: THREE.BackSide }));
   const hiMat = M(new THREE.MeshBasicMaterial({ color: 0xffe14a, side: THREE.BackSide }));
   const kindCache = new Map();
   const ceilMat = M(new THREE.MeshToonMaterial({ color: 0xfff6e8, gradientMap: GRAD }));
+  const plateMat = M(new THREE.MeshBasicMaterial({ color: 0xcfc2ae }));
   const lampMat = M(new THREE.MeshBasicMaterial({ color: 0xfff0c8, toneMapped: false }));
   const glowMat = M(new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }));
   const aoTex = spriteTex((g, S) => { const gr = g.createLinearGradient(0, 0, 0, S); gr.addColorStop(0, 'rgba(40,20,30,.42)'); gr.addColorStop(0.45, 'rgba(40,20,30,.12)'); gr.addColorStop(1, 'rgba(40,20,30,0)'); g.fillStyle = gr; g.fillRect(0, 0, S, S); });
   const aoMat = M(new THREE.MeshBasicMaterial({ map: aoTex, transparent: true, depthWrite: false })); own.add(aoTex);
+  const padTex = spriteTex((g, S) => { g.shadowColor = 'rgba(30,14,24,.62)'; g.shadowBlur = 18; g.fillStyle = 'rgba(30,14,24,.62)'; g.fillRect(S * 0.3, S * 0.3, S * 0.4, S * 0.4); }, 64);
+  const padMat = M(new THREE.MeshBasicMaterial({ map: padTex, transparent: true, depthWrite: false })); own.add(padTex);
+  const blobTex = spriteTex((g, S) => { const gr = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2); gr.addColorStop(0, 'rgba(25,12,20,.7)'); gr.addColorStop(0.55, 'rgba(25,12,20,.35)'); gr.addColorStop(1, 'rgba(25,12,20,0)'); g.fillStyle = gr; g.fillRect(0, 0, S, S); }, 64);
+  const blobMat = M(new THREE.MeshBasicMaterial({ map: blobTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 })); own.add(blobTex);
+  const blobGeo = new THREE.PlaneGeometry(1, 1); blobGeo.rotateX(-Math.PI / 2); own.add(blobGeo);
+  const shaftTex = (() => { const c = document.createElement('canvas'); c.width = 64; c.height = 128; const g = c.getContext('2d');
+    const v = g.createLinearGradient(0, 0, 0, 128); v.addColorStop(0, 'rgba(255,255,255,.75)'); v.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = v; g.fillRect(0, 0, 64, 128);
+    g.globalCompositeOperation = 'destination-in'; const h = g.createLinearGradient(0, 0, 64, 0); h.addColorStop(0, 'rgba(0,0,0,0)'); h.addColorStop(0.3, 'rgba(0,0,0,1)'); h.addColorStop(0.7, 'rgba(0,0,0,1)'); h.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = h; g.fillRect(0, 0, 64, 128);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })(); own.add(shaftTex);
+  const shaftMat = M(new THREE.MeshBasicMaterial({ map: shaftTex, color: 0xffe6b0, transparent: true, opacity: 0.4, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false }));
+  let shaftMesh = null, shadowWide = null;
   const poolTex = spriteTex((g, S) => { const gr = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2); gr.addColorStop(0, 'rgba(255,220,150,.32)'); gr.addColorStop(0.5, 'rgba(255,200,120,.12)'); gr.addColorStop(1, 'rgba(255,200,120,0)'); g.fillStyle = gr; g.fillRect(0, 0, S, S); }, 128);
   const poolMat = M(new THREE.MeshBasicMaterial({ map: poolTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })); own.add(poolTex);
   // sky dome + far hills + drifting clouds
@@ -125,9 +140,10 @@ export function createView(ctx) {
   const fireLight = new THREE.PointLight(0xff9a4a, 6, 7, 1.6); scene.add(fireLight);
 
   // ---------------------------------------------------------------- lights
-  const hemi = new THREE.HemisphereLight(0xfff1dc, 0x8a6a5a, 1.45); scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xffd9a8, 2.1); sun.position.set(14, 26, 9); scene.add(sun); scene.add(sun.target);
+  const hemi = new THREE.HemisphereLight(0xfff1dc, 0x8a6a5a, 1.4); scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xffd9a8, 1.9); sun.position.set(14, 26, 9); scene.add(sun); scene.add(sun.target);
   const fill = new THREE.DirectionalLight(0xb8c8ff, 0.45); fill.position.set(-10, 12, -14); scene.add(fill);
+  const roomLight = new THREE.PointLight(0xffd29a, 3, 9, 1.8); roomLight.position.set(0, 2.3, 0); scene.add(roomLight);   // warm light in whatever room the camera is in (High)
   function applyQ() {
     const q = ctx.three.applyQuality(renderer, sun);
     sun.castShadow = q.shadows; renderer.shadowMap.enabled = q.shadows;
@@ -137,7 +153,9 @@ export function createView(ctx) {
   let composer = null, bloom = null, grade = null;
   function setupPost() {
     if (Q.effects && !composer) {
-      composer = new EffectComposer(renderer);
+      // multisampled render target: the composer would otherwise drop the renderer's antialiasing (jagged edges)
+      const rt = new THREE.WebGLRenderTarget(256, 256, { type: THREE.HalfFloatType, samples: 4 });
+      composer = new EffectComposer(renderer, rt);
       composer.addPass(new RenderPass(scene, camera));
       bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.38, 0.5, 0.86); composer.addPass(bloom);
       grade = new ShaderPass(GRADE); composer.addPass(grade);
@@ -174,14 +192,14 @@ export function createView(ctx) {
     L.geo = { geo: null, line: null };             // the view owns these now (disposed with the level)
     // floors + ceilings + ground outside
     const fb = new Batch(0), cb = [], decal = [], pools = [], bulbs = [];
-    const pend = new Batch(0.02);
+    const trimDisc = [];
     for (const r of L.rooms) {
       fb.box(r.x, -0.06, r.z, CELL, 0.1, CELL, shadeHex(r.def.floor, 0.8));
       // textured floor plane, tinted with the room color
       const st = FLOOR_STYLE(r);
       const fg = new THREE.PlaneGeometry(CELL, CELL); fg.rotateX(-Math.PI / 2); fg.translate(r.x, 0.001, r.z);
       const rep0 = st === 'wood' ? 3.2 : st === 'tile' ? 2.5 : 2; const uv = fg.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * rep0, uv.getY(i) * rep0);
-      const fm = levelMat(new THREE.MeshToonMaterial({ color: r.def.floor, map: floorTex(st), gradientMap: GRAD }));
+      const fm = levelMat(new THREE.MeshToonMaterial({ color: new THREE.Color(r.def.floor).multiplyScalar(st === 'tile' ? 0.84 : 1), map: floorTex(st), gradientMap: GRAD }));
       const fl = new THREE.Mesh(fg, fm); fl.receiveShadow = true; scene.add(fl); levelObjs.push(fl);
       // soft contact shadow along the walls
       const hw = CELL / 2 - WT / 2;
@@ -191,7 +209,7 @@ export function createView(ctx) {
       const g = new THREE.PlaneGeometry(CELL, CELL); g.rotateX(Math.PI / 2); g.translate(r.x, WH, r.z); cb.push(g);
       // hanging pendant lamp: cord, colored shade, glowing bulb
       // flush ceiling dome lamp (stays out of the camera's way)
-      pend.at(r.x, 0, r.z).cyl(0, WH - 0.03, 0, 0.38, 0.38, 0.06, shadeHex(r.def.wall, 0.8), { seg: 20 });
+      { const rg = new THREE.CircleGeometry(0.4, 22); rg.rotateX(Math.PI / 2); rg.translate(r.x, WH - 0.006, r.z); trimDisc.push(rg); }   // one-sided base plate: invisible from above
       const bg = new THREE.SphereGeometry(0.3, 18, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2); bg.scale(1, 0.4, 1); bg.translate(r.x, WH - 0.05, r.z); bulbs.push(bg);
     }
     const lampsGeo = bulbs;
@@ -199,7 +217,7 @@ export function createView(ctx) {
     const f = fb.build(); add(f.geo, toonV, false);
     const ceil = new THREE.Mesh(mergeList(cb), ceilMat); scene.add(ceil); levelObjs.push(ceil);
     const lampM = new THREE.Mesh(mergeList(lampsGeo), lampMat); scene.add(lampM); levelObjs.push(lampM);
-    const pb = pend.build(); { const m1 = new THREE.Mesh(pb.geo, toonV); m1.castShadow = false; scene.add(m1); levelObjs.push(m1); const m2 = new THREE.Mesh(pb.line, inkMat); scene.add(m2); levelObjs.push(m2); }
+    { const m1 = new THREE.Mesh(mergeList(trimDisc), plateMat); scene.add(m1); levelObjs.push(m1); for (const q of trimDisc) q.dispose(); }
     const ao = new THREE.Mesh(mergeList(decal, true), aoMat); ao.renderOrder = 1; scene.add(ao); levelObjs.push(ao);
     const pl = new THREE.Mesh(mergeList(pools, true), poolMat); pl.renderOrder = 1; scene.add(pl); levelObjs.push(pl);
     for (const g of [...cb, ...lampsGeo, ...decal, ...pools]) g.dispose();
@@ -208,6 +226,32 @@ export function createView(ctx) {
     for (const w of L.windows) { wb.at(w.x, w.y, w.z, w.ry); wb.box(0, 0, 0, w.w, w.h, 0.012, 0xd8f4ff); wb.box(0, 0, 0.004, 0.05, w.h, 0.014, 0xfffaf0); wb.box(0, 0, 0.004, w.w, 0.05, 0.014, 0xfffaf0); }
     for (const sc of L.screens || []) { wb.at(sc.x, sc.y, sc.z, sc.ry); wb.box(0, 0, 0.02, 0.56, 0.4, 0.01, 0x7ae0ff); wb.box(-0.1, 0.05, 0.026, 0.12, 0.12, 0.004, 0xffe14a); wb.box(0.12, -0.08, 0.026, 0.16, 0.05, 0.004, 0xff6ec7); }
     const wg = wb.build(); if (wg.geo) { const wm = new THREE.Mesh(wg.geo, glowMat); scene.add(wm); levelObjs.push(wm); }
+    // soft contact shadows under everything that stands on the floor (works on every quality level)
+    {
+      const pads = [];
+      for (const o of L.solids) {
+        if (o.y0 > 0.05 || o.y1 > 2.2 || o.y1 < 0.15) continue;
+        const w = o.x1 - o.x0, d = o.z1 - o.z0; if (w < 0.1 || d < 0.1) continue;
+        const pg = new THREE.PlaneGeometry(w + 0.7, d + 0.7); pg.rotateX(-Math.PI / 2); pg.translate((o.x0 + o.x1) / 2, 0.007, (o.z0 + o.z1) / 2); pads.push(pg);
+      }
+      if (pads.length) { const m = new THREE.Mesh(mergeList(pads, true), padMat); m.renderOrder = 1; scene.add(m); levelObjs.push(m); for (const q of pads) q.dispose(); }
+    }
+    // sunbeams through the windows (High only): additive quads from each window slanting down into the room
+    {
+      const pos = [], uv = [], idx = [], seen = [];
+      for (const w of L.windows) {
+        if (seen.some((q) => Math.hypot(q.x - w.x, q.z - w.z) < 0.7)) continue; seen.push(w);
+        const horiz = w.ry === 0, nx = horiz ? 0 : -Math.sign(w.x), nz = horiz ? -Math.sign(w.z) : 0, tx = horiz ? 1 : 0, tz = horiz ? 0 : 1;
+        const base = pos.length / 3, top = 1.95 + 0.39;
+        pos.push(w.x - tx * 0.65, top, w.z - tz * 0.65, w.x + tx * 0.65, top, w.z + tz * 0.65, w.x + nx * 3 + tx * 1.1, 0.02, w.z + nz * 3 + tz * 1.1, w.x + nx * 3 - tx * 1.1, 0.02, w.z + nz * 3 - tz * 1.1);
+        uv.push(0, 1, 1, 1, 1, 0, 0, 0); idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      }
+      if (pos.length) {
+        // indices are vertex numbers (3 floats each)
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+        g.setIndex(idx); shaftMesh = new THREE.Mesh(g, shaftMat); shaftMesh.renderOrder = 2; shaftMesh.visible = !!Q.effects; scene.add(shaftMesh); levelObjs.push(shaftMesh);
+      }
+    }
     // garden around the house: lawn details, trees, bushes, a fence (cosmetic only)
     const gb = new Batch(0.04); let sd = (L.w * 131 + L.d * 71 + L.rooms.length) | 0; const r1 = () => ((sd = (sd * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
     const hx = L.w / 2 + 0.2, hz = L.d / 2 + 0.2;
@@ -265,7 +309,7 @@ export function createView(ctx) {
   // ---------------------------------------------------------------- players
   const bodies = new Map();
   function hammerGeo(color) {
-    const b = new Batch(0.02);
+    const b = new Batch(0.02, false);
     b.cyl(0, 0.35, 0, 0.035, 0.035, 0.7, color); b.cyl(0, 0.78, 0, 0.17, 0.17, 0.36, 0xff4d6a, { rz: Math.PI / 2, seg: 16 }); b.cyl(0, 0.78, 0, 0.175, 0.175, 0.08, 0xffd23f, { rz: Math.PI / 2, seg: 16 });
     return b.build();
   }
@@ -284,8 +328,9 @@ export function createView(ctx) {
     const propHolder = new THREE.Group(); root.add(propHolder);
     const colorLine = M(new THREE.MeshBasicMaterial({ color: pl.colorHex, side: THREE.BackSide }));
     scene.add(root);
+    const blob = new THREE.Mesh(blobGeo, blobMat); blob.renderOrder = 2; scene.add(blob);
     const tag = ctx.ui.el('div', 'ph-tag'); tag.style.setProperty('--c', pl.colorCss); tag.textContent = pl.name; ctx.container.appendChild(tag);
-    B = { root, av, hammer, hg, propHolder, kind: -2, prop: null, colorLine, tag, swing: 0, faceYaw: 0, hop: Math.random() * 6, pop: 0, lastX: p.x, lastZ: p.z };
+    B = { root, blob, av, hammer, hg, propHolder, kind: -2, prop: null, colorLine, tag, swing: 0, faceYaw: 0, hop: Math.random() * 6, pop: 0, lastX: p.x, lastZ: p.z };
     bodies.set(p.id, B); return B;
   }
   function setKind(B, k, mine) {
@@ -306,7 +351,7 @@ export function createView(ctx) {
     if (vm) { vm.g.removeFromParent(); vm.geo.geo.dispose(); vm.geo.line.dispose(); }
     // a sleeve in my party color, my hand gripping the bottom of the handle, the hammer itself
     const pl = ctx.player(ctx.myId) || {};
-    const b = new Batch(0.02);
+    const b = new Batch(0.02, false);
     b.cyl(0, -0.32, 0.04, 0.085, 0.1, 0.5, color, { rx: -0.35 }); b.sph(0, -0.02, 0, 0.1, SKINS[pl.skin ?? 1] ?? 0xf3c39b, { sy: 1.15 });
     b.cyl(0, 0.35, 0, 0.035, 0.035, 0.7, color, { shade: 0.85 }); b.cyl(0, 0.78, 0, 0.17, 0.17, 0.36, 0xff4d6a, { rz: Math.PI / 2, seg: 16 }); b.cyl(0, 0.78, 0, 0.175, 0.175, 0.08, 0xffd23f, { rz: Math.PI / 2, seg: 16 });
     const geo = b.build(); const g = new THREE.Group(), pivot = new THREE.Group();
@@ -440,6 +485,10 @@ export function createView(ctx) {
       setKind(B, showProp ? p.kind : -1, id === st.me);
       B.av.visible = !showProp; B.hammer.visible = p.role === 'S';
       B.root.position.set(p.x, p.y, p.z);
+      { // grounding blob under every body (stronger when real shadows are off)
+        const sz = showProp ? Math.max(KINDS[p.kind].size[0], KINDS[p.kind].size[2]) * 1.5 + 0.25 : 1.15;
+        B.blob.visible = B.root.visible; B.blob.position.set(p.x, p.y + 0.012, p.z); B.blob.scale.set(sz, 1, sz);
+      }
       const sp = Math.hypot(p.x - B.lastX, p.z - B.lastZ) / Math.max(dt, 1e-3); B.lastX = p.x; B.lastZ = p.z;
       if (B.prop) {
         const pr = B.prop; pr.rotation.set(0, p.rot, 0); pr.position.set(0, 0, 0); pr.scale.set(1, 1, 1);
@@ -478,7 +527,7 @@ export function createView(ctx) {
         if (on) B.tag.style.transform = `translate(${((v1.x + 1) / 2) * W}px, ${((1 - v1.y) / 2) * Hh}px) translate(-50%, -100%)`;
       } else B.tag.style.display = 'none';
     }
-    for (const [id, B] of bodies) if (!live.has(id)) { B.root.visible = false; B.tag.style.display = 'none'; }
+    for (const [id, B] of bodies) if (!live.has(id)) { B.root.visible = false; B.blob.visible = false; B.tag.style.display = 'none'; }
     // decoy bounce (wrongly bonked)
     for (const D of decoys) if (D && D.bounce > 0) { D.bounce = Math.max(0, D.bounce - dt * 2.2); const s = Math.sin(D.bounce * Math.PI * 3) * D.bounce; setDecoyMatrix(D, 1 - s * 0.2, 1 + s * 0.3); }
     setHighlight(st.highlight ?? -1);
@@ -493,6 +542,19 @@ export function createView(ctx) {
     // camera
     const f = st.players.get(st.focusId);
     if (f) placeCamera(dt, { x: f.x, y: f.y, z: f.z, h: f.kind >= 0 && f.role === 'H' ? Math.max(0.35, KINDS[f.kind].size[1] * 0.7) : 1.2, shoulder: st.focusId === st.me ? (f.kind >= 0 && f.role === 'H' ? Math.max(0.3, KINDS[f.kind].size[0] * 0.8) : 0.6) : 0 }, st.mode, now);
+    // lighting that follows the action: sharp sun shadows around the player (whole building during the intro), warm light in the current room
+    {
+      blobMat.opacity = Q.shadows ? 0.5 : 1;
+      const wide = cam.intro > 0.25 && level;
+      if (wide !== shadowWide && level) { shadowWide = wide; const e = wide ? Math.max(level.w, level.d) / 2 + 3 : 16; Object.assign(sun.shadow.camera, { left: -e, right: e, top: e, bottom: -e }); sun.shadow.camera.updateProjectionMatrix(); }
+      const fx0 = f && !wide ? Math.round(f.x / 0.0625) * 0.0625 : 0, fz0 = f && !wide ? Math.round(f.z / 0.0625) * 0.0625 : 0;
+      sun.target.position.set(fx0, 0, fz0); sun.position.set(fx0 + 14, 26, fz0 + 9); sun.target.updateMatrixWorld();
+      roomLight.visible = !!Q.effects;
+      if (Q.effects && level) {
+        const ri = roomAt(level, camera.position.x, camera.position.z), rm = ri >= 0 ? level.rooms[ri] : null;
+        if (rm) { roomLight.position.lerp(v2.set(rm.x, 2.25, rm.z), Math.min(1, dt * 5)); roomLight.intensity += (3 - roomLight.intensity) * Math.min(1, dt * 5); } else roomLight.intensity *= 0.9;
+      }
+    }
     // seeker view model
     if (st.mode === 'fp' && cam.intro <= 0.02) { const m = viewModel(ctx.player(st.me)?.colorHex ?? 0xffffff); m.g.visible = true; m.swing = Math.max(0, m.swing - dt * 2.6);
       const u = m.swing > 0 ? 1 - m.swing : 1, bob = Math.sin(t * 8) * 0.012 * (st.moving ? 1 : 0);
@@ -529,11 +591,11 @@ export function createView(ctx) {
     renderer, scene, camera, cam, fx, buildLevel, update, resize, centerRay, rayFrom,
     // world point -> normalized screen coords (x,y in -1..1); `behind` when the point is behind the camera
     project(x, y, z) { v1.set(x, y, z).project(camera); const behind = v1.z > 1; return { x: behind ? -v1.x : v1.x, y: behind ? -v1.y : v1.y, behind }; },
-    applyQ() { Q = applyQ(); setupPost(); fireLight.visible = !!level?.glows.length && Q.effects; },
+    applyQ() { Q = applyQ(); setupPost(); if (shaftMesh) shaftMesh.visible = !!Q.effects; fireLight.visible = !!level?.glows.length && Q.effects; },
     dispose() {
       clearLevel(); hiMesh.removeFromParent(); disposePost();
       for (const f2 of flyers) f2.g.removeFromParent(); flyers.length = 0;
-      for (const B of bodies.values()) { if (B.hatMesh) ctx.avatar.dispose(B.hatMesh); ctx.avatar.dispose(B.av); B.hg.geo.dispose(); B.hg.line.dispose(); B.root.removeFromParent(); B.tag.remove(); }
+      for (const B of bodies.values()) { B.blob.removeFromParent(); if (B.hatMesh) ctx.avatar.dispose(B.hatMesh); ctx.avatar.dispose(B.av); B.hg.geo.dispose(); B.hg.line.dispose(); B.root.removeFromParent(); B.tag.remove(); }
       bodies.clear();
       if (vm) { vm.geo.geo.dispose(); vm.geo.line.dispose(); vm = null; }
       disposeKindCache(kindCache);

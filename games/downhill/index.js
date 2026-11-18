@@ -1,12 +1,12 @@
 // Downhill Rush — party hub plug-in. Race (or trick-battle) down a seeded mountain on skis or a snowboard.
 // Host-authoritative: the host simulates every rider from inputs; each client predicts its own rider and
 // replays unacknowledged inputs; other riders are interpolated ~0.1 s in the past.
-// Net (ctx.net): client→host {t:'in', i:[[seq,...input]]}; host→each player {t:'snap', rt, e, me, ack, pr, endIn}.
+// Net (ctx.net): client→host {t:'in', i:[[seq,...input]]}; host→each player {t:'snap', rt, e, me, ack, pr, ip, ib, endIn}.
 import * as THREE from 'three';
 import './tuning.js';
 import { makeCourse, mulberry32, MAPS, MAP_IDS } from './course.js';
-import { CLASSES, newEntity, stepEntity, bump, botInput, newBrain, sanitizeInput, packInput, trickName, landingPreview, GRAB_KEYS, ITEMS, snowballHit } from './physics.js';
-import { createRenderer, buildCourse, disposeGroup, makeRider, poseRider, COLORS, Spray, makeMinimap, Trails, AirGuide, buildItemBoxes, spinItemBoxes, Snowballs } from './render.js';
+import { CLASSES, newEntity, stepEntity, bump, botInput, newBrain, sanitizeInput, packInput, trickName, landingPreview, GRAB_KEYS, ITEMS, snowballHit, iceHit } from './physics.js';
+import { createRenderer, buildCourse, disposeGroup, makeRider, poseRider, COLORS, Spray, makeMinimap, Trails, AirGuide, buildItemBoxes, spinItemBoxes, Snowballs, IcePatches } from './render.js';
 import { sfx, setRide, shutdown as audioShutdown } from './audio.js';
 import { AdaptiveDelay } from '../../core/interp.js';
 export { manifest } from './manifest.js';
@@ -20,7 +20,7 @@ const ordinal = (n) => n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['t
 const CSS = `
 .dh-layer{position:absolute;inset:0;pointer-events:none;font-family:var(--font);color:#fff;text-shadow:var(--stroke)}
 .dh-layer canvas.lines{position:absolute;inset:0;width:100%;height:100%}
-.dh-vig{position:absolute;inset:0;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 55%,rgba(5,10,30,.38) 100%)}
+.dh-vig{position:absolute;inset:0;background:linear-gradient(to top,rgba(14,22,38,.42),rgba(14,22,38,0) 32%),radial-gradient(ellipse at center,rgba(0,0,0,0) 60%,rgba(10,16,32,.28) 100%)}
 .dh-msg{position:absolute;top:30%;left:50%;transform:translateX(-50%);font-size:2rem;white-space:nowrap;transition:opacity .3s}
 .dh-live{position:absolute;top:19%;left:50%;transform:translateX(-50%);text-align:center;font-size:1.6rem;color:#ffe27a;transition:opacity .15s;white-space:nowrap}
 .dh-live small{display:block;font-size:1rem;color:#fff}
@@ -51,7 +51,7 @@ export async function start(ctx) {
   const miniCv = q('dh-mini'), mctx = miniCv.getContext('2d');
   const fitLines = () => { linesCv.width = ctx.container.clientWidth; linesCv.height = ctx.container.clientHeight; env.resize(); };
   ctx.on('resize', fitLines); fitLines();
-  const spray = new Spray(scene), trails = new Trails(scene), airGuide = new AirGuide(scene), snowballs = new Snowballs(scene);
+  const spray = new Spray(scene), trails = new Trails(scene), airGuide = new AirGuide(scene), snowballs = new Snowballs(scene), icePatches = new IcePatches(scene);
   const setGfx = () => { const qv = ctx.settings.get('quality'); env.setQuality(qv === 'high' ? 'high' : 'low'); renderer.shadowMap.enabled = qv !== 'low'; };
   setGfx();
   ctx.on('settings', (k) => { if (k === 'quality') setGfx(); });
@@ -76,7 +76,7 @@ export async function start(ctx) {
     const rnd = mulberry32(seed ^ 0x5bd1e995);
     const race = { seed, course, mesh, startAt: performance.now() + 1e9, phase: 'countdown', ents: new Map(), firstFinish: null,
       over: false, sendT: 0, endIn: null, list, seq: 0, history: [], outbox: [], ghostRec: [], ghostRecT: 0,
-      opts, boxes, projectiles: [], finCount: 0, hostOff: null, map, ghostKey: map + ':' + seed };
+      opts, boxes, projectiles: [], patches: [], finCount: 0, hostOff: null, map, ghostKey: map + ':' + seed };
     list.forEach((p, i) => {
       const row = Math.floor(i / 4), colI = i % 4;
       const z = 8 - row * 4, x = course.cxMain(z) + (colI - 1.5) * 4 + (row % 2) * 2;
@@ -87,7 +87,7 @@ export async function start(ctx) {
       const ent = { e, rider, info: { ...p }, local, bot, remote: null,
         hostSim: S.mode === 'host' && !local && !bot, inQ: [], ack: 0, lastInp: null,
         off: new THREE.Vector3(), prevAir: false, prevState: 'ride', prevMsg: 0,
-        pv: { x: e.x, y: e.y, z: e.z, h: 0 }, view: { x: e.x, y: e.y, z: e.z, h: 0 }, pose: Object.create(e), buf: [], lastFire: 0 };
+        pv: { x: e.x, y: e.y, z: e.z, h: 0 }, view: { x: e.x, y: e.y, z: e.z, h: 0 }, pose: Object.create(e), buf: [], lastFire: 0, lastDrop: 0 };
       if (ent.bot) giveBrain(ent, rnd);
       race.ents.set(p.id, ent);
     });
@@ -162,6 +162,8 @@ export async function start(ctx) {
     r.hostOff = r.hostOff == null ? off : Math.min(r.hostOff + 0.0004, off);
     interpDelay.observe(off - r.hostOff);   // how late vs the fastest snapshots (jitter): the relay needs more delay
     r.projectiles = Array.isArray(msg.pr) ? msg.pr : [];
+    r.patches = Array.isArray(msg.ip) ? msg.ip.map(([x, z]) => ({ x, z })) : [];
+    if (Array.isArray(msg.ib)) { const had = new Set(r.course.hiddenIndices()); for (const i of msg.ib) if (!had.has(i)) r.course.hideItem(i); }
     for (const row of msg.e) { const id = row[0]; if (id === S.myId) continue; applyRemoteState(id, row.slice(1), msg.rt); }
     if (msg.me && r.me && r.phase === 'race') reconcile(r.me, msg.me, msg.ack);
     for (const id of [...r.ents.keys()]) if (id !== S.myId && !msg.e.some((row) => row[0] === id)) removeEnt(id);
@@ -224,8 +226,12 @@ export async function start(ctx) {
     const inp = { steer: steerAmount(), tuck: !!(K('KeyW') || K('ArrowUp')), brake: !!(K('KeyS') || K('ArrowDown')), jump: jumpBuf > 0, spin: 0, flip: 0, grab: 0, use: useBuf > 0, butter: butterBuf > 0 };
     if (e.air) {
       inp.grab = GRAB_CODES.findIndex(([a, b]) => K(a) || K(b)) + 1;
-      inp.spin = ((fresh('ArrowRight') || fresh('KeyD')) ? 1 : 0) - ((fresh('ArrowLeft') || fresh('KeyA')) ? 1 : 0);
-      inp.flip = ((fresh('ArrowUp') || fresh('KeyW')) ? 1 : 0) - ((fresh('ArrowDown') || fresh('KeyS')) ? 1 : 0);
+      // ignore steer taps for a beat after liftoff: a mogul bump shouldn't turn a steering
+      // correction into a trick spin — only a real jump stays airborne long enough for this to matter
+      if (e.airT > 0.12) {
+        inp.spin = ((fresh('ArrowRight') || fresh('KeyD')) ? 1 : 0) - ((fresh('ArrowLeft') || fresh('KeyA')) ? 1 : 0);
+        inp.flip = ((fresh('ArrowUp') || fresh('KeyW')) ? 1 : 0) - ((fresh('ArrowDown') || fresh('KeyS')) ? 1 : 0);
+      }
     }
     return inp;
   }
@@ -235,6 +241,7 @@ export async function start(ctx) {
   const raceTime = () => (S.race ? (performance.now() - S.race.startAt) / 1000 : 0);
   function simStep(dt) {
     const r = S.race; const rt = raceTime();
+    r.course.tickItems(dt);
     for (const ent of r.ents.values()) {
       if (!ent.local && !ent.bot && !ent.hostSim) continue;
       const e = ent.e;
@@ -258,8 +265,9 @@ export async function start(ctx) {
           if (e.msgId !== m && e.msg) {
             flash(e.msg.text, e.msg.good);
             const tx = e.msg.text;
-            if (tx.includes(' pts')) sfx.trick(); else if (tx === 'BOOST!' || tx === 'ROCKET!') sfx.boost(); else if (tx.startsWith('GOT') || tx === 'SHIELD UP') sfx.beep(true);
-            else if (tx === 'SNOWBALLED!') sfx.wipe();
+            if (tx.includes(' pts')) sfx.trick(); else if (tx === 'BOOST!' || tx === 'ROCKET!' || tx === 'BALLOON BOOST!') sfx.boost();
+            else if (tx.startsWith('GOT') || tx === 'SHIELD UP' || tx === 'ICE TRAP SET') sfx.beep(true);
+            else if (tx === 'SNOWBALLED!' || tx === 'SLIPPED ON ICE!') sfx.wipe();
           }
           if (wasState !== 'wipe' && e.state === 'wipe') sfx.wipe();
         }
@@ -287,6 +295,10 @@ export async function start(ctx) {
         r.projectiles.push({ x: e.x + Math.sin(e.h) * 1.5, z: e.z + Math.cos(e.h) * 1.5, y: e.y + 0.8, vx: Math.sin(e.h) * sp, vz: Math.cos(e.h) * sp, life: 2.6, owner: ent });
         if (ent.local) sfx.jump();
       }
+      if (e.dropId !== ent.lastDrop) {
+        ent.lastDrop = e.dropId;
+        r.patches.push({ x: e.x - Math.sin(e.h) * 2.2, z: e.z - Math.cos(e.h) * 2.2, t: 6.5, owner: ent });
+      }
     }
     for (const p of r.projectiles) {
       if (Array.isArray(p)) continue;
@@ -299,6 +311,16 @@ export async function start(ctx) {
       }
     }
     r.projectiles = r.projectiles.filter((p) => !Array.isArray(p) && p.life > 0);
+    for (const p of r.patches) {
+      p.t -= dt;
+      for (const ent of list) {
+        if (ent === p.owner) continue;
+        const e = ent.e;
+        if ((e.x - p.x) ** 2 + (e.z - p.z) ** 2 > 2.4) continue;
+        if (iceHit(e)) { if (ent.local && e.msg) { flash(e.msg.text, e.msg.good); sfx.bump(); } p.t = Math.min(p.t, 2); }
+      }
+    }
+    r.patches = r.patches.filter((p) => p.t > 0);
   }
   function onFinish(ent) {
     const r = S.race;
@@ -357,10 +379,12 @@ export async function start(ctx) {
       for (const [id, ent] of r.ents) e.push([id, ...packEnt(ent.e)]);
       const rt = Math.round(raceTime() * 1000) / 1000;
       const pr = r.projectiles.map((p) => [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10, Math.round(p.z * 10) / 10]);
+      const ip = r.patches.map((p) => [Math.round(p.x * 10) / 10, Math.round(p.z * 10) / 10]);
+      const ib = r.course.hiddenIndices();
       const targets = new Set([...ctx.players.filter((p) => !p.isBot && p.id !== S.myId && ctx.connected(p.id)).map((p) => p.id), ...S.viewers]);
       for (const pid of targets) {
         const ent = r.ents.get(pid);
-        net.to(pid, { t: 'snap', rt: r.phase === 'race' ? rt : -1, e, endIn: r.endIn, me: ent ? packFull(ent.e) : null, ack: ent ? ent.ack : 0, pr });
+        net.to(pid, { t: 'snap', rt: r.phase === 'race' ? rt : -1, e, endIn: r.endIn, me: ent ? packFull(ent.e) : null, ack: ent ? ent.ack : 0, pr, ip, ib });
       }
     }
   }
@@ -468,13 +492,13 @@ export async function start(ctx) {
     camState.h += (e.h - camState.h) * (1 - Math.exp(-5 * dt));
     const sx = Math.sin(camState.h), sz = Math.cos(camState.h);
     camState.air = (camState.air || 0) + ((inAir ? 1 : 0) - (camState.air || 0)) * (1 - Math.exp(-4 * dt));
-    const dist = 6.6 + Math.min(e.v, 50) * 0.035 + camState.air * 1.8;
+    const dist = 7.9 + Math.min(e.v, 50) * 0.035 + camState.air * 1.8;
     tmpV.set(e.x - sx * dist, 0, e.z - sz * dist);
     const gy = r.course.groundH(tmpV.x, tmpV.z);
-    tmpV.y = Math.max(e.y + 2.9 + camState.air * 1.2, gy + 1.8);
+    tmpV.y = Math.max(e.y + 7.2 + camState.air * 1.2, gy + 5.2);
     camState.pos.lerp(tmpV, 1 - Math.exp(-9 * dt));
     camera.position.copy(camState.pos);
-    lookV.set(e.x + sx * 6, e.y + 1.2, e.z + sz * 6);
+    lookV.set(e.x + sx * 6, e.y + 0.4, e.z + sz * 6);
     camera.lookAt(lookV);
     const fov = 70 + Math.max(0, Math.min(1, (e.v - 18) / 32)) * 20;
     if (Math.abs(camera.fov - fov) > 0.1) { camera.fov += (fov - camera.fov) * (1 - Math.exp(-4 * dt)); camera.updateProjectionMatrix(); }
@@ -534,8 +558,9 @@ export async function start(ctx) {
       if (nearCam) trails.add(ent.info.id, e.x, gy, e.z, e.h, e.cls === 'ski' ? [-0.15, 0.15] : [0], e.cls === 'ski' ? 0.05 : 0.14, !e.air && e.grind < 0 && e.state === 'ride' && e.y - gy < 0.15);
     }
     spray.update(dt);
-    spinItemBoxes(r.boxes, now / 1000);
+    spinItemBoxes(r.boxes, r.course, now / 1000);
     snowballs.update(r.projectiles.map((p) => (Array.isArray(p) ? p : [p.x, p.y, p.z])), now / 1000);
+    icePatches.update(r.patches.map((p) => [p.x, p.z]), r.course.groundH);
     { const m = r.me, e = m && m.pose;
       const showG = !!e && e.air && e.airT > 0.12 && e.state === 'ride' && !e.finished;
       if (showG) { const pv = landingPreview(m.e); airGuide.update(true, e.x + m.off.x, c.groundH(e.x, e.z), e.z + m.off.z, e.h, e.h + e.stance + e.spin, pv.q); } else airGuide.update(false); }

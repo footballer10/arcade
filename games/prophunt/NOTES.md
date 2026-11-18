@@ -128,3 +128,15 @@ play the host's own player. `__prophunt.stats` counts snapshots, finds and taunt
 - Hider bots take their first taunt sooner (2–11 s into the hunt when it's safe).
 - **Sniff result is readable:** the hot/cold label used to be drawn behind the ability bar, so pressing Q looked like it did nothing.
   It now floats above the crosshair, bigger, with a rough distance ("Warm · about 8 m").
+
+## Update 4: graphics pass
+- **Antialiasing on High:** the post-processing composer now renders into a 4x multisampled target (it used to drop the
+  renderer's antialiasing, leaving jagged edges).
+- **Baked ambient occlusion:** every merged object darkens toward the floor and in ceiling corners (vertex colors), and
+  soft contact-shadow pads sit under all furniture; a blob shadow grounds every character/prop. These work on Low,
+  where real shadows are off.
+- **Rim light** on toon surfaces (edges facing away from the camera glow warmly) so objects separate from the background.
+- **Sharper shadows:** the sun's shadow camera follows the player (32 m window, snapped to texels so shadows don't
+  shimmer) and widens to the whole building during the intro fly-over.
+- **Atmosphere (High):** sunbeams through the windows, a warm point light that follows the camera's room, sharper
+  512 px floor textures with stronger anisotropy, one-sided ceiling lamp plates (no more white discs seen from above).
