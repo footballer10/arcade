@@ -6,7 +6,7 @@ import { PALETTE } from '../../core/palette.js';
 import { buildHat } from '../../core/avatar.js';
 export const COLORS = PALETTE;   // party colors: players keep their color in every game
 export const cssColor = (i) => '#' + COLORS[i % COLORS.length].toString(16).padStart(6, '0');
-const PU_COLORS = { speed: 0xffe14d, shield: 0x4de1ff, dmg: 0xff4d6a, heal: 0x5dff7a, giant: 0xff9de0 };
+const PU_COLORS = { speed: 0xffe14d, shield: 0x4de1ff, dmg: 0xff4d6a, heal: 0x5dff7a, giant: 0xff9de0, cube: 0xffa531 };
 const SKY = 0x4cc3ff;
 const WATER = 0x2ea8f0;
 
@@ -140,6 +140,7 @@ export class Renderer {
     this.boltGeo = new THREE.SphereGeometry(0.26, 12, 10);
     this.bombGeo = new THREE.SphereGeometry(0.34, 14, 12);
     this.puGeo = new THREE.OctahedronGeometry(0.5);
+    this.cubeGeo = new THREE.BoxGeometry(0.62, 0.62, 0.62);
     this.raycaster = new THREE.Raycaster();
     this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     this.resize();
@@ -619,7 +620,8 @@ export class Renderer {
       let m = this.puMeshes.get(u.id);
       if (!m) {
         m = new THREE.Group();
-        const gem = outline(new THREE.Mesh(this.puGeo, toon(PU_COLORS[u.type], { emissive: PU_COLORS[u.type], emissiveIntensity: 0.45 })), 1.12);
+        const geo = u.type === 'cube' ? this.cubeGeo : this.puGeo;
+        const gem = outline(new THREE.Mesh(geo, toon(PU_COLORS[u.type], { emissive: PU_COLORS[u.type], emissiveIntensity: 0.45 })), 1.12);
         gem.castShadow = true; m.add(gem); m.userData.gem = gem;
         const pool = new THREE.Mesh(new THREE.CircleGeometry(0.9, 24), basic(PU_COLORS[u.type], 0.35));
         pool.rotation.x = -Math.PI / 2; pool.position.y = 0.05; m.add(pool);
