@@ -6,7 +6,7 @@ export const manifest = {
   // Shown on the pre-round screen next to the settings: goal, how to win, key tips (short sentences).
   howTo: [
     "Each round some players are Seekers and the rest are Hiders. Roles rotate so everyone gets to seek.",
-    "Hiders: point roughly at an object (a yellow label shows which) and press E or click to turn into it, then hide before the seekers are let out. Props can hop onto counters and shelves. Taunt with F for bonus points.",
+    "Hiders: point roughly at an object (a yellow label shows which) and press E or click to turn into it, then hide before the seekers are let out. Props can hop onto counters and shelves. Taunt with F for bonus points; if you stay silent for 45 s you're forced to, and any taunt resets that timer, so pick your moment.",
     "Seekers: left click to bonk suspicious objects. A wrong guess costs health; Q gives a hot / cold hint.",
     "Points for surviving, taunting and finding hiders. Highest total wins, and the last round counts double.",
   ],
@@ -19,6 +19,7 @@ export const manifest = {
   controlsHelp: [
     ['WASD / Arrows', 'Move (Shift = sprint, Space = jump)'], ['Mouse', 'Look (click to lock the mouse)'],
     ['HIDER · E or left click', 'Become the highlighted object (point roughly at it)'], ['HIDER · Q', 'Rotate your disguise'],
+    ['HIDER · moving', 'Props shuffle slowly once the hunt starts: pick a spot and lock in'],
     ['HIDER · Right click', 'Lock in place (no wobble)'], ['HIDER · F', 'Taunt for bonus points (braver = more)'],
     ['SEEKER · Left click', 'Bonk a suspicious object (wrong guess costs health)'], ['SEEKER · Q', 'Sniff: hot / cold hint'],
     ['When found', 'Space / click = switch who you watch'],

@@ -11,13 +11,13 @@ export const C = {
   LAYER_H: 5,            // vertical distance between layers
   KILL_Y: -9,            // below the bottom layer: out
   R: 0.42,               // player radius
-  SPEED: 5.6, ACC: 62, AIR_ACC: 20,
+  SPEED: 6.0, ACC: 62, AIR_ACC: 20,
   JUMP: 8.4, G: 25, MAX_FALL: 30,
   DASH_V: 13.5, DASH_T: 0.16, DASH_CD: 1.6, DASH_LIFT: 3,
-  BUMP: 8.5, BUMP_UP: 4, STUN: 0.4,
-  COYOTE: 0.11,
-  DELAYS: { casual: 0.8, normal: 0.52, fast: 0.32 },
-  COLLAPSE_AT: 75,       // round clock when the collapse (sudden death) starts
+  BUMP: 7, BUMP_UP: 3.6, STUN: 0.3,
+  COYOTE: 0.2,
+  DELAYS: { casual: 1.1, normal: 0.8, fast: 0.5 },
+  COLLAPSE_AT: 100,       // round clock when the collapse (sudden death) starts
 };
 export const SQ3 = Math.sqrt(3);
 // Layer colors, bottom → top (the top layers use the last entries).
@@ -99,8 +99,8 @@ export function makeLevel(rng, opts, round = 0) {
     if (best < 0) best = 0;
     used.add(best); spawns.push(best);
   }
-  // later rounds of a match get a little faster (round 1: 100 %, round 2: 90 %, round 3+: 80 %, never below 70 %)
-  const delay = (C.DELAYS[opts.delay] || C.DELAYS.normal) * Math.max(0.7, 1 - 0.1 * round);
+  // later rounds of a match get a little faster (round 1: 100 %, round 2: 95 %, round 3+: 90 %, never below 85 %)
+  const delay = (C.DELAYS[opts.delay] || C.DELAYS.normal) * Math.max(0.85, 1 - 0.05 * round);
   return { L, layers, spawns, delay, round, N0, hue: rng() };
 }
 export function resetLevel(lv) { for (const L of lv.layers) { L.at.fill(Infinity); L.who.fill(255); } }

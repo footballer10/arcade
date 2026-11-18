@@ -71,3 +71,11 @@ fixed rate. In head-to-head 2v2 tests (24 matches each): hard beat normal 44–3
 - Netcode: clients round to float32 after every step like the host (replays now match bit for bit), send inputs
   every step, and the host keeps an adaptive jitter buffer per player (dry spells fell from 41% to ~4% of steps
   in the busy test machine).
+
+## Kickoff variety
+Every kickoff each bot picks a fresh plan (`pickKickoff` in `bots.js`), weighted by difficulty. Takers: straight
+front flip, diagonal dodge (ball leaves at an angle), plain power drive, lofted jump, off-centre clip, or hang back a
+beat and then go. Everyone reacts to the whistle a little late (more on easy). Other bots: pad run on either side,
+drop back to goal, trail the taker through midfield, or occasionally challenge for the ball as well. Easy bots rarely
+flip. Measured over 200 simulated kickoffs: 6 taker plans and 5 other plans all show up, and the ball leaves the
+kickoff at a spread of angles instead of always straight.

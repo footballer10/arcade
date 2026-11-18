@@ -174,7 +174,7 @@ export async function start(ctx) {
   if (net.isHost) sim = new HostSim(cfg());
   ctx.on('hostchange', ({ amHost }) => { if (amHost && !sim) becomeHost(); });
   ctx.on('join', (id) => { if (net.isHost && sim) net.to(id, fullSync()); });
-  ctx.on('go', () => { if (net.isHost && sim) sim.go(); snd.music(true); if (!ctx.spectator) ctx.setTimeout(() => ui.toast('Tip: hold the mouse button to run towards the cursor', '', 3500), 1200); });
+  ctx.on('go', () => { if (net.isHost && sim) sim.go(); snd.music(true); });
 
   let snapAcc = 0;
   ctx.tick((dt) => {
