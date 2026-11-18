@@ -85,6 +85,8 @@ Don't add your own in-game controls panels at the start; the loading screen deli
 **Tuning:** every game has `games/<id>/tuning.js` listing its feel constants (speeds, jump, gravity, cooldowns,
 knockback, timings) via `tunable()`; the values there are the defaults. `index.js` imports it first, and the game reads
 those values when it uses them (not copies made at load), so the developer portal can change them live. See `docs/PORTAL.md`.
+**To change a feel constant, change it in `tuning.js`** (and keep the same number in the game's own file, e.g. `world.js`):
+tuning.js overrides the code at runtime, so a change made only in the code file is silently undone. `node portal.mjs` fails on any mismatch.
 
 `standings()` (optional) returns current placements; used if the host ends the game early (otherwise no trophies).
 Trophies: 1st 5, 2nd 3, 3rd 2, everyone else 1 (ties share the higher place).

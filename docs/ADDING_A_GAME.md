@@ -26,6 +26,7 @@ One session = one game. Read `CLAUDE.md` first (contract, control map, HUD and s
 5. **Tuning:** put every number that shapes how the game feels (speeds, jump, gravity, cooldowns, knockback,
    timings) in `games/<id>/tuning.js` (the template's file shows how) and import it first in `index.js`. Read the
    values when you use them, not into copies at load time, so the tuning portal can change them live. See [`PORTAL.md`](PORTAL.md).
+   Later changes to those numbers go in `tuning.js` (it overrides the code); `node portal.mjs` fails if the two disagree.
 6. **Test driver:** add `<id>` to `tests/drivers.mjs` (how a fake player plays your game until results).
 7. **Run the tests** (below) and fix everything until they pass. Commit with a clear message.
 

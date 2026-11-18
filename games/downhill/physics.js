@@ -4,13 +4,13 @@ export const CLASSES = {
   ski: {
     label: 'Skier', turn: 2.5, drag: 0.0046, dragTuck: 0.0029, groomedBonus: 0.86,
     powderFric: 2.6, carveLoss: 0.045, jumpV: 5.0, airMult: 1.05, airBonus: 0.8,
-    spinRate: Math.PI * 2 / 0.9, flipRate: Math.PI * 2 / 1.1, landBoost: 2, trickBoost: 1.3,
+    spinRate: 6.981, flipRate: 5.712, landBoost: 2, trickBoost: 1.3,   // spin/flip in rad/s: a full spin in 0.9 s, a flip in 1.1 s
     grabs: ['Safety', 'Japan', 'Mute', 'Tail', 'Truck Driver', 'Critical'],
   },
   board: {
     label: 'Snowboarder', turn: 1.65, drag: 0.0046, dragTuck: 0.0031, groomedBonus: 1.0,
     powderFric: 1.4, carveLoss: 0.035, jumpV: 5.5, airMult: 1.2, airBonus: 2.8,
-    spinRate: Math.PI * 2 / 0.72, flipRate: Math.PI * 2 / 0.95, landBoost: 2, trickBoost: 2.3,
+    spinRate: 8.727, flipRate: 6.614, landBoost: 2, trickBoost: 2.3,   // spin 0.72 s, flip 0.95 s
     grabs: ['Indy', 'Method', 'Melon', 'Tail', 'Nose', 'Stalefish'],
   },
 };

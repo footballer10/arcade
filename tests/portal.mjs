@@ -31,9 +31,10 @@ try {
     const r = await A.evaluate(async (g) => {
       const t = await import('/core/tune.js'); const e = t.tuningOf(g);
       const bad = [...e.items.values()].filter((it) => it.target[it.prop] !== it.value && it.live !== false).map((it) => it.name);
-      return { n: e.items.size, rows: document.querySelectorAll('#dpList .dp-item').length, bad, marks: document.querySelectorAll('#dpList .dp-mark').length };
+      return { n: e.items.size, rows: document.querySelectorAll('#dpList .dp-item').length, bad, marks: document.querySelectorAll('#dpList .dp-mark').length, drift: t.drift(g) };
     }, id);
     check(r.n > 0 && r.rows === r.n && r.marks === r.n && !r.bad.length, `${id}: ${r.n} tunables, each with a default mark, values = defaults`);
+    check(!r.drift.length, `${id}: tuning.js matches the game's code` + (r.drift.length ? ` — DRIFT ${r.drift.map((d) => `${d.name}: tuning.js ${d.tuning} vs code ${d.code}`).join(', ')}. tuning.js wins at runtime, so put the value you want in BOTH files (or only tuning.js)` : ''));
   }
   // Every tuning.js default matches what its game was using before (each file's value is written into the target).
   // Change a live value and a next-round value on Coin Grab.

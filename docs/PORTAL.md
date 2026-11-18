@@ -68,6 +68,9 @@ tunable('mygame', [
   load time), which is what makes slider changes live.
 - `min` / `max` set the slider range (a typed value may go outside it). `step` is optional.
 - `live: false` for values only read when a round is set up; the portal then applies them at the next round.
+- To change a default by hand, edit `tuning.js` (and the same number in the game's code file, if it has one).
+  `tuning.js` wins at runtime, so a number changed only in `world.js` would be silently undone; `tests/portal.mjs`
+  fails when the two disagree.
 - Item names must be unique within the game: the portal finds `NAME: { value: X` in the file when it saves.
 - The game's `index.js` imports `./tuning.js` (first import) so the defaults apply on the public site too.
 - `games/_template/tuning.js` shows the simplest form: the tuning file owns the object (`export const RULES = {}`)
