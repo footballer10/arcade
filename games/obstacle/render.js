@@ -28,6 +28,13 @@ const THEMES = {
   bumpers: { top: 0xffc266, side: 0xf08a1a, accent: 0xff4d5e, acc2: 0x3ea6ff, bridge: 0xffe07a, sky: [0x3a5cff, 0xffd8b0], slime: 0xc84fff },
   dodge: { top: 0x9ad8ff, side: 0x3a8fe0, accent: 0xff5ab0, acc2: 0xffd23f, bridge: 0xcfeaff, sky: [0x2a6cff, 0xcff6ff], slime: 0xff4fb3 },
   sumo: { top: 0xffe066, side: 0xf0a800, accent: 0xff4d5e, acc2: 0xffffff, bridge: 0xff9fa6, sky: [0x3a3cff, 0xffb8a0], slime: 0xff3f5a },
+  chute: { top: 0xffd27a, side: 0xe08a1a, accent: 0x4cd964, acc2: 0xff4d6d, bridge: 0xffe9a8, sky: [0x2f9bff, 0xfff0c0], slime: 0xff6a3f },
+  bigfans: { top: 0xb6e8ff, side: 0x4fa6e0, accent: 0xffd23f, acc2: 0xffffff, bridge: 0xd8f4ff, sky: [0x3a9bff, 0xe8f8ff], slime: 0x5ad0ff },
+  frost: { top: 0xdff6ff, side: 0x7ac8ee, accent: 0xb57bff, acc2: 0x6fdcff, bridge: 0xcfeaff, sky: [0x4a8cff, 0xeaf6ff], slime: 0x7ad8ff },
+  sky: { top: 0xffe680, side: 0xf0a800, accent: 0xff5ab0, acc2: 0x6fdcff, bridge: 0xffd0e8, sky: [0x1a6cff, 0xffd6b0], slime: 0xff7ac8 },
+  gate: { top: 0xb8c4ff, side: 0x5a6cf0, accent: 0xff4d5e, acc2: 0xffd23f, bridge: 0xdfe4ff, sky: [0x3a4cff, 0xffd0d8], slime: 0xff4fb3 },
+  tiptoe: { top: 0xd0b0ff, side: 0x8a5cf0, accent: 0x2ee6d6, acc2: 0xff8fd0, bridge: 0xffd23f, sky: [0x5a4cff, 0xffc4e8], slime: 0xff3fa4 },
+  mountain: { top: 0xb0f0a0, side: 0x3ca84a, accent: 0xffcc33, acc2: 0xff5a5f, bridge: 0xfff0a8, sky: [0x2a7cff, 0xfff2c8], slime: 0xff5a3f },
   tiles: { top: 0xff8fd0, side: 0xc04fb8, accent: 0x2ee6d6, acc2: 0xffd23f, bridge: 0xffd23f, sky: [0x5163ff, 0xffc4e8], slime: 0xff3fa4 },
   sweep: { top: 0xffde5c, side: 0xf0a800, accent: 0xff4d5e, acc2: 0x3ea6ff, bridge: 0xffffff, sky: [0x2f7cff, 0xffe9a8], slime: 0xff4fb3 },
   crown: { top: 0xd4b4ff, side: 0x9466f0, accent: 0xffcc33, acc2: 0xff5ab0, bridge: 0xff9ad5, sky: [0x2a5cff, 0xffc7a8], slime: 0xff4fb3 },
@@ -136,7 +143,7 @@ export function createView(ctx) {
   let stage = null, root = null, theme = THEMES.whirl;
   const occ = [], ray = new THREE.Raycaster(), rayFrom = new THREE.Vector3(), rayDir = new THREE.Vector3(), OCC = new Set(['column', 'summit', 'bwall', 'wall', 'rushwall', 'pillar']);
   let occDist = 99;
-  const arches = [], dyn = [], tiles = [], doors = [], belts = [], blinks = [], pads = [], spots = [], spinners = [], balloons = [];
+  const swings = [], fanObjs = [], balls = [], arches = [], dyn = [], tiles = [], doors = [], belts = [], blinks = [], pads = [], spots = [], spinners = [], balloons = [];
   let crownObj = null, stageMats = [], geoCache = new Map(), crowd = null, flags = [];
   const SM = (m) => { stageMats.push(m); return m; };
   const geo = (key, make) => { let g = geoCache.get(key); if (!g) { g = make(); geoCache.set(key, g); } return g; };
@@ -178,15 +185,16 @@ export function createView(ctx) {
       case 'start': m = cake(s, 0xffe066, 0xf0a800, T.arrows, 2.2); arch(m, s, 'START', 0x3ea6ff, s.hz - 1.2); break;
       case 'cp': m = cake(s, 0x8ff5d2, 0x22b893, T.tiles, 2); arch(m, s, 'CHECKPOINT', 0x2ee6d6, -s.hz + 0.6, true); break;
       case 'finish': m = cake(s, 0xffffff, 0xff5ab0, T.check, 2); arch(m, s, 'FINISH', 0xff5ab0, -s.hz + 1.6); break;
-      case 'floor': m = cake(s, th.top, th.side, T.dots); break;
+      case 'floor': { const tops = [th.top, th.bridge, th.acc2, th.accent], c = tops[(s.pal || 0) % 4], mp = [T.dots, T.tiles, T.dots, T.arrows][(s.pal || 0) % 4]; m = cake(s, c, shade(c, -0.38), mp); break; }
+      case 'ice': { m = cake(s, 0xdcf7ff, 0x6fc3ea, T.tiles, 2.4); const top = m.children[m.children.length - 1]; top.material.roughness = 0.12; top.material.envMapIntensity = 1.3; break; }
       case 'bridge': case 'beamwalk': case 'ring': m = cake(s, th.bridge, shade(th.bridge, -0.35), T.tiles, 2); break;
       case 'step': m = cake(s, th.accent, shade(th.accent, -0.3), T.tiles, 2); break;
       case 'mover': m = cake(s, th.accent, shade(th.accent, -0.35), T.arrows, 1.8); break;
       case 'lift': m = cake(s, 0x8ff5d2, 0x22b893, T.arrows, 1.8); break;
       case 'blink': { m = cake(s, th.acc2, shade(th.acc2, -0.35), T.star, 3.3); m.traverse((o) => { if (o.material && o.material !== ink) { o.material.transparent = true; } }); blinks.push(m); break; }
       case 'pad': {
-        m = new THREE.Mesh(rbox(s.hx * 2, 0.16, s.hz * 2, 0.07), SM(plastic(0x58e05a, { map: T.arrows, emissive: 0x2a8a10, emissiveIntensity: 0.5 }))); outline(m, 0.04, [s.hx * 2, 0.16, s.hz * 2]);
-        const ring = new THREE.Mesh(geo('padring', () => new THREE.TorusGeometry(1, 0.08, 8, 32)), SM(new THREE.MeshBasicMaterial({ color: new THREE.Color(0xb6ff7a).multiplyScalar(1.8), transparent: true, opacity: 0.8 }))); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.1; m.add(ring);
+        m = new THREE.Mesh(rbox(s.hx * 2, s.hy * 2, s.hz * 2, Math.min(0.12, s.hy)), SM(plastic(0x58e05a, { map: T.arrows, emissive: 0x2a8a10, emissiveIntensity: 0.5 }))); outline(m, 0.04, [s.hx * 2, s.hy * 2, s.hz * 2]);
+        const ring = new THREE.Mesh(geo('padring', () => new THREE.TorusGeometry(1, 0.08, 8, 32)), SM(new THREE.MeshBasicMaterial({ color: new THREE.Color(0xb6ff7a).multiplyScalar(1.8), transparent: true, opacity: 0.8 }))); ring.rotation.x = -Math.PI / 2; ring.position.y = s.hy + 0.04; m.add(ring);
         pads.push({ m, ring, s }); break;
       }
       case 'beam': {
@@ -205,6 +213,30 @@ export function createView(ctx) {
         m.material.map.needsUpdate = true; m.material.map.repeat.set(len / 2, 1);
         for (const k of [-1, 1]) { const cap = new THREE.Mesh(geo('logcap', () => new THREE.CylinderGeometry(rad * 1.05, rad * 1.05, 0.3, 20)), M.yellow); cap.rotation.z = Math.PI / 2; cap.position.x = k * len / 2; m.add(cap); }
         break;
+      }
+      case 'ball': {
+        const FR = [['#3fbf4f', '#1f7a32'], ['#ff9f1c', '#e06a00'], ['#ff4d6d', '#b01e3f']][Math.abs(Math.round(s.bx * 7 + s.bz)) % 3];
+        const tex = canvasTex(128, 64, (g, w, h) => { g.fillStyle = FR[0]; g.fillRect(0, 0, w, h); g.fillStyle = FR[1]; for (let i = 0; i < 8; i++) g.fillRect(i * 16 + 4, 0, 7, h); });
+        m = new THREE.Group();
+        const ball = outline(new THREE.Mesh(geo(`ball${s.r}`, () => new THREE.SphereGeometry(s.r, 28, 20)), SM(plastic(0xffffff, { map: tex, roughness: 0.35 }))), 0.07);
+        m.add(ball); m.userData.ball = ball; balls.push({ m: ball, s, root: m });
+        break;
+      }
+      case 'swing': {
+        m = new THREE.Group();
+        const hinge = new THREE.Group(); hinge.position.x = -s.hx; m.add(hinge);
+        const panel = outline(new THREE.Mesh(rbox(s.hx * 2, s.hy * 2, s.hz * 2, 0.2), SM(plastic(0xffd23f, { map: T.hazard.clone(), roughness: 0.4 }))), 0.06, [s.hx * 2, s.hy * 2, s.hz * 2]);
+        panel.material.map.needsUpdate = true; panel.material.map.repeat.set(s.hx, 2); panel.position.x = s.hx; hinge.add(panel);
+        const post = new THREE.Mesh(geo('gpost', () => new THREE.CylinderGeometry(0.28, 0.28, 3.6, 12)), M.red); post.position.set(-0.05, 0, 0); hinge.add(post);
+        swings.push({ hinge, s, k: 0 });
+        break;
+      }
+      case 'sqtile': {
+        const A = [[0xc9a8ff, 0x9a6cf0], [0x9ee0ff, 0x4fb0e8]][s.checker || 0];
+        const mat = plastic(A[1], { roughness: 0.55 }), topM = plastic(A[0], { roughness: 0.4 });
+        m = new THREE.Mesh(rbox(s.hx * 2, s.hy * 2, s.hz * 2, 0.22), mat);
+        const top = new THREE.Mesh(rbox(s.hx * 2 - 0.3, 0.12, s.hz * 2 - 0.3, 0.05), topM); top.position.y = s.hy - 0.02; m.add(top);
+        tiles.push({ m, s, base: s.by, fall: 0, mats: [mat, topM] }); break;
       }
       case 'gate': m = outline(new THREE.Mesh(rbox(s.hx * 2, s.hy * 2, s.hz * 2, 0.12), SM(plastic(th.acc2, { map: T.polka, roughness: 0.3 }))), 0.05, [s.hx * 2, s.hy * 2, s.hz * 2]); break;
       case 'post': {
@@ -323,6 +355,16 @@ export function createView(ctx) {
       const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.6, 80, 20, 1, true), M.glowBeam); beam.position.y = 40; crownObj.add(beam);
       root.add(crownObj);
     }
+    for (const f of st.fans || []) {
+      const g = new THREE.Group(); g.position.set(f.x, f.y, f.z); g.rotation.y = f.dir > 0 ? Math.PI / 2 : -Math.PI / 2;      // blows along +z of the group = toward +x / -x
+      const drop = f.y - (st.killY + 3.2);
+      const pole = new THREE.Mesh(geo(`fpole${drop.toFixed(0)}`, () => new THREE.CylinderGeometry(0.35, 0.5, drop, 12)), M.chrome); pole.position.y = -drop / 2 - 0.3; g.add(pole);
+      const ring = outline(new THREE.Mesh(geo('fring', () => new THREE.TorusGeometry(1.7, 0.28, 12, 32)), SM(plastic(theme.accent))), 0.06); g.add(ring);
+      const hubM = new THREE.Mesh(geo('fhub', () => new THREE.SphereGeometry(0.42, 14, 10)), M.gold); g.add(hubM);
+      const blades = new THREE.Group(); g.add(blades);
+      for (let k = 0; k < 4; k++) { const bl = new THREE.Mesh(geo('fblade', () => { const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.quadraticCurveTo(0.7, 0.5, 0.5, 1.6); sh.quadraticCurveTo(-0.3, 1.0, 0, 0); return new THREE.ShapeGeometry(sh); }), SM(new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide, roughness: 0.4 }))); bl.rotation.z = k * Math.PI / 2; blades.add(bl); }
+      root.add(g); fanObjs.push({ g, blades, f });
+    }
     buildSet(st);
   }
 
@@ -427,7 +469,7 @@ export function createView(ctx) {
     for (const t of tiles) for (const m of t.mats) m.dispose();
     if (crowd) { crowd.dispose(); crowd = null; }
     if (crownObj) { crownObj.traverse((o) => { if (o.geometry && o.geometry.type !== 'CylinderGeometry' && o.geometry.type !== 'TorusGeometry') return; o.geometry?.dispose(); }); }
-    occ.length = 0; arches.length = 0; dyn.length = 0; tiles.length = 0; doors.length = 0; belts.length = 0; blinks.length = 0; pads.length = 0; spots.length = 0; spinners.length = 0; balloons.length = 0; crownObj = null;
+    swings.length = 0; fanObjs.length = 0; balls.length = 0; occ.length = 0; arches.length = 0; dyn.length = 0; tiles.length = 0; doors.length = 0; belts.length = 0; blinks.length = 0; pads.length = 0; spots.length = 0; spinners.length = 0; balloons.length = 0; crownObj = null;
   }
 
   // ---- players
@@ -505,6 +547,18 @@ export function createView(ctx) {
       if (m.userData.kind === 'pend') { pose(s, t, TMP); m.userData.swing.rotation.z = TMP.th; continue; }
       if (s.until) { const gone = !active(s, W); if (gone) { m.userData.f = (m.userData.f || 0) + dt; m.position.y = s.y - m.userData.f * m.userData.f * 9; m.rotation.z = m.userData.f * 0.6; m.visible = m.userData.f < 2; } else if (t > s.until - 2.5) { m.position.x = s.x + Math.sin(sec * 50) * 0.07; m.position.y = s.y; m.visible = true; } continue; }
       pose(s, t, TMP); m.position.set(TMP.x, TMP.y, TMP.z); m.rotation.y = TMP.ry;
+    }
+    for (const b of balls) { pose(b.s, t, TMP); b.root.visible = active(b.s, W); b.m.rotation.x = TMP.rollA || 0; }
+    for (const sw of swings) {
+      const open = blinkU(sw.s, t) > sw.s.blink.on ? 1 : 0;
+      sw.k += (open - sw.k) * Math.min(1, dt * 9);
+      sw.hinge.rotation.y = -sw.k * 1.65;
+    }
+    for (const fo of fanObjs) {
+      const f = fo.f, gust = f.on >= 1 || ((((t / f.p + f.ph) % 1) + 1) % 1) <= f.on;
+      fo.spin = (fo.spin || 0) + dt * (gust ? 22 : 3);
+      fo.blades.rotation.z = fo.spin;
+      if (gust && Math.random() < dt * 28) emit(1, f.x + f.dir * 1.5, f.y + (Math.random() - 0.5) * 3, f.z + (Math.random() - 0.5) * 8.5, { color: 0xffffff, speed: 0.4, up: 0, upr: 0, vx: f.dir * 9, g: 0, drag: 1, life: 0.7, size: 0.9, spin: 0 });
     }
     for (const m of blinks) {
       const s = m.userData.s, u = blinkU(s, t), on = s.blink.on;

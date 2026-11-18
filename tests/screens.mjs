@@ -1,0 +1,34 @@
+// Screenshots of every shared hub screen (home, menus, lobby, setup, loading, countdown, scoreboard, pause, results)
+// for checking the look. usage: node screens.mjs <output folder>
+import { startStatic, startPeer, startRelay, RELAY, launch, openPage, waitFor, sleep, createParty, joinByCode } from './harness.mjs';
+const OUT = process.argv[2];
+await startStatic(8080); await startPeer(9000); await startRelay(9002);
+const { browser, context } = await launch();
+const base = `http://127.0.0.1:8080/index.html?peer=127.0.0.1:9000${RELAY}`;
+const W = { width: 1440, height: 860 };
+const cA = await context({ viewport: W }), cB = await context({ viewport: { width: 640, height: 400 } });
+for (const c of [cA, cB]) await c.addInitScript(() => { try { localStorage.setItem('partyhub.settings.v1', JSON.stringify({ name: '', quality: 'low', qv: 2 })); } catch {} });
+const A = await openPage(cA, base, 'A');
+const shot = async (name, p = A) => { await sleep(700); await p.screenshot({ path: `${OUT}/${name}.png` }); };
+await sleep(1500); await shot('01-home');
+await A.click('[data-open="settings"]'); await shot('02-settings'); await A.keyboard.press('Escape');
+await A.click('[data-open="controls"]'); await shot('03-controls'); await A.keyboard.press('Escape');
+const code = await createParty(A, 'Barry');
+const B = await openPage(cB, base, 'B'); await joinByCode(B, 'Luke', code);
+for (let i = 0; i < 3; i++) await A.evaluate(() => window.__hub.act({ type: 'bot+' }));
+await A.evaluate(() => window.__hub.act({ type: 'chat', text: 'gg everyone, ready up!' }));
+await shot('04-lobby');
+await A.evaluate(() => window.__hub.act({ type: 'mode', mode: 'vote' })); await shot('05-lobby-vote');
+await A.evaluate(() => window.__hub.act({ type: 'mode', mode: 'pick' }));
+await A.click('#editProfile').catch(() => {}); await shot('06-profile'); await A.keyboard.press('Escape');
+await A.evaluate(() => { window.__hub.act({ type: 'choose', game: 'arena' }); window.__hub.act({ type: 'start', force: true }); });
+await waitFor(A, () => window.__hub.screen === 'setup', null, 10000, 'setup'); await shot('07-setup');
+await A.click('#setupReady'); await B.click('#setupReady').catch(() => {});
+await waitFor(A, () => window.__hub.screen === 'loading' || window.__hub.state.phase === 'loading', null, 30000, 'loading'); await sleep(200); await shot('08-loading');
+await waitFor(A, () => window.__hub.state.phase === 'countdown', null, 60000, 'countdown'); await sleep(900); await shot('09-countdown');
+await waitFor(A, () => window.__hub.state.phase === 'playing', null, 30000, 'playing'); await sleep(2500);
+await A.keyboard.down('Tab'); await shot('10-scoreboard'); await A.keyboard.up('Tab');
+await A.keyboard.press('Escape'); await shot('11-pause'); await A.keyboard.press('Escape');
+await A.evaluate(() => window.__hub.act({ type: 'endGame' }));
+await waitFor(A, () => window.__hub.screen === 'results', null, 15000, 'results'); await sleep(1500); await shot('12-results');
+await browser.close(); process.exit();

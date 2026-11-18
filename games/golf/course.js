@@ -119,7 +119,7 @@ export function generateHole(seed, idx, opt = {}) {
   const m = MODS[mod];
   const hole = {
     seed, idx, theme, themeIdx: THEME_KEYS.indexOf(theme), mod, tiles, map: new Map(),
-    walls: [], obbs: [], bumpers: [], movers: [], waters: [], pits: [], tees: [], pickups: [], tunnels: [], zones: [], portals: [], cup: null, par: 3,
+    walls: [], obbs: [], arcs: [], bumpers: [], movers: [], waters: [], pits: [], tees: [], pickups: [], tunnels: [], zones: [], portals: [], cup: null, par: 3,
     P: { g: m.g ?? 1, fric: m.fric ?? 1, cupR: m.cupR ?? CUP_R, wallRest: m.wallRest ?? 0.7, power: m.power ?? 1, baseR: m.baseR ?? BALL_R },
   };
   tiles.forEach(t => hole.map.set(key(t.gx, t.gz), t));
@@ -208,10 +208,11 @@ export function generateHole(seed, idx, opt = {}) {
       const [icx, icz] = t.ic;
       const a0 = Math.atan2(t.cz - icz, t.cx - icx) - Math.PI / 4;
       const segs = 9, rad = T + WALL_TH / 2;
+      hole.arcs.push({ t, ic: t.ic, a0, y0: y - 0.25 }); // the renderer draws this wall as one smooth curve
       for (let j = 0; j < segs; j++) {
         const a = a0 + (j + 0.5) / segs * Math.PI / 2;
         const hb = heightAtTile(t, icx + Math.cos(a) * (T - 0.2), icz + Math.sin(a) * (T - 0.2));
-        hole.obbs.push({ x: icx + Math.cos(a) * rad, z: icz + Math.sin(a) * rad, hx: WALL_TH / 2, hz: rad * Math.PI / 4 / segs + 0.07, a, y0: y - 0.25, y1: hb + 0.38 });
+        hole.obbs.push({ x: icx + Math.cos(a) * rad, z: icz + Math.sin(a) * rad, hx: WALL_TH / 2, hz: rad * Math.PI / 4 / segs + 0.07, a, y0: y - 0.25, y1: hb + 0.38, arc: true });
       }
     } else if (t.type === 'cup') {
       const a = 0.6 + R() * 0.9, l = (R() * 2 - 1) * 1.3;

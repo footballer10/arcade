@@ -100,9 +100,9 @@ export class HostSim {
     }
     this.grabs(al, sdt);
     // collapsing tiles
-    if (st.id === 'tiles') {
-      for (const p of al) if (p.gr >= 0) { const s = W.solids[p.gr]; if (s.tile >= 0 && W.dyn[s.tile] === 0) { W.dyn[s.tile] = 1; this.tileT[s.tile] = this.t; } }
-      for (let i = 0; i < st.dynN; i++) if (W.dyn[i] === 1 && this.t - this.tileT[i] > TILE_FALL) W.dyn[i] = 2;
+    if (st.id === 'tiles' || st.hasTiles) {
+      for (const p of al) if (p.gr >= 0) { const s = W.solids[p.gr]; if (s.tile >= 0 && !s.safe && W.dyn[s.tile] === 0) { W.dyn[s.tile] = 1; this.tileT[s.tile] = this.t; } }
+      for (let i = 0; i < st.dynN; i++) if (W.dyn[i] === 1 && this.t - this.tileT[i] > (st.tileFall || TILE_FALL)) W.dyn[i] = 2;
     }
     if (playing) this.checkEnd(connected);
   }

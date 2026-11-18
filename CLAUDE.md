@@ -30,6 +30,7 @@ core/transport-dual.js   the online transport every party uses: direct WebRTC an
                          (direct preferred); a failed join offers "Copy details" with both reasons + a server check
 core/transport-peer.js   PeerJS/WebRTC transport (reliable JSON 'ctrl' + unreliable binary 'fast' channel; public STUN +
                          TURN logins fetched from the Metered account in core/turn-config.js)
+core/transport-rtc.js    WebRTC whose setup goes through the relay (for networks that block the PeerJS server, e.g. school)
 core/transport-relay.js  backup relay: party messages through free public MQTT brokers over wss (core/mqtt.js), for
                          networks / managed laptops that block WebRTC. Lobby tags those players "relay"
 core/transport-local.js  BroadcastChannel transport: tabs of one browser, no internet (?net=local)
@@ -120,7 +121,8 @@ E + Space; Downhill has no boost key). Add extra keys only when the game truly n
 
 ## Visual style rules
 - Bright cartoon look: saturated colors, toon/flat shading, chunky shapes, dark ink outlines where possible, sunny skies.
-- One font (`var(--font)`, Lilita One), one palette (`core/ui.css` variables + `core/palette.js`), rounded panels with 3–4 px ink borders.
+- One font (`var(--font)`, Lilita One, bundled in `core/fonts/`, no Google Fonts), one palette (`core/ui.css` variables + `core/palette.js`), rounded panels with 3–4 px ink borders.
+  Shared building blocks in `core/ui.css`: `.ph-panel` (+ `.purple` / `.dark`), `.ph-head` header ribbon, `.ph-well` inset area, `.ph-btn` (+ `big`/`green`/`ghost`/`danger`/`purple`/`pink`/`small`), `.ph-x` close button, `.ph-switch` toggle, `.count-pill`.
 - Players keep their party color everywhere; show the player's avatar (`ctx.avatar.build`) or at least their hat (`ctx.avatar.hat`).
 - Respect `ctx.quality()`: low = no shadows, pixel ratio 1, no post-processing.
 

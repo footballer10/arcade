@@ -104,7 +104,7 @@ export async function start(ctx) {
   }
   function qText(k, n) {
     const id = plan[k], meta = STAGES[id], q = quota(plan, k, n, N);
-    if (meta.kind === 'final') return id === 'crown' ? 'FINAL · first to the crown wins' : 'FINAL · last bean standing wins';
+    if (meta.kind === 'final') return (id === 'crown' || id === 'mountain') ? 'FINAL · first to the crown wins' : 'FINAL · last bean standing wins';
     if (q >= n) return n === 1 ? 'Solo show · finish to qualify' : 'Everyone can qualify!';
     return meta.kind === 'race' ? `First ${q} of ${n} qualify` : `${q} of ${n} survive · or outlast the clock`;
   }
