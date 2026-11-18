@@ -16,7 +16,7 @@ function local(c, x, y, z) {   // world point -> car frame (x = left, y = up, z 
 
 export function newBot(level, rnd = Math.random) {
   return { lv: level, rnd, think: rnd() * 0.3, tx: 0, tz: 0, ty: 0, mode: 'attack', aim: 0, err: 0, dodgeAt: 0,
-    jumpT: -1, jumpPlan: 0, aerial: 0, stuck: 0, rev: 0, revSteer: 1, wantBoost: false, kick: false, flipT: 0, whiff: false };
+    kp: null, kpN: -1, jumpT: -1, jumpPlan: 0, aerial: 0, stuck: 0, rev: 0, revSteer: 1, wantBoost: false, kick: false, flipT: 0, whiff: false };
 }
 
 // Roles per team: the best-placed player attacks (humans count, so a bot backs off when a teammate is on it).
@@ -61,17 +61,50 @@ function prediction(W, b, key) {
   return pc.P;
 }
 
+// ---- kickoffs: every bot picks a fresh plan each time, so no two kickoffs look alike.
+// Taker plans: flip (straight front flip), diag (dodge to one side, ball goes diagonal), drive (power through, no
+// flip), jump (lofted poke), angle (clip the ball off-centre), wait (hang back a beat, then go). Everyone also
+// reacts to the whistle a little late (more on easy). Others: grab a pad on either side, drop back to goal, trail
+// the taker through midfield, or (rarely) challenge for the ball as well.
+const KP0 = { plan: 'flip', hit: 'flip', flipAt: 8.5, flipX: 0, boost: true, wait: 0, side: 0 };
+function wpick(rnd, items) { let r = rnd() * items.reduce((a, x) => a + x[1], 0); for (const [v, w] of items) { if ((r -= w) <= 0) return v; } return items[0][0]; }
+function pickKickoff(W, i, bot, role) {
+  const lv = bot.lv, rnd = bot.rnd, sk = lv.skill, c = W.cars[i];
+  const kp = { ...KP0, flipAt: 6.5 + rnd() * 4, wait: rnd() * lv.reaction * 0.8 };
+  bot.kpN = W.kickN || 0;
+  const sgn = () => (rnd() < 0.5 ? -1 : 1);
+  if (role === 'attack') {
+    kp.plan = wpick(rnd, [['flip', 2.2 * (0.4 + sk)], ['diag', 1.6 * (0.3 + sk)], ['drive', 1.2 + (1 - sk) * 1.5], ['jump', 0.7], ['angle', 1.0], ['wait', 1.0 + (1 - sk) * 0.5]]);
+    if (kp.plan === 'diag') { kp.hit = 'flip'; kp.flipX = sgn(); }
+    else if (kp.plan === 'drive') kp.hit = 'drive';
+    else if (kp.plan === 'jump') kp.hit = 'jump';
+    else if (kp.plan === 'angle') { kp.hit = rnd() < 0.5 ? 'flip' : 'drive'; kp.side = sgn() * (1.8 + rnd() * 1.3); }
+    else if (kp.plan === 'wait') { kp.wait += 0.3 + rnd() * 0.45; kp.hit = rnd() < 0.6 ? 'flip' : 'drive'; if (kp.hit === 'flip' && rnd() < 0.4) kp.flipX = sgn(); }
+    if (lv.skill < 0.5 && kp.hit === 'flip' && rnd() < 0.5) kp.hit = 'drive';   // easy bots rarely flip
+  } else {
+    kp.plan = wpick(rnd, [['padA', 2], ['padB', 2], ['goal', 1.5], ['follow', 1.5 * (0.5 + sk)], ['challenge', 0.4 + 0.8 * sk]]);
+    kp.px = (kp.plan === 'padB' ? -1 : 1) * (c.x < 0 ? -1 : 1) * (0.35 + rnd() * 0.25);   // pad column as a fraction of the half-width
+    if (kp.plan === 'challenge') { kp.hit = rnd() < 0.5 ? 'flip' : 'drive'; kp.wait += rnd() * 0.25; }
+  }
+  bot.kp = kp;
+}
+
 // Plan: pick a target point (and how to approach it). Runs every `reaction` seconds.
 function plan(W, i, bot, role) {
   const A = W.A, c = W.cars[i], lv = bot.lv, R = C.BALL_R, b = seen(W, lv);
   const dir = c.team === 0 ? 1 : -1, oppZ = dir * A.L, ownZ = -dir * A.L;
+  const kickoff = Math.hypot(b.x, b.z) < 0.5 && len3(b.vx, b.vy, b.vz) < 0.5;
+  const kp = bot.kp || KP0;
+  if (kickoff && kp.plan === 'challenge') role = 'attack';   // a second car goes in for the ball too
   bot.mode = role; bot.whiff = bot.rnd() < lv.mistakes;
   bot.errT = (bot.errT || 0) - 0.3; if (bot.errT <= 0) { bot.errT = 2.5; bot.err = (bot.rnd() * 2 - 1) * lv.aimError; }
-  const kickoff = Math.hypot(b.x, b.z) < 0.5 && len3(b.vx, b.vy, b.vz) < 0.5;
   bot.kick = kickoff && role === 'attack';
   if (kickoff && role !== 'attack') {
-    // kickoff: the non-taker grabs a boost pad near goal, ready to defend
-    bot.tx = (c.x < 0 ? -1 : 1) * A.W * 0.5; bot.tz = ownZ * 0.6; bot.ty = 0; bot.wantBoost = false; return;
+    bot.ty = 0; bot.wantBoost = false;
+    if (kp.plan === 'goal') { bot.tx = 0; bot.tz = ownZ + dir * 6; bot.wantBoost = true; }
+    else if (kp.plan === 'follow') { bot.tx = c.x * 0.3; bot.tz = ownZ * 0.22; bot.wantBoost = true; }
+    else { bot.tx = (kp.px || 0.5) * A.W; bot.tz = ownZ * 0.6; }   // pad run, either side
+    return;
   }
   // a defender pushes up to challenge when the ball is in our third
   const ballOwnD = Math.abs(b.z - ownZ);
@@ -150,7 +183,9 @@ const sp = (c) => len3(c.vx, c.vy, c.vz);
 export function botInput(W, i, bot, role) {
   const c = W.cars[i], lv = bot.lv, b = seen(W, lv), out = { x: 0, y: 0, jump: false, boost: false };
   if (c.demo > 0 || W.phase === PH.REPLAY || W.phase === PH.END) return out;
-  if (W.phase === PH.KICK) { bot.think = 0; bot.aerial = 0; bot.jumpT = -1; return out; }
+  if (W.phase === PH.KICK) { bot.think = 0; bot.aerial = 0; bot.jumpT = -1; if (bot.kpN !== (W.kickN || 0)) pickKickoff(W, i, bot, role); return out; }
+  const kp = bot.kp || KP0;
+  if (kp.wait > 0 && Math.hypot(W.ball.x, W.ball.z) < 0.5 && Math.hypot(W.ball.vx, W.ball.vz) < 0.5) { kp.wait -= 1 / 60; return out; }   // reacting to the whistle / hanging back
   bot.think -= 1 / 60;
   if (bot.think <= 0) { bot.think = 0.3 * (0.7 + bot.rnd() * 0.6); plan(W, i, bot, role); }
   const sp = len3(c.vx, c.vy, c.vz);
@@ -201,7 +236,7 @@ export function botInput(W, i, bot, role) {
     else { tx = clamp(tx, -W.A.bx - 2, W.A.bx + 2); tz = clamp(tz, -W.A.bz - 2, W.A.bz + 2); }   // stay on the flat pitch
   }
   if (att && toOwn > 0.5 && dball < 8 && Math.abs(b.z) < W.A.L * 0.8) bot.think = Math.min(bot.think, 0.05);   // about to push it the wrong way: re-plan now
-  if (bot.kick) { tx = b.x; tz = b.z; }
+  if (bot.kick) { tx = b.x + kp.side; tz = b.z; }
   const l = local(c, tx, c.y, tz);
   const ang = Math.atan2(l[0], l[2]), dist = Math.hypot(l[0], l[2]);
   let steer = clamp(-ang * 3.2, -1, 1);
@@ -225,6 +260,7 @@ export function botInput(W, i, bot, role) {
   // not lined up yet and close: keep it controllable
   if (att && !bot.lined && !bot.kick && dball < 22 && sp > 16 + dball * 0.5) { out.boost = false; if (sp > 20 + dball * 0.6) out.y = 0; }
   if (!att && dist < 14) out.boost = false;
+  if (bot.kick && !kp.boost) out.boost = false;
   // easy bots are lazier on the pedal and rarely boost
   if (lv.skill < 0.6 && !bot.kick) { if (bot.rnd() > lv.skill + 0.35 && out.y === -1) out.y = 0; if (bot.rnd() > lv.skill * 0.6) out.boost = false; }
   // stuck (against a wall / car): back up for a moment
@@ -235,7 +271,10 @@ export function botInput(W, i, bot, role) {
   const gk = Math.min(1.9, Math.pow(C.G / (W.grav || C.G), 0.75));
   if (c.gnd && att && !bot.whiff) {
     const lb = local(c, b.x, b.y, b.z), bang = Math.abs(Math.atan2(lb[0], lb[2])), bd = Math.hypot(lb[0], lb[2]);
-    if (bot.kick && bd < 8.5 + sp * 0.05 && lv.skill > 0.5) { bot.jumpT = 0; bot.jumpPlan = 1; bot.flipX = 0; }
+    if (bot.kick) {
+      if (kp.hit === 'flip' && bd < kp.flipAt + sp * 0.05) { bot.jumpT = 0; bot.jumpPlan = 1; bot.flipX = kp.flipX; }
+      else if (kp.hit === 'jump' && bd < kp.flipAt - 2) { bot.jumpT = 0; bot.jumpPlan = 2; }
+    }
     else if (b.y > 4.3 && b.y < 9 * gk && bd < 3 + Math.max(0, b.y - 4) * 0.8 / gk && bang < 0.6 && b.vy < 4) { bot.jumpT = 0; bot.jumpPlan = b.y > 6.5 * gk ? 3 : 2; }
     else if (b.y < 4 && bd < 6.5 && bang < 0.3 && bot.lined && sp > 12 && bot.rnd() < lv.skill * 0.12) { bot.jumpT = 0; bot.jumpPlan = 1; bot.flipX = 0; }
   }
