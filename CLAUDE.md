@@ -30,6 +30,7 @@ core/transport-dual.js   the online transport every party uses: direct WebRTC an
                          (direct preferred); a failed join offers "Copy details" with both reasons + a server check
 core/transport-peer.js   PeerJS/WebRTC transport (reliable JSON 'ctrl' + unreliable binary 'fast' channel; public STUN +
                          TURN logins fetched from the Metered account in core/turn-config.js)
+core/transport-rtc.js    WebRTC whose setup goes through the relay (for networks that block the PeerJS server, e.g. school)
 core/transport-relay.js  backup relay: party messages through free public MQTT brokers over wss (core/mqtt.js), for
                          networks / managed laptops that block WebRTC. Lobby tags those players "relay"
 core/transport-local.js  BroadcastChannel transport: tabs of one browser, no internet (?net=local)

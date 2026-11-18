@@ -99,9 +99,13 @@ export class DualTransport {
   }
   // Direct (WebRTC) only: used to move a player off the relay once a direct link works.
   connectDirect(target, timeout = 20000) {
-    if (!this.peerOk || RELAY_ONLY) return Promise.reject(Object.assign(new Error('direct unavailable'), { type: 'network' }));
+    if ((!this.peerOk && !this.relayOk) || RELAY_ONLY) return Promise.reject(Object.assign(new Error('direct unavailable'), { type: 'network' }));
     const a = parse(target);
-    return (BLOCK_DIRECT ? blocked(timeout) : this.peer.connect(a.room ? this.peer.roomAddr(a.room) : a.p, timeout)).then((c) => { c.via = 'direct'; return c; });
+    if (BLOCK_DIRECT) return blocked(timeout);
+    const viaRelay = () => (this.relayOk ? this.relay.connectRtc(a.room ? this.relay.roomAddr(a.room) : a.r, timeout) : Promise.reject(Object.assign(new Error('direct unavailable'), { type: 'network' })));
+    // PeerJS first; if its server is unreachable (or the host isn't on it), set WebRTC up through the relay instead
+    if (!this.peerOk) return viaRelay();
+    return this.peer.connect(a.room ? this.peer.roomAddr(a.room) : a.p, timeout).then((c) => { c.via = 'direct'; return c; }, (e) => viaRelay().catch(() => { throw e; }));
   }
   relayInfo() { return this.relay ? this.relay.clients.map((c, i) => `${new URL(BROKERS[i]).hostname}:${c?.open ? 'ok' : 'down'}`).join(' ') : 'off'; }
   close() { this._stopKeep?.(); this.peer.close(); this.relay?.close(); }
