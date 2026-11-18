@@ -8,6 +8,7 @@ import { makeCourse, mulberry32, MAPS, MAP_IDS } from './course.js';
 import { CLASSES, newEntity, stepEntity, bump, botInput, newBrain, sanitizeInput, packInput, trickName, landingPreview, GRAB_KEYS, ITEMS, snowballHit } from './physics.js';
 import { createRenderer, buildCourse, disposeGroup, makeRider, poseRider, COLORS, Spray, makeMinimap, Trails, AirGuide, buildItemBoxes, spinItemBoxes, Snowballs } from './render.js';
 import { sfx, setRide, shutdown as audioShutdown } from './audio.js';
+import { AdaptiveDelay } from '../../core/interp.js';
 export { manifest } from './manifest.js';
 
 const SEND_HZ = 20;
@@ -159,15 +160,17 @@ export async function start(ctx) {
     if (r.phase === 'countdown' && msg.rt > 0) { r.startAt = performance.now() - msg.rt * 1000; }
     const off = performance.now() / 1000 - msg.rt;
     r.hostOff = r.hostOff == null ? off : Math.min(r.hostOff + 0.0004, off);
+    interpDelay.observe(off - r.hostOff);   // how late vs the fastest snapshots (jitter): the relay needs more delay
     r.projectiles = Array.isArray(msg.pr) ? msg.pr : [];
     for (const row of msg.e) { const id = row[0]; if (id === S.myId) continue; applyRemoteState(id, row.slice(1), msg.rt); }
     if (msg.me && r.me && r.phase === 'race') reconcile(r.me, msg.me, msg.ack);
     for (const id of [...r.ents.keys()]) if (id !== S.myId && !msg.e.some((row) => row[0] === id)) removeEnt(id);
   }
-  const INTERP_DELAY = 0.11;
+  const INTERP_DELAY = 0.11;   // on a direct link; grows on a jittery one (relay)
+  const interpDelay = new AdaptiveDelay({ min: INTERP_DELAY, start: INTERP_DELAY, interval: 0.05 });
   function interpRemote(ent) {
     const b = ent.buf, r = S.race; if (!b.length || r.hostOff == null) return;
-    const t = performance.now() / 1000 - r.hostOff - INTERP_DELAY, e = ent.e;
+    const t = performance.now() / 1000 - r.hostOff - interpDelay.value, e = ent.e;
     let i = b.length - 1; while (i > 0 && b[i].t > t) i--;
     const A = b[i], B = b[i + 1];
     if (B && t >= A.t) {

@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 export { manifest } from './manifest.js';
 import { RULES } from './tuning.js';   // tunable feel constants (developer portal)
+import { SnapBuffer } from '../../core/interp.js';   // smooth drawing of others, even over the slow relay
 
 const SIZE = 13, R = 0.55, SNAP_HZ = 15;
 
@@ -81,6 +82,9 @@ export async function start(ctx) {
   // ---------------------------------------------------------------- state
   // HOST: authoritative `sim`. CLIENTS: `view` = latest host snapshot (+ local prediction for my own player).
   let sim = null, view = null, prevView = null, viewAt = 0, prevAt = 0, me = null, timeLeft = RULES.ROUND, ended = false;
+  // Lag handling (copy this pattern): others are drawn from a timestamped buffer on the host's round clock (tOff maps
+  // our clock to it), and my own predicted position is checked against where I was one round trip ago, not now.
+  const bufs = new Map(), myHist = []; let tOff = null;
   const inputs = new Map();
   const myInput = { mx: 0, mz: 0, jump: 0 };
 
@@ -149,8 +153,19 @@ export async function start(ctx) {
     if (m.t === 'in' && net.isHost) inputs.set(from, m.i);               // client -> host: inputs
     else if (m.t === 's' && !net.isHost) {                               // host -> clients: snapshots
       prevView = view; prevAt = viewAt; view = m; viewAt = performance.now(); timeLeft = m.left;
+      const t = RULES.ROUND - m.left, nowS = viewAt / 1000, off = t - nowS;     // host round clock
+      tOff = tOff == null || off > tOff ? off : tOff + (off - tOff) * 0.04;
+      for (const r of m.p) if (r[0] !== ctx.myId) { let b = bufs.get(r[0]); if (!b) bufs.set(r[0], (b = new SnapBuffer())); b.push(t, { x: r[1], z: r[2], y: r[3] }, nowS + tOff); }
       const mine = m.p.find((r) => r[0] === ctx.myId);
-      if (mine && me) { me.score = mine[4]; const ex = mine[1] - me.x, ez = mine[2] - me.z; if (Math.hypot(ex, ez) > 3) { me.x = mine[1]; me.z = mine[2]; } else { me.x += ex * 0.15; me.z += ez * 0.15; } }
+      if (mine && me) {
+        me.score = mine[4];
+        // the host's position for me is one trip old: compare it with where I predicted I'd be back then
+        const back = viewAt - (net.ping() || 60) - 1000 / SNAP_HZ / 2;
+        const then = myHist.find((h) => h.t >= back) || { x: me.x, z: me.z };
+        const ex = mine[1] - then.x, ez = mine[2] - then.z;
+        if (Math.hypot(ex, ez) > 3) { me.x = mine[1]; me.z = mine[2]; myHist.length = 0; }   // way off (respawn, desync): snap
+        else if (Math.hypot(ex, ez) > 0.3) { me.x += ex * 0.1; me.z += ez * 0.1; }            // drifted: ease back
+      }
     } else if (m.t === 'got') {
       if (m.id === ctx.myId) { ctx.audio.play('coin'); ui.toast(m.kind ? '💎 +3' : '🪙 +1', 'gold', 900); } else ctx.audio.tone('triangle', 900, 1200, 0.06, 0.04);
     }
@@ -178,16 +193,16 @@ export async function start(ctx) {
     if (!ctx.started) { myInput.mx = myInput.mz = 0; }
     if (!net.isHost && me && ctx.started && !ended) {
       stepPlayer(me, myInput, dt, level);                                // client prediction (host corrects softly)
+      myHist.push({ t: performance.now(), x: me.x, z: me.z }); while (myHist.length && myHist[0].t < performance.now() - 1500) myHist.shift();
       sendAcc += dt; if (sendAcc > 1 / 30) { sendAcc = 0; net.toHost({ t: 'in', i: { ...myInput } }); }
     }
     // positions to draw
     const pos = new Map();
     if (net.isHost && sim) for (const p of sim.players.values()) pos.set(p.id, p);
     else if (view) {
-      const f = prevView ? Math.min(1, (now - viewAt) / Math.max(1, viewAt - prevAt)) : 1;
       for (const r of view.p) {
-        const pr = prevView?.p.find((q) => q[0] === r[0]) || r;
-        pos.set(r[0], { x: pr[1] + (r[1] - pr[1]) * f, z: pr[2] + (r[2] - pr[2]) * f, y: r[3], score: r[4] });
+        const b = bufs.get(r[0])?.sample(performance.now() / 1000 + (tOff ?? 0));
+        pos.set(r[0], b ? { x: b.x, z: b.z, y: b.y, score: r[4] } : { x: r[1], z: r[2], y: r[3], score: r[4] });
       }
       if (me) pos.set(ctx.myId, me);
     }

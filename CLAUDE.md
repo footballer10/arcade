@@ -11,7 +11,11 @@ Start from `games/_template` (Coin Grab). That template is **hidden from players
 - 100% free: static files on GitHub Pages; Three.js `0.160.0` and PeerJS `1.5.4` from jsDelivr via the import map in `index.html`; the public PeerJS server; free public MQTT brokers (broker.emqx.io, broker.hivemq.com) as the connection fallback. No build step, no npm to play, no paid services, no API keys, no accounts.
 - **Relative paths only** (the site lives under `/arcade/`). Import other core files as `../../core/x.js` from a game.
 - Never reload the page or touch the party connection from a game. Games talk only through `ctx`. Keep network traffic modest (≈20 Hz snapshots, compact data): some players are on the slower relay (~200 ms round trip, jittery).
-  Games must stay fun at that: predict your own player locally, interpolate others, never wait on the host for your own movement. Test with `?netsim=100,30,250,4`.
+  Games must stay fun at that: predict your own player locally, never wait on the host for your own movement, and draw
+  others with `core/interp.js` (`SnapBuffer`, or `AdaptiveDelay` for an existing buffer) placed on the HOST's clock.
+  Never interpolate by arrival time or with a fixed "100 ms in the past": relay packets arrive bunched and late, and
+  both stutter. Correct your own player against where you were one round trip ago, not where you are now.
+  Test with `?netsim=100,30,250,4` and `node lag.mjs <id>`. `games/_template` shows the pattern.
 - Don't edit another game's folder while working on yours. Changes to `/core` must stay backward compatible with every game in `games/registry.js`, and must be re-tested with `tests/` (all games).
 
 ## Architecture
@@ -30,6 +34,7 @@ core/transport-local.js  BroadcastChannel transport: tabs of one browser, no int
                          A player on the relay keeps retrying the direct link and moves over mid-game when it works.
                          Settings → "Copy connection report" shows path, ping spread, freezes and why direct failed.
 core/netsim.js      ?netsim=ONEWAY,JITTER,STALL,EVERY lag simulator (e.g. 100,30,250,4 ≈ the school relay); tests/lag.mjs
+core/interp.js      SnapBuffer / AdaptiveDelay: smooth drawing of others from late, bunched snapshots (use in every game)
 core/runtime.js     builds ctx for a game, runs its frame/tick loops, and force-cleans everything on stop
 core/party state    lives in hub.js (`S`): players {id,name,color,hat,ready,trophies,wins,isBot,connected}, phase, game, results
 core/input.js       the control map (below)          core/ui.js + ui.css   theme + HUD components

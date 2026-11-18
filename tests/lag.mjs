@@ -28,10 +28,12 @@ async function run(game, lag) {
     // sample positions every frame
     await B.evaluate(() => {
       const rt = window.__hub.runtime, me = window.__hub.pid; const tracks = window.__tracks = new Map();
-      let last = performance.now();
+      let last = performance.now(), drawn = rt._last;
       (function loop(now) {
         if (!window.__tracks) return;
         requestAnimationFrame(loop);
+        if (rt._last === drawn) return;                 // the game didn't draw this frame (?testfps cap)
+        drawn = rt._last;
         const dt = (now - last) / 1000; last = now; if (dt <= 0) return;
         for (const [id, o] of rt.avatars) {
           o.updateWorldMatrix(true, false);
