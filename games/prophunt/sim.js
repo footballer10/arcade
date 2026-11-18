@@ -10,7 +10,13 @@ export const R = {
   FIND: 15, SWEEP: 10, SURVIVE: 10, SURV_EVERY: 5, TAUNT: 3, DARING: 5, DARING_R: 7, TAUNT_CD: 10,
   FORCE_EVERY: 45, FORCED_WARN: 5,   // a hider who stays silent this long is forced to taunt; any taunt resets the clock SNIFF_CD: 22, SNIFF_T: 4,
   SPEED: { H: 4.2, S: 4.4 }, SPRINT: 1.5,
+  PROP_MOVE: 0.55,   // while the seekers hunt, a disguised hider shuffles at this fraction of walking speed (and can't sprint): running away as a prop is slow
 };
+// how fast a body may move right now: props are slow (and can't sprint) once the hunt has started
+export function moveSpeed(p, phase, sprint) {
+  if (p.role === 'H' && p.kind >= 0 && phase === 'hunt') return R.SPEED.H * R.PROP_MOVE;
+  return R.SPEED[p.role] * (sprint ? R.SPRINT : 1);
+}
 export const TAUNTS = ['kazoo', 'quack', 'honk', 'slide', 'boing', 'cuckoo'];
 
 // Round plan, identical on every client: role rotation so everyone seeks at least once, and a map per round.
@@ -97,7 +103,7 @@ export class HostSim {
       const it = b.update(dt0, this);
       if (!it) continue;
       if (this.canMove(p) && !p.locked) {
-        const land = stepBody(p, { mx: it.mx, mz: it.mz, speed: R.SPEED[p.role] * (it.sprint ? R.SPRINT : 1), jump: it.jump, jumpV: p.kind >= 0 ? PHYS.PROP_JUMP : PHYS.JUMP }, dt0, L);
+        const land = stepBody(p, { mx: it.mx, mz: it.mz, speed: moveSpeed(p, this.phase, !!it.sprint), jump: it.jump, jumpV: p.kind >= 0 ? PHYS.PROP_JUMP : PHYS.JUMP }, dt0, L);
         p.moving = Math.hypot(p.vx, p.vz) > 0.4 ? 0.3 : Math.max(0, p.moving - dt0);
         void land;
       } else { p.vx = p.vz = 0; p.moving = Math.max(0, p.moving - dt0); }
@@ -154,7 +160,13 @@ export class HostSim {
       }
       case 'rot': if (p.role === 'H' && p.alive && p.kind >= 0 && Number.isFinite(a.r)) p.rot = a.r; break;
       case 'lock': if (p.role === 'H' && p.alive && p.kind >= 0) { p.locked = !!a.v; if (p.locked) { p.vx = p.vz = 0; } } break;
-      case 'taunt': if (p.role === 'H' && p.alive && (this.phase === 'hunt' || this.phase === 'hide') && this.t - p.lastTaunt >= R.TAUNT_CD) this.taunt(p, false); break;
+      case 'taunt': {
+        if (!(p.role === 'H' && p.alive && (this.phase === 'hunt' || this.phase === 'hide'))) break;
+        // small tolerance: the host's clock and the player's can differ by a little
+        const wait = R.TAUNT_CD - (this.t - p.lastTaunt);
+        if (wait <= R.TAUNT_CD * 0.2) this.taunt(p, false); else this.cfg.ev('tauntno', { id, left: +wait.toFixed(1) });
+        break;
+      }
       case 'tag': this.tag(p, a); break;
       case 'sniff': {
         if (p.role !== 'S' || !p.alive || this.phase !== 'hunt' || this.t - p.sniffAt < R.SNIFF_CD) return;

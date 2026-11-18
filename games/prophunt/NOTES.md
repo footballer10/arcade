@@ -115,3 +115,16 @@ play the host's own player. `__prophunt.stats` counts snapshots, finds and taunt
   give-up rules stop them freezing.
 - Headless balance (360 hiders per level): found 55% / 72% / 73% (easy / normal / hard), ~5 wrong bonks per seeker
   per round, nobody faints because finds refund 20 health.
+
+## Update 3: slow props, visible taunts, reliable taunt button
+- **Props are slow while hunted:** from the start of the hunt a disguised hider moves at 55% of walking speed and cannot
+  sprint (seekers walk at 100% and sprint at 150%), so running away as a prop doesn't work; during the hiding phase
+  everyone moves freely. Tunable as `PROP_MOVE`.
+- **Visible taunts:** expanding shockwave rings on the floor (white + the hider's color; red for a forced taunt, gold and
+  larger for a daring one), a floating speech bubble with the taunt's icon (🎺🦆📯🎶🌀🐦, 📢 forced), and for seekers /
+  spectators a pointer pinned to the screen edge with an arrow toward the taunt while it's off-screen (3 s).
+- **Taunt button never fails silently:** cooldown timers use real time (a slow frame rate used to stretch them), the host
+  answers a refused taunt with "Taunt ready in N s", and F during the intro explains that taunts open with the hiding.
+- Hider bots take their first taunt sooner (2–11 s into the hunt when it's safe).
+- **Sniff result is readable:** the hot/cold label used to be drawn behind the ability bar, so pressing Q looked like it did nothing.
+  It now floats above the crosshair, bigger, with a rough distance ("Warm · about 8 m").
