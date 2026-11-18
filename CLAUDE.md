@@ -8,7 +8,7 @@ connected while the host switches between 3D games. Hosted on GitHub Pages at
 Start from `games/_template` (Coin Grab). That template is **hidden from players**: it only appears in the lobby with `?dev=1` (used by developers and the tests). One game per session.
 
 ## Hard rules
-- 100% free: static files on GitHub Pages; Three.js `0.160.0` and PeerJS `1.5.4` from jsDelivr via the import map in `index.html`; the public PeerJS server; free public MQTT brokers (broker.emqx.io, broker.hivemq.com) as the connection fallback. No build step, no npm to play, no paid services, no API keys, no accounts.
+- 100% free: static files on GitHub Pages; Three.js `0.160.0` and PeerJS `1.5.4` from jsDelivr via the import map in `index.html`; the public PeerJS server; free public MQTT brokers (broker.emqx.io, broker.hivemq.com, test.mosquitto.org, mqtt.eclipseprojects.io) as the connection fallback. No build step, no npm to play, no paid services, no API keys, no accounts.
 - **Relative paths only** (the site lives under `/arcade/`). Import other core files as `../../core/x.js` from a game.
 - Never reload the page or touch the party connection from a game. Games talk only through `ctx`. Keep network traffic modest (≈20 Hz snapshots, compact data): some players are on the slower relay (~200 ms round trip, jittery).
   Games must stay fun at that: predict your own player locally, never wait on the host for your own movement, and draw
@@ -26,7 +26,8 @@ core/hub.js         party loop: home → lobby → (host pick | vote | shuffle) 
 core/net.js         PartyNet: party connection behind a transport interface; host-authoritative star; 4-letter
                     room codes + ?room=CODE links; heartbeats + host clock sync; host migration; handover;
                     rejoin after refresh / Wi-Fi drop; per-round game channels (makeChannel → ctx.net)
-core/transport-dual.js   the online transport every party uses: direct WebRTC first, automatic relay fallback
+core/transport-dual.js   the online transport every party uses: direct WebRTC and the relay tried at the same time
+                         (direct preferred); a failed join offers "Copy details" with both reasons + a server check
 core/transport-peer.js   PeerJS/WebRTC transport (reliable JSON 'ctrl' + unreliable binary 'fast' channel; free STUN/TURN)
 core/transport-relay.js  backup relay: party messages through free public MQTT brokers over wss (core/mqtt.js), for
                          networks / managed laptops that block WebRTC. Lobby tags those players "relay"
@@ -136,4 +137,4 @@ PeerJS server and a local MQTT broker (relay), launch Chromium with 2–3 browse
 - Locally by hand: `python3 -m http.server 8000` in the repo root, open `http://localhost:8000/?net=local` in two tabs.
 - Tuning portal: `python3 tools/portal.py` opens `http://localhost:8000/?portal=1` (play any game, sliders for its
   `tuning.js`, save new defaults). Only works on localhost. Details in [`docs/PORTAL.md`](docs/PORTAL.md). `node portal.mjs` tests it.
-- Dev URL flags: `?dev=1` (show the template in the lobby), `?relay=url` (own MQTT broker; `off` = no relay), `?forcerelay=1` (skip the direct link, tests), `?net=local` (tabs, no internet), `?peer=host:port` (own PeerJS server), `?netlog=1` (net log), `?testfps=N` (tests only), `?portal=1` (tuning portal, localhost only), `?netsim=100,30,250,4` (simulate relay lag), `?forcerelay=join` (start on the relay, upgrade allowed).
+- Dev URL flags: `?dev=1` (show the template in the lobby), `?relay=url` (own MQTT broker; `off` = no relay), `?forcerelay=1` (skip the direct link, tests), `?net=local` (tabs, no internet), `?peer=host:port` (own PeerJS server), `?netlog=1` (net log), `?testfps=N` (tests only), `?portal=1` (tuning portal, localhost only), `?netsim=100,30,250,4` (simulate relay lag), `?forcerelay=join` (start on the relay, upgrade allowed), `?blockdirect=1` (direct link never connects, tests).

@@ -9,7 +9,8 @@ import { MqttClient } from './mqtt.js';
 
 // ?relay=url1,url2 overrides the broker list (the automated tests run their own broker).
 const OVERRIDE = new URLSearchParams(location.search).get('relay');
-export const BROKERS = OVERRIDE ? OVERRIDE.split(',') : ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
+// Several independent free brokers: any one that both players can reach is enough.
+export const BROKERS = OVERRIDE ? OVERRIDE.split(',') : ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt', 'wss://test.mosquitto.org:8081/mqtt', 'wss://mqtt.eclipseprojects.io:443/mqtt'];
 const ROOT = 'fb10-partyhub/v1/';
 const rid = () => Math.random().toString(36).slice(2, 10);
 const enc = new TextEncoder(), dec = new TextDecoder();
@@ -33,19 +34,31 @@ class RelayConn {
 export class RelayTransport {
   constructor() { this.kind = 'relay'; this.addr = null; this.clients = []; this.aliases = new Set(); this.conns = new Map(); this.waiting = new Map(); this.onconnection = null; }
   roomAddr(code) { return 'room-' + code; }
-  async open() {
+  // Resolves as soon as one broker is connected (plus a short moment for the others); slow or blocked brokers keep
+  // connecting in the background and join in when they're up.
+  open() {
     this.addr = 'R' + rid();
-    const results = await Promise.allSettled(BROKERS.map((url, i) => new MqttClient(url, {
-      onMessage: (topic, data) => {
-        if (data[0] === 1) { const n = data[1], cid = dec.decode(data.subarray(2, 2 + n)); const c = this.conns.get(cid); if (c?.onraw) c.onraw(data.slice(2 + n).buffer); return; }
-        try { this._on(i, JSON.parse(dec.decode(data))); } catch { /* not ours */ }
-      },
-      onClose: () => { for (const c of [...this.conns.values()]) if (c.broker === i) c._closed(); },
-    }).connect(5000)));
-    this.clients = results.map((r) => (r.status === 'fulfilled' ? r.value : null));
-    if (!this.clients.some(Boolean)) throw Object.assign(new Error('No relay server reachable'), { type: 'network' });
-    this._sub(this.addr);
-    return this.addr;
+    this.clients = BROKERS.map(() => null);
+    return new Promise((resolve, reject) => {
+      let left = BROKERS.length, settled = false, grace = null;
+      const ok = () => { if (settled) return; settled = true; clearTimeout(grace); resolve(this.addr); };
+      BROKERS.forEach((url, i) => {
+        new MqttClient(url, {
+          onMessage: (topic, data) => {
+            if (data[0] === 1) { const n = data[1], cid = dec.decode(data.subarray(2, 2 + n)); const c = this.conns.get(cid); if (c?.onraw) c.onraw(data.slice(2 + n).buffer); return; }
+            try { this._on(i, JSON.parse(dec.decode(data))); } catch { /* not ours */ }
+          },
+          onClose: () => { this.clients[i] = null; for (const c of [...this.conns.values()]) if (c.broker === i) c._closed(); },
+        }).connect(6000).then((c) => {
+          if (this.closed) { c.close(); return; }
+          this.clients[i] = c;
+          c.subscribe(ROOT + this.addr); for (const al of this.aliases) c.subscribe(ROOT + al);
+          if (!grace) grace = setTimeout(ok, 600);
+        }, () => { /* this broker is down or blocked here */ }).finally(() => {
+          if (--left === 0 && !settled) { if (this.clients.some(Boolean)) ok(); else { settled = true; reject(Object.assign(new Error('No relay server reachable'), { type: 'network' })); } }
+        });
+      });
+    });
   }
   _sub(name) { for (const c of this.clients) c?.subscribe(ROOT + name); }
   _post(i, m) { m.from = this.addr; const c = this.clients[i]; if (c?.open) c.publish(ROOT + m.to, JSON.stringify(m)); }
@@ -63,7 +76,8 @@ export class RelayTransport {
       case 'who': if (this.aliases.has(m.alias)) this._post(i, { k: 'own', to: m.from, alias: m.alias }); break;
       case 'own': this.waiting.get('own:' + m.alias)?.(); break;
       case 'syn': {
-        if (!this._mine(m.to) || this.conns.has(m.cid)) return;
+        if (!this._mine(m.to)) return;
+        if (this.conns.has(m.cid)) { const c = this.conns.get(m.cid); if (c.remote === m.from) this._post(c.broker, { k: 'ack', to: m.from, cid: m.cid }); return; }   // repeated syn: ack again
         const c = new RelayConn(this, m.from, m.cid, i);
         this.conns.set(m.cid, c);
         this._post(i, { k: 'ack', to: m.from, cid: m.cid });
@@ -87,16 +101,20 @@ export class RelayTransport {
   connect(target, timeout = 8000) {
     return new Promise((resolve, reject) => {
       const cid = rid();
-      const t = setTimeout(() => { this.waiting.delete('ack:' + cid); reject(Object.assign(new Error('Room not found on relay'), { type: 'peer-unavailable' })); }, timeout);
+      let resend = 0;
+      const t = setTimeout(() => { clearInterval(resend); this.waiting.delete('ack:' + cid); reject(Object.assign(new Error('Room not found on relay'), { type: 'peer-unavailable' })); }, timeout);
       this.waiting.set('ack:' + cid, (i) => {
-        clearTimeout(t); this.waiting.delete('ack:' + cid);
+        clearTimeout(t); clearInterval(resend); this.waiting.delete('ack:' + cid);
         const c = new RelayConn(this, target, cid, i);
         this.conns.set(cid, c); resolve(c);
       });
-      this._postAll({ k: 'syn', to: target, cid });   // first broker to answer wins
+      // ask on every broker we're connected to (first to answer wins); repeat, since brokers can come up later
+      this._postAll({ k: 'syn', to: target, cid });
+      resend = setInterval(() => this._postAll({ k: 'syn', to: target, cid }), 1200);
     });
   }
   close() {
+    this.closed = true;
     for (const c of [...this.conns.values()]) c.close();
     setTimeout(() => { for (const c of this.clients) c?.close(); this.clients = []; }, 100);
     this.aliases.clear();

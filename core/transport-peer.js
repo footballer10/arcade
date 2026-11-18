@@ -97,6 +97,30 @@ async function iceInfo(pc) {
   return out;
 }
 
+// Connection self-check for the report: which of the free STUN/TURN servers this computer can actually use.
+// For each server: gather candidates for a few seconds. srflx = STUN works (we know our public address),
+// relay = that TURN server works. host only = UDP to the internet is blocked here.
+export async function iceCheck(ms = 3500) {
+  const out = [];
+  const one = async (server, url) => {
+    let pc;
+    try { pc = new RTCPeerConnection({ iceServers: [{ ...server, urls: url }], iceTransportPolicy: 'all' }); } catch (e) { return `${url}: invalid (${e.name})`; }
+    const types = new Set();
+    pc.onicecandidate = (e) => { const c = e.candidate?.candidate; if (c) { const m = / typ (\w+)/.exec(c), proto = / (udp|tcp) /i.exec(c); types.add((m?.[1] || '?') + (m?.[1] === 'relay' ? '' : '') + '/' + (proto?.[1] || '?').toLowerCase()); } };
+    pc.createDataChannel('x');
+    await pc.setLocalDescription(await pc.createOffer());
+    await new Promise((r) => { const t = setTimeout(r, ms); pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); r(); } }; });
+    pc.close();
+    const kinds = [...types];
+    const want = url.startsWith('turn') ? 'relay' : 'srflx';
+    return `${url}: ${kinds.some((k) => k.startsWith(want)) ? 'WORKS' : 'no'} [${kinds.join(',') || 'nothing'}]`;
+  };
+  const jobs = [];
+  for (const s of ICE_SERVERS) for (const url of [].concat(s.urls)) jobs.push(one(s, url));
+  for (const r of await Promise.all(jobs)) out.push(r);
+  return out;
+}
+
 export class PeerTransport {
   constructor() { this.kind = 'peer'; this.addr = null; this.peer = null; this.aliasPeers = new Map(); this.onconnection = null; this.ondown = null; this.pending = new Map(); }
   roomAddr(code) { return PREFIX + 'room-' + code; }

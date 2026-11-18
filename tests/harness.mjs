@@ -53,8 +53,9 @@ export async function startRelay(port = 9002) {
 }
 export const RELAY = '&relay=ws://127.0.0.1:9002';
 
-export async function launch({ headless = true } = {}) {
-  const browser = await chromium.launch({ headless, args: ['--disable-features=WebRtcHideLocalIpsWithMdns', '--autoplay-policy=no-user-gesture-required', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--js-flags=--expose-gc'] });
+export async function launch({ headless = true, realChrome = false } = {}) {
+  // realChrome: keep Chrome's normal WebRTC privacy (local addresses hidden behind random .local names)
+  const browser = await chromium.launch({ headless, args: [...(realChrome ? [] : ['--disable-features=WebRtcHideLocalIpsWithMdns']), '--autoplay-policy=no-user-gesture-required', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--js-flags=--expose-gc'] });
   const peerjs = await peerBundle();
   // Tests run several 3D pages on one machine with software WebGL, so by default they use a smaller window and
   // the Low graphics setting (pass {full:true} for screenshots). Real players each have their own GPU.

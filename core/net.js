@@ -170,7 +170,7 @@ export class PartyNet extends Emitter {
             if (this.hostConn && this.hostConn !== c) { this.hostConn.onclose = null; this.hostConn.close(); }
             this.hostConn = c; this.via = c.via || 'direct'; this.role = 'client';
             this.diag.push({ at: Date.now(), what: extra.migrate ? 'migrate' : extra.rejoin ? 'rejoin' : 'join', ok: true, path: this.via + (c.path ? ' ' + c.path : ''), ice: c.directErr || null });
-            this.nextUpgrade = performance.now() + 8000; this.upgradeGap = 15000; this.hostPid = m.hostPid; this.code = m.code; this.lastHost = performance.now();
+            this.nextUpgrade = performance.now() + 4000; this.upgradeGap = 12000; this.hostPid = m.hostPid; this.code = m.code; this.lastHost = performance.now();
             this.offset = m.ht - performance.now(); this.bestRtt = 1e9; this.nextHost = null; this.migrating = false;
             c.onmessage = (msg) => this._fromHost(c, msg);
             c.onraw = (ab) => this._rawFromHost(c, ab);
