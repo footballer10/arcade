@@ -693,9 +693,9 @@ function netBadgeSync() {
   if (net.kind === 'local') t = '⚠ Offline party: the game server could not be reached, so friends can\'t join (bots only)';
   else if (isHost()) {
     const r = net.t.reachable?.() || { direct: true, relay: 0 };
-    t = r.direct || r.relay ? `🌐 Friends can join with the code or link · direct ${r.direct ? '✔' : '✖'} · relay ${r.relay ? '✔ (' + r.relay + ')' : '✖'}`
+    t = r.direct || r.relay ? `🌐 Friends can join · direct ${r.direct ? '✔' : '✖'} · relay ${r.relay ? '✔' : '✖'}`
       : '⚠ Friends can\'t reach this party right now: reconnecting to the servers…';
-  } else t = net.via === 'relay' ? '🐢 Connected through the backup relay (slower) · trying the direct link in the background' : '🌐 Connected directly to the host';
+  } else t = net.via === 'relay' ? '🐢 On the backup relay (slower) · retrying direct' : '🌐 Connected directly to the host';
   if ($('netBadge').textContent !== t) $('netBadge').textContent = t;
 }
 setInterval(() => { if (screen === 'lobby') netBadgeSync(); }, 2000);
@@ -710,13 +710,14 @@ function renderLobby() {
     const ping = (!p.isBot && pings[p.id] ? `<span class="ph-tag">${pings[p.id]}ms</span>` : '') + (p.via === 'relay' && p.connected ? '<span class="ph-tag" title="Connected through the backup relay (a direct link was blocked). Works fine, just a little slower.">relay</span>' : '');
     const acts = host && p.id !== pid ? (p.isBot ? `<button class="ph-btn small danger" data-kick="${p.id}" title="Remove bot">✕</button>`
       : `<button class="ph-btn small" data-host="${p.id}" title="Make host">👑</button><button class="ph-btn small danger" data-kick="${p.id}" title="Kick">✕</button>`) : '';
-    return `<li class="${p.connected ? '' : 'off'} ${p.id === pid ? 'me' : ''}" title="${p.id === pid ? 'You' : ''}"><span class="ph-dot" style="background:${css(p.color)}"></span><span class="nm">${esc(p.name)}</span>${tags.join('')}${ping}
-      <span class="trophy">🏆${p.trophies}</span><span class="ready">${p.isBot || p.ready ? '✔' : '…'}</span><span class="acts">${acts}</span></li>`;
-  }).join('') + `<li style="justify-content:center;opacity:.6">${S.players.length}/${MAX_PARTY} players${S.players.some((p) => !p.connected) ? ' · greyed = reconnecting' : ''}</li>`;
+    const rdy = p.isBot || p.ready;
+    return `<li class="${p.connected ? '' : 'off'} ${p.id === pid ? 'me' : ''}" style="--pc:${css(p.color)}" title="${p.id === pid ? 'You' : ''}"><span class="ph-dot" style="background:${css(p.color)}"></span><span class="nm">${esc(p.name)}</span><span class="tags">${tags.join('')}${ping}</span>
+      <span class="trophy">🏆 ${p.trophies}</span><span class="ready ${rdy ? 'on' : ''}">${rdy ? 'READY' : 'not ready'}</span><span class="acts">${acts}</span></li>`;
+  }).join('') + `<li class="count-row">${S.players.length}/${MAX_PARTY} players${S.players.some((p) => !p.connected) ? ' · faded = reconnecting' : ''}</li>`;
   $('botLevel').value = S.botLevel;
   $('addBot').disabled = S.players.length >= MAX_PARTY;
   $('remBot').disabled = !S.players.some((p) => p.isBot);
-  $('readyBtn').textContent = m?.ready ? 'Ready ✔ (click to cancel)' : 'Ready!';
+  $('readyBtn').textContent = m?.ready ? '✔ Ready! (click to cancel)' : 'Ready up!';
   $('readyBtn').classList.toggle('green', !!m?.ready);
   document.querySelectorAll('.mode').forEach((b) => { b.classList.toggle('on', b.dataset.mode === S.mode); b.disabled = !host; });
   $('shuffleLen').value = String(S.shuffleLen); $('shuffleLen').classList.toggle('hidden', !host || S.mode !== 'shuffle');
@@ -743,8 +744,9 @@ function renderLobby() {
 }
 function renderLeaderboard(target) {
   const rows = [...S.players].sort((a, b) => b.trophies - a.trophies || b.wins - a.wins);
-  target.innerHTML = rows.map((p, i) => `<div class="lb-row ${i === 0 && p.trophies > 0 ? 'first' : ''}"><span>${i === 0 && p.trophies > 0 ? '👑' : i + 1 + '.'}</span><span class="ph-dot" style="background:${css(p.color)}"></span><span class="n">${esc(p.name)}</span><span>🏆 ${p.trophies}</span></div>`).join('')
-    + `<div class="muted" style="font-size:.8rem;margin-top:4px">${S.history.length} game${S.history.length === 1 ? '' : 's'} played · 1st 5🏆 · 2nd 3 · 3rd 2 · others 1</div>`;
+  const any = rows.some((p) => p.trophies > 0);
+  target.innerHTML = rows.map((p, i) => `<div class="lb-row ${any && i < 3 ? 'top' + (i + 1) : ''} ${p.id === pid ? 'me' : ''}"><span class="pl">${any && i < 3 && p.trophies > 0 ? MEDAL[i] : i + 1}</span><span class="ph-dot" style="background:${css(p.color)}"></span><span class="n">${esc(p.name)}</span><span class="tr">🏆 ${p.trophies}</span></div>`).join('')
+    + `<div class="lb-note">${S.history.length} game${S.history.length === 1 ? '' : 's'} played · 1st +5 · 2nd +3 · 3rd +2 · others +1</div>`;
 }
 $('playerList').onclick = (e) => {
   const k = e.target.closest('[data-kick]'), h = e.target.closest('[data-host]');
@@ -826,7 +828,7 @@ function renderResults() {
   let html = '', i = 0;
   for (const grp of r.groups) for (const id of grp) {
     const pl = r.places[id], p = nm(id);
-    html += `<div class="res-row ${pl === 1 ? 'p1' : ''}" style="animation-delay:${i++ * 0.08}s"><span class="place">${MEDAL[pl - 1] || ordinal(pl)}</span><span class="ph-dot" style="background:${css(p.color)}"></span>
+    html += `<div class="res-row p${Math.min(pl, 4)} ${id === pid ? 'me' : ''}" style="animation-delay:${i++ * 0.08}s;--pc:${css(p.color)}"><span class="place">${MEDAL[pl - 1] || ordinal(pl)}</span><span class="ph-dot" style="background:${css(p.color)}"></span>
       <span class="nm">${esc(p.name)}${id === pid ? ' (you)' : ''}${p.isBot ? ' 🤖' : ''}</span><span class="stat">${esc(r.stats[id] || '')}</span><span class="gain">${r.awards[id] ? '+' + r.awards[id] + ' 🏆' : ''}</span></div>`;
   }
   if ($('resBody').dataset.k !== S.v + '') { $('resBody').innerHTML = html || '<div class="ph-sub">No placements.</div>'; $('resBody').dataset.k = S.v; }
@@ -946,6 +948,9 @@ $('connReport').onclick = async () => {
   $('connReport').disabled = false;
   try { await navigator.clipboard.writeText(text); toast('Connection report copied', 'good'); } catch { prompt('Copy this report:', text); }
 };
+$('chatOpen').onclick = () => { if (S) openChat(); };
+// Home: a strip of every game in the arcade
+$('homeGames').innerHTML = GAMES.filter((g) => !g.hidden).map((g) => `<div class="hg" title="${esc(g.name)}: ${esc(g.tagline)}"><img src="${g.thumbnail}" alt=""><span>${esc(g.name)}</span></div>`).join('');
 // Handy for debugging and for the automated tests.
 window.__hub = {
   get state() { return S; }, get pid() { return pid; }, get net() { return net; }, get runtime() { return runtime; }, get screen() { return screen; },
