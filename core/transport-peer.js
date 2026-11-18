@@ -37,6 +37,7 @@ let iceReady = null;
 // Fetch fresh TURN logins once per page (3 s limit: without them we still connect directly or via the MQTT relay).
 export function loadIceServers() {
   if (iceReady) return iceReady;
+  if (TURN.servers?.length) { ICE_SERVERS = [STUN, ...TURN.servers]; }     // fixed logins from turn-config.js
   if (!TURN.app || !TURN.apiKey) return (iceReady = Promise.resolve(ICE_SERVERS));
   const url = `https://${TURN.app}.metered.live/api/v1/turn/credentials?apiKey=${encodeURIComponent(TURN.apiKey)}`;
   iceReady = Promise.race([
@@ -46,7 +47,7 @@ export function loadIceServers() {
     .catch((e) => { console.warn('TURN servers unavailable:', e.message); return ICE_SERVERS; });
   return iceReady;
 }
-export const turnConfigured = () => !!(TURN.app && TURN.apiKey);
+export const turnConfigured = () => !!((TURN.app && TURN.apiKey) || TURN.servers?.length);
 
 function peerOptions() {
   // ?peer=host:port points at a self-hosted PeerJS server (used by the automated tests).
@@ -128,7 +129,7 @@ async function iceInfo(pc) {
 // relay = that TURN server works. host only = UDP to the internet is blocked here.
 export async function iceCheck(ms = 3500) {
   await loadIceServers();
-  const out = [turnConfigured() ? `TURN account: ${TURN.app} (${ICE_SERVERS.length - 1} server entries loaded)` : 'TURN account: none set up'];
+  const out = [turnConfigured() ? `TURN account: ${TURN.app || 'fixed logins'} (${ICE_SERVERS.length - 1} TURN entries)` : 'TURN account: none set up'];
   const one = async (server, url) => {
     let pc;
     try { pc = new RTCPeerConnection({ iceServers: [{ ...server, urls: url }], iceTransportPolicy: 'all' }); } catch (e) { return `${url}: invalid (${e.name})`; }
