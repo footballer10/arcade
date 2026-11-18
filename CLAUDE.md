@@ -8,7 +8,7 @@ connected while the host switches between 3D games. Hosted on GitHub Pages at
 Start from `games/_template` (Coin Grab). That template is **hidden from players**: it only appears in the lobby with `?dev=1` (used by developers and the tests). One game per session.
 
 ## Hard rules
-- 100% free: static files on GitHub Pages; Three.js `0.160.0` and PeerJS `1.5.4` from jsDelivr via the import map in `index.html`; the public PeerJS server; free public MQTT brokers (broker.emqx.io, broker.hivemq.com, test.mosquitto.org, mqtt.eclipseprojects.io) as the connection fallback. No build step, no npm to play, no paid services, no API keys, no accounts.
+- 100% free: static files on GitHub Pages; Three.js `0.160.0` and PeerJS `1.5.4` from jsDelivr via the import map in `index.html`; the public PeerJS server; free public MQTT brokers (broker.emqx.io, broker.hivemq.com, test.mosquitto.org, mqtt.eclipseprojects.io) as the connection fallback. No build step, no npm to play, no paid services, no accounts for players. The one exception (approved by the owner): a free Metered TURN account in `core/turn-config.js` (front-end-safe credential key only, never the Secret Key).
 - **Relative paths only** (the site lives under `/arcade/`). Import other core files as `../../core/x.js` from a game.
 - Never reload the page or touch the party connection from a game. Games talk only through `ctx`. Keep network traffic modest (≈20 Hz snapshots, compact data): some players are on the slower relay (~200 ms round trip, jittery).
   Games must stay fun at that: predict your own player locally, never wait on the host for your own movement, and draw
@@ -28,7 +28,8 @@ core/net.js         PartyNet: party connection behind a transport interface; hos
                     rejoin after refresh / Wi-Fi drop; per-round game channels (makeChannel → ctx.net)
 core/transport-dual.js   the online transport every party uses: direct WebRTC and the relay tried at the same time
                          (direct preferred); a failed join offers "Copy details" with both reasons + a server check
-core/transport-peer.js   PeerJS/WebRTC transport (reliable JSON 'ctrl' + unreliable binary 'fast' channel; free STUN/TURN)
+core/transport-peer.js   PeerJS/WebRTC transport (reliable JSON 'ctrl' + unreliable binary 'fast' channel; public STUN +
+                         TURN logins fetched from the Metered account in core/turn-config.js)
 core/transport-relay.js  backup relay: party messages through free public MQTT brokers over wss (core/mqtt.js), for
                          networks / managed laptops that block WebRTC. Lobby tags those players "relay"
 core/transport-local.js  BroadcastChannel transport: tabs of one browser, no internet (?net=local)

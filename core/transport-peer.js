@@ -3,6 +3,7 @@
 // Implements the transport interface described in core/net.js.
 
 import { everySecond } from './keepalive.js';
+import { TURN } from './turn-config.js';
 const PREFIX = 'fb10-partyhub-';
 let PeerCls = null;
 async function loadPeer() {
@@ -28,15 +29,24 @@ if (window.RTCPeerConnection && !RTCPeerConnection.prototype.__phPatched) {
   RTCPeerConnection.prototype.__phPatched = true;
 }
 
-// Free public STUN + TURN (relay) servers. Players on different networks (school / office Wi-Fi, strict home
-// routers) often can't connect directly; a TURN relay carries the traffic instead. Several are listed so one being
-// down doesn't matter. All are free and need no account.
-const ICE_SERVERS = [
-  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
-  { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'], username: 'peerjs', credential: 'peerjsp' },
-  { urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443', 'turns:openrelay.metered.ca:443?transport=tcp'], username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: ['turn:freestun.net:3478'], username: 'free', credential: 'free' },
-];
+// Public STUN servers (find our internet address) + the TURN relay from core/turn-config.js, if one is set up.
+// (The old no-account TURN servers — PeerJS, Open Relay static logins, freestun — no longer answer, so they're gone.)
+const STUN = { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] };
+let ICE_SERVERS = [STUN];
+let iceReady = null;
+// Fetch fresh TURN logins once per page (3 s limit: without them we still connect directly or via the MQTT relay).
+export function loadIceServers() {
+  if (iceReady) return iceReady;
+  if (!TURN.app || !TURN.apiKey) return (iceReady = Promise.resolve(ICE_SERVERS));
+  const url = `https://${TURN.app}.metered.live/api/v1/turn/credentials?apiKey=${encodeURIComponent(TURN.apiKey)}`;
+  iceReady = Promise.race([
+    fetch(url).then((r) => (r.ok ? r.json() : Promise.reject(new Error('TURN ' + r.status)))),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('TURN timeout')), 3000)),
+  ]).then((list) => { if (Array.isArray(list) && list.length) ICE_SERVERS = [STUN, ...list.filter((s) => String([].concat(s.urls)[0]).startsWith('turn'))]; return ICE_SERVERS; })
+    .catch((e) => { console.warn('TURN servers unavailable:', e.message); return ICE_SERVERS; });
+  return iceReady;
+}
+export const turnConfigured = () => !!(TURN.app && TURN.apiKey);
 
 function peerOptions() {
   // ?peer=host:port points at a self-hosted PeerJS server (used by the automated tests).
@@ -117,7 +127,8 @@ async function iceInfo(pc) {
 // For each server: gather candidates for a few seconds. srflx = STUN works (we know our public address),
 // relay = that TURN server works. host only = UDP to the internet is blocked here.
 export async function iceCheck(ms = 3500) {
-  const out = [];
+  await loadIceServers();
+  const out = [turnConfigured() ? `TURN account: ${TURN.app} (${ICE_SERVERS.length - 1} server entries loaded)` : 'TURN account: none set up'];
   const one = async (server, url) => {
     let pc;
     try { pc = new RTCPeerConnection({ iceServers: [{ ...server, urls: url }], iceTransportPolicy: 'all' }); } catch (e) { return `${url}: invalid (${e.name})`; }
@@ -142,6 +153,7 @@ export class PeerTransport {
   roomAddr(code) { return PREFIX + 'room-' + code; }
   async _openPeer(id) {
     const P = await loadPeer();
+    await loadIceServers();
     return new Promise((res, rej) => {
       const p = id ? new P(id, peerOptions()) : new P(peerOptions());
       const t = setTimeout(() => { p.destroy(); rej(Object.assign(new Error('Could not reach the PeerJS server'), { type: 'network' })); }, 12000);
