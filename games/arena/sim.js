@@ -9,7 +9,7 @@ export const ZONE_STAGES = [20, 15.5, 11.5, 8, 4.5];
 export const SUDDEN_DEATH = 150; // after this, zone collapses to 0 over 20s
 export const MAX_PLAYERS = 8;
 export const TICK_RATE = 60;
-export const MAX_REWIND = 18; // ticks (300 ms) of lag compensation
+export const MAX_REWIND = 27; // ticks (450 ms) of lag compensation: covers players on the relay (~200 ms ping + smoothing delay)
 export const MAX_AMMO = 3;
 // Global balance knobs: lower dmg = longer rounds.
 export const TUNE = { dmg: 0.7, kb: 1 };
@@ -121,11 +121,14 @@ export const MUT_KEYS = Object.keys(MUTATORS);
 export const MUT = { key: 'none' }; // the mutator active this round (clients set it from snapshots)
 export const cdRate = () => (MUT.key === 'turbo' ? 2 : 1);
 
-export const POWERUPS = ['speed', 'shield', 'dmg', 'heal', 'giant'];
-export const DASH_CD = 1.4;
+export const POWERUPS = ['speed', 'shield', 'dmg', 'heal', 'giant', 'cube'];
+// Cubes spawn far more often than the other power-ups (Brawl Stars Showdown style): a weighted pool to pick from.
+export const PU_SPAWN_POOL = ['cube', 'cube', 'cube', 'speed', 'shield', 'dmg', 'heal', 'giant'];
 export const BOO_CD = 4;
-const DASH_SPEED = 24;
-const KB_DECAY = 3.2;
+// Movement feel (tunable: see tuning.js).
+export const MOVE = { DASH_CD: 1.4, DASH_SPEED: 24, KB_DECAY: 3.2 };
+// Power cubes: permanent stacking buffs for the round (tunable: see tuning.js).
+export const CUBE = { MAX: 5, HP_PCT: 0.12, DMG_PCT: 0.08 };
 export const TELEPORT_MAX = 7;
 export const BOMB_RANGE = 10;
 export const WELL_RANGE = 9;
@@ -191,7 +194,7 @@ export function integrate(p, inp, dt, speedMul = 1) {
   const k = Math.min(1, dt * (MAP.slip ? 2.4 : 14));
   p.mvx += (mx * spd * control - p.mvx) * k;
   p.mvz += (mz * spd * control - p.mvz) * k;
-  const kd = Math.exp(-dt * KB_DECAY); p.kbx *= kd; p.kbz *= kd;
+  const kd = Math.exp(-dt * MOVE.KB_DECAY); p.kbx *= kd; p.kbz *= kd;
   if (charging) {
     p.chargeT -= dt;
     if (p.chargeT <= 0) { p.dvx *= 0.35; p.dvz *= 0.35; }
@@ -206,8 +209,8 @@ export function applyDash(p, inp) {
   let dx = inp.mx || 0, dz = inp.mz || 0;
   const l = Math.hypot(dx, dz);
   if (l < 0.1) { dx = Math.cos(p.aim); dz = Math.sin(p.aim); } else { dx /= l; dz /= l; }
-  p.dvx = dx * DASH_SPEED; p.dvz = dz * DASH_SPEED;
-  p.dashCd = DASH_CD;
+  p.dvx = dx * MOVE.DASH_SPEED; p.dvz = dz * MOVE.DASH_SPEED;
+  p.dashCd = MOVE.DASH_CD;
   p.invT = 0.15;
 }
 
@@ -227,6 +230,7 @@ const FRESH = () => ({
   mvx: 0, mvz: 0, kbx: 0, kbz: 0, dvx: 0, dvz: 0,
   atkCd: 0, dashCd: 0, spCd: 0, slamT: 0, blastT: 0, chargeT: 0, chargeHit: [], invT: 0, hitT: 0, swingT: 0, bumpT: 0, sweepT: 0,
   ammo: MAX_AMMO, shield: 0, shieldT: 0, speedT: 0, dmgT: 0, slowT: 0, giantT: 0,
+  cubes: 0, baseHp: 100,
   lastHitBy: null, lastHitT: -99, placement: 0, hist: [],
 });
 
@@ -261,7 +265,7 @@ export class Sim {
   addPlayer({ id, name, char, isBot, color, n }) {
     const p = {
       ...FRESH(), id, name, char: CHARS[char] ? char : 'blaster', isBot: !!isBot, color: color ?? 0, n: n ?? this.players.size,
-      aim: 0, wins: 0, kills: 0, dmg: 0, falls: 0, dashSeq: 0, spSeq: 0, ack: 0, rw: 0,
+      aim: 0, wins: 0, kills: 0, dmg: 0, falls: 0, cubesTotal: 0, dashSeq: 0, spSeq: 0, ack: 0, rw: 0,
     };
     this.players.set(id, p);
     return p;
@@ -282,6 +286,9 @@ export class Sim {
         for (const k of ['x', 'z', 'y', 'aim', 'hp', 'maxHp', 'alive', 'falling', 'ghost', 'mvx', 'mvz', 'kbx', 'kbz', 'dvx', 'dvz', 'dashCd', 'spCd', 'slamT', 'blastT', 'chargeT', 'invT', 'ammo', 'shield', 'speedT', 'dmgT', 'slowT', 'giantT', 'wins', 'kills', 'dmg', 'falls', 'placement']) if (sp[k] !== undefined) p[k] = sp[k];
         if (p.shield > 0) p.shieldT = 8;
         if (p.falling) { p.fallT = 0.3; p.pit = holeAt(p.x, p.z); }
+        // cubes/baseHp aren't in the wire snapshot; rebuild them from maxHp, which is.
+        p.baseHp = CHARS[p.char].hp;
+        p.cubes = Math.max(0, Math.min(CUBE.MAX, Math.round((p.maxHp / p.baseHp - 1) / CUBE.HP_PCT)));
       }
     }
     for (const b of s.proj) {
@@ -294,7 +301,7 @@ export class Sim {
   }
 
   startMatch() {
-    for (const p of this.players.values()) { p.wins = 0; p.kills = 0; p.dmg = 0; p.falls = 0; }
+    for (const p of this.players.values()) { p.wins = 0; p.kills = 0; p.dmg = 0; p.falls = 0; p.cubesTotal = 0; }
     this.round = 0;
     this.matchWinner = null;
     this.startRound();
@@ -323,7 +330,7 @@ export class Sim {
     list.forEach((p, i) => {
       const a = off + (slots[i] / list.length) * Math.PI * 2;
       const ch = CHARS[p.char];
-      Object.assign(p, FRESH(), { x: Math.cos(a) * 14, z: Math.sin(a) * 14, aim: a + Math.PI, hp: ch.hp, maxHp: ch.hp, alive: true });
+      Object.assign(p, FRESH(), { x: Math.cos(a) * 14, z: Math.sin(a) * 14, aim: a + Math.PI, hp: ch.hp, maxHp: ch.hp, baseHp: ch.hp, alive: true });
       for (let k = 0; k < 3; k++) collideObstacles(p);
       p.kbx = p.kbz = 0;
       if (inHole(p.x, p.z)) { p.x *= 0.8; p.z *= 0.8; }
@@ -610,6 +617,7 @@ export class Sim {
     let dm = TUNE.dmg * (MUT.key === 'glass' ? 3 : 1), km = TUNE.kb * (MUT.key === 'knockback' ? 1.8 : 1);
     if (attacker && attacker.dmgT > 0) { dm *= 1.5; km *= 1.2; }
     if (attacker && attacker.giantT > 0) { dm *= 1.3; km *= 1.3; }
+    if (attacker && attacker.cubes) dm *= 1 + attacker.cubes * CUBE.DMG_PCT;
     if (q.giantT > 0) km *= 0.5;
     if (q.chargeT > 0) km = 0; // a stampeding Ram can't be pushed around
     dmg *= dm;
@@ -739,7 +747,7 @@ export class Sim {
   pull(q, x, z, stopShort, owner) {
     const dx = x - q.x, dz = z - q.z, d = Math.hypot(dx, dz);
     if (d < stopShort + 0.3) return;
-    const v = (d - stopShort) * KB_DECAY;
+    const v = (d - stopShort) * MOVE.KB_DECAY;
     q.kbx = (dx / d) * v; q.kbz = (dz / d) * v; q.mvx = q.mvz = 0;
     if (q === owner) q.invT = Math.max(q.invT, 0.15);
     this.fx.push({ k: 'hooked', x: r2(q.x), z: r2(q.z), x1: r2(x), z1: r2(z), id: owner.id, self: q === owner ? 1 : 0 });
@@ -771,7 +779,7 @@ export class Sim {
           const x = Math.cos(a) * d, z = Math.sin(a) * d;
           if (OBSTACLES.some((o) => Math.hypot(x - o.x, z - o.z) < o.r + 1)) continue;
           if (HOLES.some((h) => Math.hypot(x - h.x, z - h.z) < h.r + 1)) continue;
-          this.pu.push({ id: this.nextPu++, type: POWERUPS[Math.floor(Math.random() * POWERUPS.length)], x, z, life: 20 });
+          this.pu.push({ id: this.nextPu++, type: PU_SPAWN_POOL[Math.floor(Math.random() * PU_SPAWN_POOL.length)], x, z, life: 20 });
           break;
         }
       }
@@ -789,6 +797,12 @@ export class Sim {
           else if (u.type === 'dmg') p.dmgT = 8;
           else if (u.type === 'heal') p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.4);
           else if (u.type === 'giant') p.giantT = 8;
+          else if (u.type === 'cube' && p.cubes < CUBE.MAX) {
+            p.cubes++; p.cubesTotal++;
+            const old = p.maxHp;
+            p.maxHp = p.baseHp * (1 + p.cubes * CUBE.HP_PCT);
+            p.hp = Math.min(p.maxHp, p.hp + (p.maxHp - old));
+          }
           this.fx.push({ k: 'pickup', id: p.id, type: u.type, x: r2(u.x), z: r2(u.z) });
           taken = true; break;
         }

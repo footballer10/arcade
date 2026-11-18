@@ -8,11 +8,13 @@
 // so a new host after migration continues from the last one it saw.
 import * as THREE from 'three';
 import { buildTrack, clearTrackCache, TRACK_IDS, TRACKS, worldPos, wrapS } from './tracks.js';
+import './tuning.js';
 import { FIXED, C, KEYS, EV, CLASSES, newShip, step, collide, order, lapOf, tierOf, TIER_AT, chainMult, NO_INPUT } from './physics.js';
 import { newBrain, botInput } from './bots.js';
 import { createWorld } from './render.js';
 import { ShipKit, Trail, Sparks, TIER_COLORS } from './ships.js';
 import { NeonAudio } from './audio.js';
+import { AdaptiveDelay } from '../../core/interp.js';
 export { manifest } from './manifest.js';
 
 const SNAP_EVERY = 3;            // host steps per snapshot (20 Hz)
@@ -115,6 +117,9 @@ export async function start(ctx) {
   let seq = 0; const hist = [];
   const snaps = [];                          // [{t, at, st:[ship states]}]
   let lastSnapAt = 0, lastSnapT = 0;
+  // Remote ships are drawn on the host's race clock (hostOff: our clock -> race time, from the fastest snapshots),
+  // a little in the past; the delay grows on a jittery link (relay) so bunched snapshots don't cause stutter.
+  let hostOff = null; const interpDelay = new AdaptiveDelay({ min: INTERP, start: INTERP, interval: 0.05 });
   const corr = new THREE.Vector3();          // visual error offset after reconciliation
   const env = { track, laps: KO ? 99 : laps, t: 0, others: ships };
   let koDone = 0;
@@ -266,7 +271,13 @@ export async function start(ctx) {
     }
     const snap = { t: f[2], at: performance.now(), endIn: f[3], phase: f[4], firstFin: f[5], st };
     if (snaps.length && snap.t < snaps[snaps.length - 1].t) return;   // out of order
+    const prevT = snaps.length ? snaps[snaps.length - 1].t : null;
     snaps.push(snap); if (snaps.length > 30) snaps.shift();
+    if (prevT !== null && snap.t > prevT) {          // only while the race clock runs
+      const off = snap.t - snap.at / 1000;
+      hostOff = hostOff == null || off > hostOff ? off : hostOff + (off - hostOff) * 0.04;
+      interpDelay.observe(snap.at / 1000 + hostOff - snap.t);
+    } else if (prevT !== null && snap.t === prevT) hostOff = null;
     lastSnapAt = snap.at; lastSnapT = snap.t; endIn = snap.endIn; phase = snap.phase; firstFin = snap.firstFin;
     raceT = Math.max(raceT, snap.t);
     // other ships: keep the latest state (used for slipstream + HUD); remote events -> effects
@@ -361,7 +372,7 @@ export async function start(ctx) {
       return out;
     }
     // remote ship on a client: interpolate the snapshot buffer
-    const rt = lastSnapT + (performance.now() - lastSnapAt) / 1000 - INTERP;
+    const rt = hostOff != null ? performance.now() / 1000 + hostOff - interpDelay.value : lastSnapT + (performance.now() - lastSnapAt) / 1000 - INTERP;
     let A = null, B = null;
     for (let k = snaps.length - 1; k >= 0; k--) if (snaps[k].t <= rt) { A = snaps[k]; B = snaps[k + 1] || null; break; }
     if (!A) { A = snaps[0]; B = null; }

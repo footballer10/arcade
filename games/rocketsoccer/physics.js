@@ -11,6 +11,7 @@ export const C = {
   HX: 1.1, HY: 0.5, HZ: 1.55, REST: 0.86,   // car hitbox half extents (x width, y height, z length), ride height
   DRIVE_MAX: 25, MAX: 42, SUPER: 38,         // top speed on throttle / absolute cap / supersonic (demolishes)
   THROTTLE: 40, BRAKE: 45, COAST: 6, GRIP: 14, STICK: 9,
+  TURN_RATE: 4.5, STEER_RAMP: 5.5,           // ground turn rate at low speed / how fast a held steer key reaches full lock
   BOOST_ACC: 30, BOOST_USE: 33, BOOST_START: 34,
   JUMP_V: 8.6, JUMP_HOLD: 26, JUMP_HOLD_T: 0.2, DJ_WINDOW: 1.45, DODGE_V: 11.5, FLIP_T: 0.62,
   PITCH: 5.2, YAW: 3.6, ROLL: 3.2, AIR_RESP: 9,
@@ -76,13 +77,13 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const len3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 
 // --------------------------------------------------------------------- state
-export const CAR_KEYS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'qx', 'qy', 'qz', 'qw', 'wx', 'wy', 'wz', 'boost', 'gnd', 'jt', 'jh', 'jhold', 'dj', 'ft', 'demo', 'tt', 'hc', 'bst', 'inp', 'st'];
+export const CAR_KEYS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'qx', 'qy', 'qz', 'qw', 'wx', 'wy', 'wz', 'boost', 'gnd', 'jt', 'jh', 'jhold', 'dj', 'ft', 'demo', 'tt', 'hc', 'bst', 'inp', 'st', 'sk'];
 export const BALL_KEYS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'wx', 'wy', 'wz'];
 export const HDR = 12;   // [magic, tick, phase, pt, clock, ot, sA, sB, nCars, nPads, lastTouch, flags]
 export const MAGIC = 77;
 
 export function newCar(team) {
-  return { team, x: 0, y: C.REST, z: 0, vx: 0, vy: 0, vz: 0, qx: 0, qy: 0, qz: 0, qw: 1, wx: 0, wy: 0, wz: 0, boost: C.BOOST_START, gnd: 1, jt: -1, jh: 0, jhold: 0, dj: 0, ft: 0, demo: 0, tt: 0, hc: 0, bst: 0, inp: 0, st: 0, px: 0, py: 0, pz: 0 };
+  return { team, x: 0, y: C.REST, z: 0, vx: 0, vy: 0, vz: 0, qx: 0, qy: 0, qz: 0, qw: 1, wx: 0, wy: 0, wz: 0, boost: C.BOOST_START, gnd: 1, jt: -1, jh: 0, jhold: 0, dj: 0, ft: 0, demo: 0, tt: 0, hc: 0, bst: 0, inp: 0, st: 0, sk: 0, px: 0, py: 0, pz: 0 };
 }
 export function newWorld(A, teams) {
   const cars = teams.map((t) => newCar(t));
@@ -133,7 +134,10 @@ function stepCar(W, c, i) {
       const vsd = c.vx * sx + c.vy * sy + c.vz * sz, spT = Math.hypot(vf, vsd);
       // brake-turn (handbrake): S + steer while rolling forward. The body whips round fast, the car skids and
       // sheds speed, and you come out facing the new way. Ends once you are facing back the way you came.
-      const skid = t < 0 && inp.x && spT > 4 && vf > -0.96 * spT;
+      // (needs ~0.15 s of S + steer at real speed, so an ordinary brake into a corner doesn't trigger it)
+      const wantSkid = t < 0 && inp.x && vf > -0.96 * spT && (spT > 9 || (c.sk > 0.15 && spT > 3));
+      c.sk = wantSkid ? c.sk + DT : 0;
+      const skid = wantSkid && c.sk > 0.15;
       let acc = 0;
       if (skid) {
         const k = Math.max(0, 1 - (C.BRAKE * 0.75 * DT) / spT);   // scrub total speed
@@ -148,10 +152,10 @@ function stepCar(W, c, i) {
       }
       // steering: turn the car and its velocity about the surface normal
       const sp = Math.abs(vf), dir = vf < -0.5 ? -1 : vf > 0.5 ? 1 : t || 1;
-      // steering ramps up over ~0.12 s, so taps make small corrections and a held key turns hard
-      c.st += (inp.x - c.st) * Math.min(1, 9 * DT);
+      // steering ramps up over ~0.3 s (taps = small, precise corrections, a held key = full lock) and lets go quickly
+      c.st += (inp.x - c.st) * Math.min(1, (inp.x === 0 || inp.x * c.st < 0 ? 16 : wantSkid ? 14 : C.STEER_RAMP) * DT);
       if (Math.abs(c.st) < 0.002) c.st = 0;
-      let rate = -c.st * dir * Math.min(1, (sp + 2) / 4) * (5.4 - Math.min(sp, C.MAX) * 0.05);
+      let rate = -c.st * dir * Math.min(1, (sp + 2) / 4) * (C.TURN_RATE - Math.min(sp, C.MAX) * 0.05);
       if (skid) rate = -c.st * 6.8;
       if (rate) { qpre(c, nx, ny, nz, rate * DT); rotVel(c, nx, ny, nz, rate * DT * (skid ? 0.3 : 1)); }
       // tyre grip kills sideways sliding
@@ -285,7 +289,7 @@ function carSurface(W, c, i, inp, pressed) {
 export function respawn(W, c, i) {
   const A = W.A, slot = W.cars.filter((o, k) => k < i && o.team === c.team).length % A.respawn.length;
   const [x, z] = A.respawn[slot], s = c.team === 0 ? 1 : -1;
-  Object.assign(c, { x: x * s, y: C.REST, z: z * s, vx: 0, vy: 0, vz: 0, wx: 0, wy: 0, wz: 0, gnd: 1, jt: -1, dj: 0, ft: 0, tt: 0, jhold: 0, boost: C.BOOST_START, demo: 0, st: 0 });
+  Object.assign(c, { x: x * s, y: C.REST, z: z * s, vx: 0, vy: 0, vz: 0, wx: 0, wy: 0, wz: 0, gnd: 1, jt: -1, dj: 0, ft: 0, tt: 0, jhold: 0, boost: C.BOOST_START, demo: 0, st: 0, sk: 0 });
   setFacing(c, c.team === 0 ? 0 : Math.PI);
   c.px = c.x; c.py = c.y; c.pz = c.z;
 }
@@ -453,13 +457,14 @@ export function kickoff(W, rng) {
     const idx = W.cars.map((c, i) => (c.team === team ? i : -1)).filter((i) => i >= 0);
     idx.forEach((ci, k) => {
       const c = W.cars[ci], [x, z] = A.kick[order[k % 5]], s = team === 0 ? 1 : -1;
-      Object.assign(c, { x: x * s, y: C.REST, z: z * s, vx: 0, vy: 0, vz: 0, wx: 0, wy: 0, wz: 0, gnd: 1, jt: -1, dj: 0, ft: 0, tt: 0, jhold: 0, demo: 0, hc: 0, boost: C.BOOST_START, bst: 0, st: 0 });
+      Object.assign(c, { x: x * s, y: C.REST, z: z * s, vx: 0, vy: 0, vz: 0, wx: 0, wy: 0, wz: 0, gnd: 1, jt: -1, dj: 0, ft: 0, tt: 0, jhold: 0, demo: 0, hc: 0, boost: C.BOOST_START, bst: 0, st: 0, sk: 0 });
       setFacing(c, Math.atan2(-c.x, -c.z));
       c.px = c.x; c.py = c.y; c.pz = c.z;
     });
   }
   W.pads.fill(0);
   W.phase = PH.KICK; W.pt = KICK_T; W.lastTouch = -1;
+  W.kickN = (W.kickN || 0) + 1;   // host-only counter: lets bots pick a fresh kickoff plan each time
 }
 
 // --------------------------------------------------------------------- pack / unpack (snapshots, replays)

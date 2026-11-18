@@ -3,6 +3,7 @@
 // → results (+trophies) → lobby. Games are loaded with import() and unloaded when done; the page never reloads.
 import * as THREE from 'three';
 import { PartyNet, randomCode } from './net.js';
+import { iceCheck } from './transport-peer.js';
 import { settings, store } from './settings.js';
 import { audio, startMusic, stopMusic } from './audio.js';
 import { input, CONTROL_MAP } from './input.js';
@@ -12,6 +13,7 @@ import { PALETTE, css } from './palette.js';
 import { makeBot, BOT_LEVELS } from './bots.js';
 import { randomSeed } from './rng.js';
 import { GameRuntime, liveStats } from './runtime.js';
+import { DEV_HOST } from './tune.js';
 import { GAMES, GAME_MAP, loadGame } from '../games/registry.js';
 
 const params = new URLSearchParams(location.search);
@@ -33,6 +35,7 @@ try { // "Duplicate tab" copies sessionStorage: make sure no other open tab uses
 
 // ---------------------------------------------------------------- state
 let net = null;          // PartyNet for the current party
+let lastFail = '';       // what went wrong in the last failed join (Copy details)
 let S = null;            // party state (host: authoritative; clients: mirror of the host's)
 let runtime = null, mountingRound = null, pings = {};
 const chat = [];
@@ -231,7 +234,7 @@ function setUrl(code, kind) {
   const q = new URLSearchParams();
   if (code) q.set('room', code);
   if (kind === 'local') q.set('net', 'local');
-  for (const k of ['peer', 'relay', 'forcerelay', 'dev', 'testfps', 'netlog']) if (params.get(k) !== null) q.set(k, params.get(k));
+  for (const k of ['peer', 'relay', 'forcerelay', 'dev', 'testfps', 'netlog', 'portal']) if (params.get(k) !== null) q.set(k, params.get(k));
   history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : ''));
 }
 function shareLink() {
@@ -269,14 +272,18 @@ async function joinParty(code, quiet = false) {
   const kind = netKind();
   net = newNet(kind);
   const stage = (st) => { if (!quiet) homeMsg(st === 'server' ? 'Connecting to the game server…' : `Connecting to party ${code}… (can take up to 20 s on some networks)`); };
+  $('failReport').classList.add('hidden');
   try { await net.join(code, { ...profile(), rejoin: !!ss.get(SESSION_KEY) }, stage); } catch (e) {
+    lastFail = [`Join failed: party ${code} at ${new Date().toISOString()}`, `error: ${e.type || ''} ${e.reason || e.message || ''}`,
+      `direct link: ${net.t?.peerOk === false ? 'server UNREACHABLE' : e.directErr || (e.ice ? `${e.type} · ${e.ice}` : '-')}`,
+      `relay: ${net.t?.relayOk === false ? 'no relay server reachable' : e.relayErr || '-'} · servers: ${net.t?.relayInfo?.() || '-'}`, `browser: ${navigator.userAgent}`].join('\n');
     net.leave(); net = null; busy(false);
     const msg = e.reason
       || (e.type === 'peer-unavailable' ? `No party with code ${code}. Check the code, and make sure the host still has the game open.`
-      : e.type === 'timeout' || e.type === 'closed' ? `Found party ${code} but couldn't connect to it. One of your networks is probably blocking peer-to-peer games (common on school / work Wi-Fi). Try again, or try a different network such as a phone hotspot.`
+      : e.type === 'timeout' || e.type === 'closed' || e.type === 'ice-failed' ? `Found party ${code} but couldn't connect to it: neither the direct link nor the backup relay got through. Try again in a moment. If it keeps happening, press Copy details and send it to whoever looks after the arcade.`
       : e.type === 'network' || e.type === 'server-error' || e.type === 'socket-error' ? 'Could not reach the game server. Check your internet connection and try again.'
       : 'Could not join: ' + (e.message || e.type));
-    if (!quiet) homeMsg(msg);
+    if (!quiet) { homeMsg(msg); if (!e.reason) $('failReport').classList.remove('hidden'); }
     return e.reason ? 'rejected' : false;
   }
   busy(false); homeMsg('');
@@ -679,10 +686,23 @@ setInterval(() => {
 }, 50);
 
 // ---------------------------------------------------------------- lobby rendering
+// Connection status under the party code: the host sees whether friends can reach the party right now.
+function netBadgeSync() {
+  if (!net || !S) return;
+  let t;
+  if (net.kind === 'local') t = '⚠ Offline party: the game server could not be reached, so friends can\'t join (bots only)';
+  else if (isHost()) {
+    const r = net.t.reachable?.() || { direct: true, relay: 0 };
+    t = r.direct || r.relay ? `🌐 Friends can join with the code or link · direct ${r.direct ? '✔' : '✖'} · relay ${r.relay ? '✔ (' + r.relay + ')' : '✖'}`
+      : '⚠ Friends can\'t reach this party right now: reconnecting to the servers…';
+  } else t = net.via === 'relay' ? '🐢 Connected through the backup relay (slower) · trying the direct link in the background' : '🌐 Connected directly to the host';
+  if ($('netBadge').textContent !== t) $('netBadge').textContent = t;
+}
+setInterval(() => { if (screen === 'lobby') netBadgeSync(); }, 2000);
 function renderLobby() {
   const host = isHost(), m = me();
   $('roomCode').textContent = S.code;
-  $('netBadge').textContent = net.kind === 'local' ? '⚠ Offline party: the game server could not be reached, so friends can\'t join (bots only)' : '🌐 Online: friends join with the code or link';
+  netBadgeSync();
   $('playerList').innerHTML = S.players.map((p) => {
     const tags = [];
     if (p.id === S.hostId) tags.push('<span class="ph-tag gold">HOST</span>');
@@ -912,8 +932,30 @@ async function boot() {
 }
 boot();
 
+// Both reports end with a quick check of which free STUN/TURN servers work from this computer (~4 s).
+async function withIceCheck(text) { try { return text + '\nconnection servers from this computer:\n  ' + (await iceCheck()).join('\n  '); } catch (e) { return text + '\n(server check failed: ' + e.message + ')'; } }
+$('failReport').onclick = async () => {
+  $('failReport').disabled = true; $('failReport').textContent = '⏳ Checking connection…';
+  const text = await withIceCheck(lastFail || 'No failed join recorded.');
+  $('failReport').disabled = false; $('failReport').textContent = '📋 Copy details';
+  try { await navigator.clipboard.writeText(text); toast('Details copied', 'good'); } catch { prompt('Copy this:', text); }
+};
+$('connReport').onclick = async () => {
+  $('connReport').disabled = true;
+  const text = await withIceCheck(net ? net.report() : (lastFail || 'Not in a party yet: join or create one, then copy the report.'));
+  $('connReport').disabled = false;
+  try { await navigator.clipboard.writeText(text); toast('Connection report copied', 'good'); } catch { prompt('Copy this report:', text); }
+};
 // Handy for debugging and for the automated tests.
 window.__hub = {
   get state() { return S; }, get pid() { return pid; }, get net() { return net; }, get runtime() { return runtime; }, get screen() { return screen; },
-  act, liveStats, leaveParty,
+  act, liveStats, leaveParty, netReport: () => net?.report(),
 };
+
+// Developer tuning portal: only on this computer (localhost) and only with ?portal=1. See docs/PORTAL.md.
+if (DEV_HOST && params.has('portal')) {
+  import('./portal.js').then((m) => m.initPortal({
+    act, GAME_MAP, get state() { return S; }, get pid() { return pid; },
+    solo: () => $('soloBtn').onclick(),
+  })).catch((e) => console.error('portal failed to load', e));
+}

@@ -12,18 +12,24 @@ import { createRenderer, disposeObject, applyQuality } from './three-utils.js';
 import { createRng } from './rng.js';
 import { BOT_LEVELS, BotBrain } from './bots.js';
 import { css, hex } from './palette.js';
+import { applyTuning } from './tune.js';
 
-// One worker-driven ticker for the whole page: keeps host simulations running when the tab is in the background.
+// Simulation ticks. While the page is visible they run once per screen frame, right before the game draws, so
+// every frame shows exactly the newest state (a separate 60 Hz timer drifts against the screen: some frames get two
+// updates and some none, which looks like stutter). A worker-driven 60 Hz timer takes over when frames stop
+// coming (tab in the background, or a long freeze), so host simulations never pause.
 const tickFns = new Set();
-let tickWorker = null, lastTick = 0;
+let tickWorker = null, lastTick = 0, lastFrameTick = 0;
 function ensureTicker() {
   if (tickWorker) return;
   try {
     tickWorker = new Worker(URL.createObjectURL(new Blob(['setInterval(()=>postMessage(0),1000/60)'], { type: 'text/javascript' })));
-    tickWorker.onmessage = runTicks;
-  } catch { setInterval(runTicks, 1000 / 60); tickWorker = true; }
+    tickWorker.onmessage = timerTicks;
+  } catch { setInterval(timerTicks, 1000 / 60); tickWorker = true; }
   lastTick = performance.now();
 }
+function timerTicks() { if (performance.now() - lastFrameTick > 100) runTicks(); }
+function frameTicks() { lastFrameTick = performance.now(); if (tickFns.size) runTicks(); }
 function runTicks() {
   const now = performance.now(), dt = Math.min(0.25, (now - lastTick) / 1000); lastTick = now;
   for (const f of [...tickFns]) { try { f(dt, now); } catch (e) { console.error('tick failed', e); } }
@@ -39,7 +45,7 @@ export class GameRuntime extends Emitter {
     super();
     this.hub = hub; this.net = net; this.manifest = manifest; this.instance = null; this.stopped = false;
     this.timeouts = new Set(); this.intervals = new Set(); this.listeners = []; this.frames = new Set(); this.ticks = new Set();
-    this.renderers = new Set(); this.cleanups = []; this.started = false;
+    this.renderers = new Set(); this.cleanups = []; this.started = false; this.avatars = new Map();
     this.container = document.createElement('div');
     this.container.className = 'game-root'; this.container.dataset.game = manifest.id;
     document.getElementById('stage').appendChild(this.container);
@@ -58,7 +64,8 @@ export class GameRuntime extends Emitter {
       connected: (id) => hub.isConnected(id),
       net: this.channel, input: this.input, ui: this.ui, audio, settings,
       quality: () => QUALITY[settings.get('quality')] || QUALITY.high,
-      avatar: { build: buildAvatar, hat: buildHat, dispose: disposeAvatar },
+      // avatars are remembered per player so the lag tests can measure how smoothly each one moves
+      avatar: { build: (p, ...a) => { const o = buildAvatar(p, ...a); if (p?.id) rt.avatars.set(p.id, o); return o; }, hat: buildHat, dispose: disposeAvatar },
       three: {
         createRenderer: (opts) => { const r = createRenderer(this.container, opts); this.renderers.add(r); liveStats.renderers++; return r; },
         dispose: disposeObject, applyQuality,
@@ -81,6 +88,7 @@ export class GameRuntime extends Emitter {
     const loop = (now) => {
       if (this.stopped) return;
       this._raf = requestAnimationFrame(loop);
+      frameTicks();
       // While the party is re-forming (host migration / reconnect) render only ~3 fps so a slow machine's main
       // thread is free for the WebRTC handshakes. Simulation ticks (ctx.tick) keep running at full rate.
       if (hub.netBusy?.() && now - this._last < 330) return;
@@ -95,6 +103,7 @@ export class GameRuntime extends Emitter {
     liveStats.mounted++;
   }
   async start(mod) {
+    applyTuning(this.manifest.id);   // the developer portal's values (localhost only); no-op on the public site
     this.instance = (await mod.start(this.ctx)) || {};
     return this.instance;
   }
@@ -119,7 +128,7 @@ export class GameRuntime extends Emitter {
     this.channel.dispose(); this.input.dispose(); this.ui.dispose();
     this.container.remove();
     this.clearListeners();
-    this.ctx = null; this.instance = null;
+    this.ctx = null; this.instance = null; this.avatars.clear();
     liveStats.mounted--;
   }
 }

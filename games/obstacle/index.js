@@ -9,12 +9,14 @@
 // The host adopts a client's state when it is close to its own and otherwise forces a correction (auth
 // counter). Bumps, grabs, tiles, qualifying and eliminations are decided by the host.
 export { manifest } from './manifest.js';
+import './tuning.js';
 import { C, EV, setPoses, stepPlayer, separate, knock, newPlayer, syncCounters, encodeSnap, decodeSnap, groundAt, isDown } from './world.js';
 import { STAGES, planMatch, buildStage, makeWorld, spawnOf, respawnOf, quota, progressOf } from './stages.js';
 import { HostSim, standingsOf, INTRO_T } from './host.js';
 import { makeBot, botThink, resetBot } from './bots.js';
 import { createView } from './render.js';
 import { createSound } from './audio.js';
+import { SnapBuffer } from '../../core/interp.js';
 
 const SNAP_HZ = 20, SEND_HZ = 30, STEP = 1 / 60;
 const CSS = `
@@ -311,6 +313,10 @@ export async function start(ctx) {
       const big = v.tx != null && Math.hypot(r.x - v.tx, r.z - v.tz) > 4;
       v.px = big ? r.x : (v.x ?? r.x); v.py = big ? r.y : (v.y ?? r.y); v.pz = big ? r.z : (v.z ?? r.z); v.pface = v.face ?? r.face;
       v.tx = r.x; v.ty = r.y; v.tz = r.z; v.tface = r.face; v.at = now; v.span = Math.max(30, now - (v.lastAt || now - 50)); v.lastAt = now;
+      // relay-proof smoothing during play: drawn a little in the past from a timestamped buffer (core/interp.js)
+      if (!v.buf) v.buf = new SnapBuffer({ angles: ['face'] });
+      if (big || phase !== 'play') v.buf.clear();
+      if (phase === 'play') v.buf.push(s.t, { x: r.x, y: r.y, z: r.z, face: r.face }, tC);
       Object.assign(v, { vx: r.vx, vy: r.vy, vz: r.vz, flags: fl, grounded: !!(fl & 2), dive: !!(fl & 4), down: !!(fl & 8), hang: !!(fl & 16), slide: !!(fl & 128), grabIdx: r.grabIdx });
     }
   });
@@ -390,6 +396,8 @@ export async function start(ctx) {
       // others: interpolate between the last two snapshots
       for (const [id, v] of view) {
         if (id === ctx.myId && me || v.tx == null) continue;
+        const b = phase === 'play' && v.buf?.sample(tC);
+        if (b) { v.x = b.x; v.y = b.y; v.z = b.z; v.face = b.face; continue; }
         const f = Math.min(1.25, (now - v.at) / v.span);
         v.x = v.px + (v.tx - v.px) * f; v.y = v.py + (v.ty - v.py) * f; v.z = v.pz + (v.tz - v.pz) * f;
         let da = v.tface - v.pface; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2; v.face = v.pface + da * Math.min(1, f);

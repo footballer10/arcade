@@ -4,29 +4,36 @@ export const CLASSES = {
   ski: {
     label: 'Skier', turn: 2.5, drag: 0.0046, dragTuck: 0.0029, groomedBonus: 0.86,
     powderFric: 2.6, carveLoss: 0.045, jumpV: 5.0, airMult: 1.05, airBonus: 0.8,
-    spinRate: Math.PI * 2 / 0.9, flipRate: Math.PI * 2 / 1.1, landBoost: 2, trickBoost: 1.3,
+    spinRate: 6.981, flipRate: 5.712, landBoost: 2, trickBoost: 1.3,   // spin/flip in rad/s: a full spin in 0.9 s, a flip in 1.1 s
     grabs: ['Safety', 'Japan', 'Mute', 'Tail', 'Truck Driver', 'Critical'],
   },
   board: {
     label: 'Snowboarder', turn: 1.65, drag: 0.0046, dragTuck: 0.0031, groomedBonus: 1.0,
     powderFric: 1.4, carveLoss: 0.035, jumpV: 5.5, airMult: 1.2, airBonus: 2.8,
-    spinRate: Math.PI * 2 / 0.72, flipRate: Math.PI * 2 / 0.95, landBoost: 2, trickBoost: 2.3,
+    spinRate: 8.727, flipRate: 6.614, landBoost: 2, trickBoost: 2.3,   // spin 0.72 s, flip 0.95 s
     grabs: ['Indy', 'Method', 'Melon', 'Tail', 'Nose', 'Stalefish'],
   },
 };
 
-const G = 14;          // slope acceleration scale
-const GRAV = 19;       // vertical gravity
-const FRIC = 0.45;
-const BRAKE = 13;
-const VMAX = 58;
+// Ride feel (tunable: see tuning.js).
+export const PHYS = {
+  G: 14,             // slope acceleration scale
+  GRAV: 19,          // vertical gravity
+  FRIC: 0.45,
+  BRAKE: 13,
+  VMAX: 58,
+  SPIN_LIM: 1.25,    // max sideways angle you can still ride away from (~72°)
+  FLIP_LIM: 0.95,    // max over/under-rotation on a flip (~55°)
+  GRAB_MIN: 0.3,     // seconds a grab must be held to count
+  MIN_TRICK_AIR: 0.75, // a flat-ground ollie can't reach this, a kicker can
+};
 const TWO_PI = Math.PI * 2;
-const SPIN_LIM = 1.25;   // max sideways angle you can still ride away from (~72°)
-const FLIP_LIM = 0.95;   // max over/under-rotation on a flip (~55°)
-const GRAB_MIN = 0.3;    // seconds a grab must be held to count
-const MIN_TRICK_AIR = 0.75; // a flat-ground ollie can't reach this, a kicker can
 export const GRAB_KEYS = ['R', 'F', 'T', 'G', 'C', 'V'];
-export const ITEMS = [null, { name: 'Rocket', icon: '🚀' }, { name: 'Snowball', icon: '❄️' }, { name: 'Shield', icon: '🛡️' }];
+export const ITEMS = [null, { name: 'Rocket', icon: '🚀' }, { name: 'Snowball', icon: '❄️' }, { name: 'Shield', icon: '🛡️' },
+  { name: 'Ice Trap', icon: '🧊' }, { name: 'Balloon', icon: '🎈' }];
+// catch-up weighting per item, by how far back you are (0 = leading, 1 = last): rockets favor the back of the pack,
+// shields favor the leader, ice traps/balloons stay roughly flat so they're always in the mix
+const ITEM_WEIGHT = [null, (rf) => 0.22 + 0.45 * rf, () => 0.3, (rf) => 0.22 - 0.14 * rf, () => 0.16, (rf) => 0.1 + 0.05 * rf];
 const hash01 = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 
 export function newEntity(id, cls, x, z, course) {
@@ -37,7 +44,7 @@ export function newEntity(id, cls, x, z, course) {
     stance: 0, grab: 0, gt: [0, 0, 0, 0, 0, 0], airSwitch: false, grind: -1, grindT: 0, slideAng: 0, gpts: 0, gname: 0,
     // style + party
     score: 0, bestPts: 0, bestName: '', lastTrick: '', tricks: 0, butterT: 0, butterCD: 0,
-    item: 0, itemCD: 0, shieldT: 0, hitT: 0, fireId: 0, pickups: 0, rankFrac: 0.5, handicap: 1,
+    item: 0, itemCD: 0, shieldT: 0, hitT: 0, fireId: 0, dropId: 0, pickups: 0, rankFrac: 0.5, handicap: 1,
     idh: [...String(id)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 9973, 7),
   };
 }
@@ -75,7 +82,7 @@ export function trickName(e, half, flips) {
   else if (flips) parts.push(mult + (flips > 0 ? 'Frontflip' : 'Backflip'));
   else if (half) parts.push(String(Math.abs(half) * 180));
   const grabs = [];
-  P.grabs.forEach((g, i) => { if (e.gt[i] >= GRAB_MIN) grabs.push((e.gt[i] >= 0.8 ? 'Tweaked ' : '') + g); });
+  P.grabs.forEach((g, i) => { if (e.gt[i] >= PHYS.GRAB_MIN) grabs.push((e.gt[i] >= 0.8 ? 'Tweaked ' : '') + g); });
   if (grabs.length) parts.push(grabs.join(' + '));
   return parts.join(' ');
 }
@@ -83,13 +90,13 @@ export function trickName(e, half, flips) {
 // speed-boost score (small numbers) and style points (big numbers) for the current air
 function trickScore(e, half, flips) {
   let s = Math.abs(half) + Math.abs(flips) * 3;
-  for (const t of e.gt) if (t >= GRAB_MIN) s += 1 + Math.min(1, t);
+  for (const t of e.gt) if (t >= PHYS.GRAB_MIN) s += 1 + Math.min(1, t);
   if (e.airSwitch && (half || flips)) s += 0.5;
   return s + e.gpts;
 }
 function stylePoints(e, half, flips, airT) {
   let pts = Math.abs(half) * 100 + Math.abs(flips) * 450, kinds = (half ? 1 : 0) + (flips ? 1 : 0);
-  for (const t of e.gt) if (t >= GRAB_MIN) { pts += 150 + Math.min(1.5, t) * 200; kinds++; }
+  for (const t of e.gt) if (t >= PHYS.GRAB_MIN) { pts += 150 + Math.min(1.5, t) * 200; kinds++; }
   if (e.gpts > 0) { pts += e.gpts * 160; kinds++; }
   if (e.airSwitch && (half || flips)) pts += 100;
   if (pts > 0) pts += Math.min(3, airT) * 60;
@@ -100,7 +107,7 @@ function stylePoints(e, half, flips, airT) {
 export function landingPreview(e) {
   const half = Math.round(e.spin / Math.PI), rs = e.spin - half * Math.PI;
   const flips = Math.round(e.flip / TWO_PI), rf = e.flip - flips * TWO_PI;
-  let q = 1 - Math.max(Math.abs(rs) / SPIN_LIM, Math.abs(rf) / FLIP_LIM);
+  let q = 1 - Math.max(Math.abs(rs) / PHYS.SPIN_LIM, Math.abs(rf) / PHYS.FLIP_LIM);
   if (e.grab > 0) q -= 0.4;
   return { q, half, flips, rs, rf, label: q < 0 ? 'CRASH' : q > 0.85 ? 'PERFECT' : q > 0.5 ? 'CLEAN' : 'SKETCHY', sw: (Math.round(e.stance / Math.PI) + half) % 2 !== 0 };
 }
@@ -108,16 +115,16 @@ export function landingPreview(e) {
 function land(e, P, airT) {
   const half = Math.round(e.spin / Math.PI), rs = e.spin - half * Math.PI;   // any multiple of 180 is rideable (switch)
   const flips = Math.round(e.flip / TWO_PI), rf = e.flip - flips * TWO_PI;
-  let q = 1 - Math.max(Math.abs(rs) / SPIN_LIM, Math.abs(rf) / FLIP_LIM);  // landing quality 0..1
+  let q = 1 - Math.max(Math.abs(rs) / PHYS.SPIN_LIM, Math.abs(rf) / PHYS.FLIP_LIM);  // landing quality 0..1
   const holding = e.grab > 0;
   if (holding) q -= 0.4;
   let name = trickName(e, half, flips);
   if (e.gname && name.endsWith(' to')) name = name.slice(0, -3);
-  const real = airT >= MIN_TRICK_AIR || e.gpts > 0;
+  const real = airT >= PHYS.MIN_TRICK_AIR || e.gpts > 0;
   const score = real ? trickScore(e, half, flips) : 0;
   let pts = real ? stylePoints(e, half, flips, airT) : 0;
   e.spin = 0; e.flip = 0; e.grab = 0; e.gt = [0, 0, 0, 0, 0, 0]; e.gpts = 0; e.gname = 0;
-  if (q < 0) { e.stance = 0; wipeout(e, holding && Math.abs(rs) < SPIN_LIM ? 'STILL GRABBING!' : Math.abs(rf) > FLIP_LIM ? 'OVER-ROTATED!' : 'BAD LANDING!', true); return; }
+  if (q < 0) { e.stance = 0; wipeout(e, holding && Math.abs(rs) < PHYS.SPIN_LIM ? 'STILL GRABBING!' : Math.abs(rf) > PHYS.FLIP_LIM ? 'OVER-ROTATED!' : 'BAD LANDING!', true); return; }
   // ride away in the direction you landed (sketchy landings keep their angle)
   e.stance = ((Math.round((e.stance + half * Math.PI) / Math.PI) % 2) + 2) % 2 ? Math.PI : 0;
   e.h = Math.max(-1.75, Math.min(1.75, e.h + rs * 0.9));
@@ -129,11 +136,11 @@ function land(e, P, airT) {
     e.lastTrick = name; e.score += pts; e.tricks++;
     if (pts > e.bestPts) { e.bestPts = pts; e.bestName = name; }
     const boost = Math.min(15, P.landBoost + score * P.trickBoost) * (0.25 + 0.75 * q * q);
-    e.v = Math.min(VMAX, e.v + boost); e.boostT = Math.max(e.boostT, 0.4 + 0.15 * score * q);
+    e.v = Math.min(PHYS.VMAX, e.v + boost); e.boostT = Math.max(e.boostT, 0.4 + 0.15 * score * q);
     say(e, `${name || 'Air'} · ${label}${repeat ? ' (repeat)' : ''}  +${pts} pts  +${Math.round(boost * 3.6)} km/h`, q > 0.5);
   } else if (airT >= 1.0 && q > 0.5) {
     const boost = P.landBoost * q;
-    e.v = Math.min(VMAX, e.v + boost); e.score += 50;
+    e.v = Math.min(PHYS.VMAX, e.v + boost); e.score += 50;
     say(e, `Big air · ${label}  +50 pts  +${Math.round(boost * 3.6)} km/h`, true);
   } else if (half || flips) {
     say(e, `${name} · ${label}`, q > 0.5);
@@ -167,17 +174,29 @@ export function stepEntity(e, inp, dt, course) {
   // items: pick up from boxes, use with the item key
   if (!e.finished) {
     if (!e.item && e.itemCD <= 0) for (const b of course.itemsNear(e.z)) {
+      if (course.itemHidden && course.itemHidden(b.i)) continue;
       if (Math.abs(b.z - e.z) < 2.4 && Math.abs(b.x - e.x) < 2.2 && e.y - b.y < 4) {
-        const r = hash01(b.i * 31 + e.pickups * 17 + e.idh), wB = 0.25 + 0.5 * e.rankFrac, wS = 0.45, wSh = 0.3 - 0.2 * e.rankFrac;
-        e.item = r * (wB + wS + wSh) < wB ? 1 : r * (wB + wS + wSh) < wB + wS ? 2 : 3;
-        e.pickups++; e.itemCD = 0.4; say(e, `GOT ${ITEMS[e.item].name.toUpperCase()}!`, true);
+        const r = hash01(b.i * 31 + e.pickups * 17 + e.idh);
+        const w = ITEM_WEIGHT.slice(1).map((f) => f(e.rankFrac)); // index 0 = item id 1
+        let total = 0; for (const x of w) total += x;
+        let acc = 0, pick = w.length;
+        for (let k = 0; k < w.length; k++) { acc += w[k]; if (r * total < acc) { pick = k + 1; break; } }
+        e.item = pick;
+        e.pickups++; e.itemCD = 0.4; course.hideItem && course.hideItem(b.i); say(e, `GOT ${ITEMS[e.item].name.toUpperCase()}!`, true);
         break;
       }
     }
     if (inp.use && e.item && e.itemCD <= 0) {
-      if (e.item === 1) { e.v = Math.min(VMAX, e.v + 11); e.boostT = 1.8; say(e, 'ROCKET!', true); }
+      if (e.item === 1) { e.v = Math.min(PHYS.VMAX, e.v + 11); e.boostT = 1.8; say(e, 'ROCKET!', true); }
       else if (e.item === 2) e.fireId++;
-      else { e.shieldT = 7; say(e, 'SHIELD UP', true); }
+      else if (e.item === 3) { e.shieldT = 7; say(e, 'SHIELD UP', true); }
+      else if (e.item === 4) { e.dropId++; say(e, 'ICE TRAP SET', true); }
+      else { // balloon: a big pop into the air regardless of terrain, for a trick or a recovery
+        e.vy = Math.max(e.vy, 0) + P.jumpV * 1.9;
+        if (!e.air) { e.air = true; e.airT = 0; }
+        e.spin = 0; e.flip = 0; e.grab = 0; e.gt = [0, 0, 0, 0, 0, 0]; e.airSwitch = e.stance !== 0;
+        say(e, 'BALLOON BOOST!', true);
+      }
       e.item = 0; e.itemCD = 1;
     }
   }
@@ -204,15 +223,15 @@ export function stepEntity(e, inp, dt, course) {
     if (Math.abs(gLat) > 0.08) e.h -= gLat * 1.6 * dt;
     e.h = Math.max(-1.75, Math.min(1.75, e.h));
     const sx = Math.sin(e.h), sz = Math.cos(e.h);
-    let a = -G * (gx * sx + gz * sz);
+    let a = -PHYS.G * (gx * sx + gz * sz);
     if (!inp.brake && e.v < 5) a += 7 * (1 - e.v / 5); // skate / push off when nearly stopped
-    a -= drag * e.v * e.v + FRIC + (powder ? P.powderFric * (info.shortcut ? 0.4 : info.soft && !info.shortcut && info.d <= 0 ? 0.45 : 1) : 0) + (inp.brake ? BRAKE : 0)
+    a -= drag * e.v * e.v + PHYS.FRIC + (powder ? P.powderFric * (info.shortcut ? 0.4 : info.soft && !info.shortcut && info.d <= 0 ? 0.45 : 1) : 0) + (inp.brake ? PHYS.BRAKE : 0)
       + Math.abs(inp.steer) * e.v * P.carveLoss;
-    e.v = Math.max(0, Math.min(VMAX, e.v + a * dt));
+    e.v = Math.max(0, Math.min(PHYS.VMAX, e.v + a * dt));
     // boost pads
     for (const p of course.pads) {
       if (Math.abs(p.z - e.z) < 3.2 && Math.abs(p.x - e.x) < 2.3) {
-        if (e.boostT < 0.9) { e.v = Math.min(VMAX, e.v + 9); say(e, 'BOOST!', true); }
+        if (e.boostT < 0.9) { e.v = Math.min(PHYS.VMAX, e.v + 9); say(e, 'BOOST!', true); }
         e.boostT = 1.4;
       }
     }
@@ -249,7 +268,7 @@ export function stepEntity(e, inp, dt, course) {
   // vertical motion
   const hg = course.groundH(e.x, e.z);
   const prevY = e.y;
-  e.vy -= GRAV * dt;
+  e.vy -= PHYS.GRAV * dt;
   const ny = e.y + e.vy * dt;
   if (ny <= hg) {
     const wasAir = e.air, airT = e.airT;
@@ -311,7 +330,7 @@ function grindStep(e, inp, dt, course, P) {
   // A/D rotates the slide (90° = boardslide), released keys keep the current angle
   e.slideAng = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, e.slideAng + inp.steer * 7 * dt));
   const slope = (course.groundH(r.x, e.z - 0.5) - course.groundH(r.x, e.z + 0.5));
-  e.v = Math.max(4, e.v + (G * slope * 0.9 - 0.9 - P.drag * e.v * e.v) * dt);
+  e.v = Math.max(4, e.v + (PHYS.G * slope * 0.9 - 0.9 - P.drag * e.v * e.v) * dt);
   e.lean *= Math.exp(-6 * dt);
   e.x += (r.x - e.x) * Math.min(1, dt * 20);
   e.z += e.v * dt;
@@ -365,10 +384,18 @@ export function snowballHit(e) {
   return true;
 }
 
+// Ice trap hit (host only): a milder slip, not a full stop — a trap left behind to catch chasers
+export function iceHit(e) {
+  if (e.state === 'wipe' || e.ghostT > 0 || e.finished || e.air || e.hitT > 0) return false;
+  if (e.shieldT > 0) { e.shieldT = 0; say(e, 'BLOCKED!', true); return true; }
+  e.v *= 0.6; e.hitT = 0.6; say(e, 'SLIPPED ON ICE!', false);
+  return true;
+}
+
 // ---- Bots ----
 function estimateAir(e, course) {
   let x = e.x, z = e.z, y = e.y, vy = e.vy; const vx = Math.sin(e.h) * e.v, vz = Math.cos(e.h) * e.v, d = 0.05;
-  for (let t = d; t < 4; t += d) { vy -= GRAV * d; x += vx * d; z += vz * d; y += vy * d; if (y <= course.groundH(x, z)) return t; }
+  for (let t = d; t < 4; t += d) { vy -= PHYS.GRAV * d; x += vx * d; z += vz * d; y += vy * d; if (y <= course.groundH(x, z)) return t; }
   return 4;
 }
 export function newBrain(rnd, cls) {
