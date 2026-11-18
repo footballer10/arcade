@@ -39,8 +39,11 @@ export class DualTransport {
   async claim(alias) {
     const code = alias.slice(5);
     let err = null, any = false;
-    if (this.peerOk) { try { await this.peer.claim(this.peer.roomAddr(code)); any = true; } catch (e) { err = e; if (e.type === 'unavailable-id') throw e; } }
-    if (this.relayOk) { try { await this.relay.claim(this.relay.roomAddr(code)); any = true; } catch (e) { if (e.type === 'unavailable-id' && !any) throw e; err = err || e; } }
+    // both at once (they used to run one after the other)
+    const [p, r] = await Promise.allSettled([this.peerOk ? this.peer.claim(this.peer.roomAddr(code)) : Promise.reject(null), this.relayOk ? this.relay.claim(this.relay.roomAddr(code)) : Promise.reject(null)]);
+    if (p.status === 'rejected' && p.reason?.type === 'unavailable-id') { if (r.status === 'fulfilled') this.relay.release(this.relay.roomAddr(code)); throw p.reason; }
+    if (r.status === 'rejected' && r.reason?.type === 'unavailable-id' && p.status !== 'fulfilled') throw r.reason;
+    any = p.status === 'fulfilled' || r.status === 'fulfilled'; err = p.reason || r.reason;
     if (!any) throw err || new Error('Could not claim room');
     (this.codes ||= new Set()).add(code);
     if (!this._stopKeep) { let n = 0; this._stopKeep = everySecond(() => { if (++n % 6 === 0) this._keepClaims(); }); }

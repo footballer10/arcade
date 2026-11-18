@@ -113,7 +113,7 @@ export class RelayTransport {
   }
   claim(alias) {
     return new Promise((res, rej) => {
-      const t = setTimeout(() => { this.waiting.delete('own:' + alias); this.aliases.add(alias); this._sub(alias); res(); }, 900);
+      const t = setTimeout(() => { this.waiting.delete('own:' + alias); this.aliases.add(alias); this._sub(alias); res(); }, 500);
       this.waiting.set('own:' + alias, () => { clearTimeout(t); this.waiting.delete('own:' + alias); rej(Object.assign(new Error('Room code taken'), { type: 'unavailable-id' })); });
       this._sub(this.addr);
       this._postAll({ k: 'who', to: alias, alias });

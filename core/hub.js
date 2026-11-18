@@ -2,7 +2,7 @@
 // Lobby → choose game (host picks / vote / shuffle) → pre-round picks → loading → shared countdown → play
 // → results (+trophies) → lobby. Games are loaded with import() and unloaded when done; the page never reloads.
 import * as THREE from 'three';
-import { PartyNet, randomCode } from './net.js';
+import { PartyNet, randomCode, prewarm } from './net.js';
 import { iceCheck } from './transport-peer.js';
 import { settings, store } from './settings.js';
 import { audio, startMusic, stopMusic } from './audio.js';
@@ -301,6 +301,7 @@ function leaveParty(msg = '') {
   for (const id of ['pause', 'settings', 'controls', 'profile', 'scoreboard']) $(id).classList.add('hidden');
   input.setEnabled(true);
   show('home'); $('joinBox').classList.add('hidden'); homeMsg(msg);
+  setTimeout(() => { if (!net) prewarm(netKind()); }, 1000);
 }
 
 // ---------------------------------------------------------------- host: admission & roster
@@ -933,6 +934,7 @@ async function boot() {
   }
 }
 boot();
+setTimeout(() => { if (!net) prewarm(netKind()); }, 300);   // get the servers connected before Create / Join is clicked
 
 // Both reports end with a quick check of which free STUN/TURN servers work from this computer (~4 s).
 async function withIceCheck(text) { try { return text + '\nconnection servers from this computer:\n  ' + (await iceCheck()).join('\n  '); } catch (e) { return text + '\n(server check failed: ' + e.message + ')'; } }
