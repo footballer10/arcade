@@ -686,10 +686,23 @@ setInterval(() => {
 }, 50);
 
 // ---------------------------------------------------------------- lobby rendering
+// Connection status under the party code: the host sees whether friends can reach the party right now.
+function netBadgeSync() {
+  if (!net || !S) return;
+  let t;
+  if (net.kind === 'local') t = '⚠ Offline party: the game server could not be reached, so friends can\'t join (bots only)';
+  else if (isHost()) {
+    const r = net.t.reachable?.() || { direct: true, relay: 0 };
+    t = r.direct || r.relay ? `🌐 Friends can join with the code or link · direct ${r.direct ? '✔' : '✖'} · relay ${r.relay ? '✔ (' + r.relay + ')' : '✖'}`
+      : '⚠ Friends can\'t reach this party right now: reconnecting to the servers…';
+  } else t = net.via === 'relay' ? '🐢 Connected through the backup relay (slower) · trying the direct link in the background' : '🌐 Connected directly to the host';
+  if ($('netBadge').textContent !== t) $('netBadge').textContent = t;
+}
+setInterval(() => { if (screen === 'lobby') netBadgeSync(); }, 2000);
 function renderLobby() {
   const host = isHost(), m = me();
   $('roomCode').textContent = S.code;
-  $('netBadge').textContent = net.kind === 'local' ? '⚠ Offline party: the game server could not be reached, so friends can\'t join (bots only)' : '🌐 Online: friends join with the code or link';
+  netBadgeSync();
   $('playerList').innerHTML = S.players.map((p) => {
     const tags = [];
     if (p.id === S.hostId) tags.push('<span class="ph-tag gold">HOST</span>');

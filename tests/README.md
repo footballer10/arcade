@@ -13,6 +13,7 @@ node party.mjs                              # vote, shuffle + podium, mid-game j
 node local.mjs                              # BroadcastChannel transport (two tabs, no PeerJS)
 node upgrade.mjs [gameId]                   # joiner starts on the relay, moves to direct WebRTC mid-round by itself
 node joinpaths.mjs                          # direct blocked → relay in seconds; nothing works → Copy details
+node hostdrop.mjs                           # connection servers drop a waiting host: it re-registers, friends can join
 node lag.mjs [gameIds…]                     # how smooth a game looks for a joiner, with and without ?netsim lag
 node portal.mjs                             # developer tuning portal: sliders, save/download, inert off localhost
 node solo.mjs [nopeer]                      # Play Solo vs Bots (with / without a reachable PeerJS server)

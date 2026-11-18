@@ -34,6 +34,8 @@ core/transport-relay.js  backup relay: party messages through free public MQTT b
 core/transport-local.js  BroadcastChannel transport: tabs of one browser, no internet (?net=local)
                          A player on the relay keeps retrying the direct link and moves over mid-game when it works.
                          Settings → "Copy connection report" shows path, ping spread, freezes and why direct failed.
+core/keepalive.js   1 s clock from a worker: heartbeats, server pings and reconnects keep running in background tabs
+                    (the host re-registers its party code and reconnects relay servers by itself; lobby shows reachability)
 core/netsim.js      ?netsim=ONEWAY,JITTER,STALL,EVERY lag simulator (e.g. 100,30,250,4 ≈ the school relay); tests/lag.mjs
 core/interp.js      SnapBuffer / AdaptiveDelay: smooth drawing of others from late, bunched snapshots (use in every game)
 core/runtime.js     builds ctx for a game, runs its frame/tick loops, and force-cleans everything on stop

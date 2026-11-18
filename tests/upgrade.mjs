@@ -27,6 +27,7 @@ try {
   await waitFor(A, () => window.__hub.state.players.find((p) => !p.isBot && p.id !== window.__hub.pid)?.via === 'direct', null, 10000, 'host sees direct');
   check(true, 'host lobby now shows the joiner as direct');
   const sys = await A.evaluate(() => [...document.querySelectorAll('#chatPanel .sys')].map((d) => d.textContent).join(' | '));
+  if (/disconnected|reconnected/.test(sys)) console.log('    chat:', sys);
   check(!/disconnected|reconnected/.test(sys), 'nobody saw a disconnect / reconnect message');
   // the round keeps working over the new link
   await play(B, game, () => B.evaluate(() => window.__hub.screen === 'results'));

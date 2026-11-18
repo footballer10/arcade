@@ -14,10 +14,11 @@ import { Emitter } from './emitter.js';
 import { DualTransport } from './transport-dual.js';
 import { LocalTransport } from './transport-local.js';
 import { simTransport } from './netsim.js';
+import { everySecond } from './keepalive.js';
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const randomCode = () => Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
-export const PROTOCOL = 2;   // 2: binary relay packets
+export const PROTOCOL = 3;   // 2: binary relay packets · 3: confirmed relay→direct switch
 const HOST_TIMEOUT = 15000;    // client: no word from host for this long -> host lost (a closed tab is detected sooner via the connection's close event)
 const CLIENT_TIMEOUT = 20000; // host: no word from a client -> dropped
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -39,7 +40,7 @@ export class PartyNet extends Emitter {
     this.offset = 0; this.bestRtt = 1e9; this.rtt = 0; this.lastHost = 0;
     this.closed = false; this.helloInfo = null; this.nextHost = null; this.migrating = false;
     this.onHello = () => ({ ok: true }); // host-side admission hook set by the hub
-    this._timer = setInterval(() => this._beat(), 1000);
+    this._stopBeat = everySecond(() => this._beat());   // keeps going in background tabs
     // Closing a tab doesn't reliably close WebRTC channels quickly, so say goodbye explicitly.
     this._bye = () => {
       if (this.role === 'host') for (const r of this.conns.values()) r.conn.send({ h: 'hostleaving' });
@@ -93,6 +94,25 @@ export class PartyNet extends Emitter {
     }
     if (this.role !== 'host') { conn.send({ h: 'reject', reason: 'Not the host' }); setTimeout(() => conn.close(), 300); return; }
     if (m.v !== PROTOCOL) { conn.send({ h: 'reject', reason: 'Version mismatch — refresh the page.' }); setTimeout(() => conn.close(), 300); return; }
+    // A player on the relay found a direct link: keep the old connection until they confirm the switch, so an
+    // attempt they give up on changes nothing.
+    const cur = this.conns.get(m.pid);
+    if (m.upgrade && cur && cur.conn !== conn && cur.conn.open) {
+      const rec = cur;
+      conn.onraw = (ab) => { rec.lastSeen = performance.now(); const u = new Uint8Array(ab); this.emit('raw', u[0], ab.slice(1), m.pid); };
+      conn.onclose = () => {};
+      conn.onmessage = (msg) => {
+        if (msg?.h !== 'switched' || this.conns.get(m.pid) !== rec) return;
+        const old = rec.conn;
+        rec.conn = conn; rec.via = conn.via || 'direct'; rec.lastSeen = performance.now();
+        conn.onmessage = (x) => this._fromClient(m.pid, rec, x);
+        conn.onclose = () => { if (this.conns.get(m.pid) === rec && rec.conn === conn) { nlog('client conn closed', m.pid); this.conns.delete(m.pid); this.emit('peerleave', m.pid); } };
+        old.onclose = null; setTimeout(() => { try { old.close(); } catch { /* */ } }, 1500);
+        this.emit('peerjoin', m.pid, m, rec.via);
+      };
+      conn.send({ h: 'welcome', hostPid: this.pid, code: this.code, ht: performance.now() });
+      return;
+    }
     const verdict = this.onHello(m.pid, m) || { ok: true };
     if (!verdict.ok) { conn.send({ h: 'reject', reason: verdict.reason }); setTimeout(() => conn.close(), 400); return; }
     const old = this.conns.get(m.pid);
@@ -101,7 +121,7 @@ export class PartyNet extends Emitter {
     this.conns.set(m.pid, rec);
     conn.onmessage = (msg) => this._fromClient(m.pid, rec, msg);
     conn.onraw = (ab) => { rec.lastSeen = performance.now(); const u = new Uint8Array(ab); this.emit('raw', u[0], ab.slice(1), m.pid); };
-    conn.onclose = () => { if (this.conns.get(m.pid) === rec) { nlog('client conn closed', m.pid); this.conns.delete(m.pid); this.emit('peerleave', m.pid); } };
+    conn.onclose = () => { if (this.conns.get(m.pid) === rec && rec.conn === conn) { nlog('client conn closed', m.pid); this.conns.delete(m.pid); this.emit('peerleave', m.pid); } };
     conn.send({ h: 'welcome', hostPid: this.pid, code: this.code, ht: performance.now() });
     this.emit('peerjoin', m.pid, m, rec.via);
   }
@@ -237,6 +257,7 @@ export class PartyNet extends Emitter {
           this.graceConn = old; this.graceUntil = performance.now() + 4000;
           old.onclose = null; setTimeout(() => { try { old.close(); } catch { /* */ } if (this.graceConn === old) this.graceConn = null; }, 4000);
           this.hostConn = c; this.via = 'direct'; this.lastHost = performance.now(); this.bestRtt = 1e9; this.rtt = 0;
+          c.send({ h: 'switched' });   // the host moves us over (and closes the relay) only after this
           c.onmessage = (msg) => this._fromHost(c, msg);
           c.onraw = (ab) => this._rawFromHost(c, ab);
           c.onclose = () => { if (c === this.hostConn) { nlog('host conn closed'); this._hostLost(); } };
@@ -394,7 +415,7 @@ export class PartyNet extends Emitter {
     if (this.closed) return;
     this.closed = true;
     try { this.hostConn?.send({ h: 'bye' }); } catch { /* */ }
-    clearInterval(this._timer); removeEventListener('pagehide', this._bye);
+    this._stopBeat(); removeEventListener('pagehide', this._bye);
     setTimeout(() => { try { this.t?.close(); } catch { /* */ } }, 150);
     this.role = null; this.clearListeners();
   }

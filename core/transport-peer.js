@@ -2,6 +2,7 @@
 // Each connection is a pair of data channels: 'ctrl' (reliable, JSON) and 'fast' (unreliable, unordered, binary).
 // Implements the transport interface described in core/net.js.
 
+import { everySecond } from './keepalive.js';
 const PREFIX = 'fb10-partyhub-';
 let PeerCls = null;
 async function loadPeer() {
@@ -148,13 +149,36 @@ export class PeerTransport {
     c._attach(dc, kind);
     if (kind === 'ctrl') dc.on('open', () => this.onconnection?.(c));
   }
-  async open() { this.peer = await this._openPeer(null); this.addr = this.peer.id; return this.addr; }
+  async open() {
+    this.peer = await this._openPeer(null); this.addr = this.peer.id;
+    // Every 5 s, from a clock that also runs in background tabs: heartbeat to the PeerJS server (its own timer gets
+    // slowed in hidden tabs and the server then forgets us) and reconnect anything that dropped.
+    let n = 0;
+    this._stopMaint = everySecond(() => { if (++n % 5 === 0) this._maintain(); });
+    return this.addr;
+  }
+  _maintain() {
+    for (const p of [this.peer, ...this.aliasPeers.values()]) {
+      if (!p || p.destroyed) continue;
+      if (p.disconnected) { try { p.reconnect(); } catch { /* */ } continue; }
+      try { p.socket?.send?.({ type: 'HEARTBEAT' }); } catch { /* */ }
+    }
+  }
+  // Is this party code registered right now (friends can find us through the direct-link server)?
+  aliasUp(alias) { const p = this.aliasPeers.get(alias); return !!p && !p.destroyed && !p.disconnected && p.open; }
   async claim(alias) {
     if (this.aliasPeers.has(alias)) return;
     const p = await this._openPeer(alias);
     this.aliasPeers.set(alias, p);
   }
   release(alias) { const p = this.aliasPeers.get(alias); if (p) { this.aliasPeers.delete(alias); try { p.destroy(); } catch { /* */ } } }
+  // Re-register a party code whose PeerJS connection was destroyed (e.g. the server dropped us while asleep).
+  async reclaim(alias) {
+    const p = this.aliasPeers.get(alias);
+    if (p && !p.destroyed) return;
+    this.aliasPeers.delete(alias);
+    try { await this.claim(alias); } catch { /* try again later */ }
+  }
   connect(target, timeout = 10000) {
     return new Promise((resolve, reject) => {
       if (!this.peer || this.peer.destroyed) { reject(new Error('not open')); return; }
@@ -180,6 +204,7 @@ export class PeerTransport {
     });
   }
   close() {
+    this._stopMaint?.();
     for (const a of [...this.aliasPeers.keys()]) this.release(a);
     try { this.peer?.destroy(); } catch { /* */ }
     this.peer = null;

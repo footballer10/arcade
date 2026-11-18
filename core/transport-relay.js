@@ -6,6 +6,7 @@
 // never turns into seconds of built-up delay.
 // The host connects to every broker it can reach and answers on whichever one a joiner used.
 import { MqttClient } from './mqtt.js';
+import { everySecond } from './keepalive.js';
 
 // ?relay=url1,url2 overrides the broker list (the automated tests run their own broker).
 const OVERRIDE = new URLSearchParams(location.search).get('relay');
@@ -35,31 +36,52 @@ export class RelayTransport {
   constructor() { this.kind = 'relay'; this.addr = null; this.clients = []; this.aliases = new Set(); this.conns = new Map(); this.waiting = new Map(); this.onconnection = null; }
   roomAddr(code) { return 'room-' + code; }
   // Resolves as soon as one broker is connected (plus a short moment for the others); slow or blocked brokers keep
-  // connecting in the background and join in when they're up.
+  // connecting in the background and join in when they're up. A broker that drops is reconnected automatically
+  // (and re-subscribed to our address and party code), with growing waits between tries.
   open() {
     this.addr = 'R' + rid();
-    this.clients = BROKERS.map(() => null);
+    this.clients = BROKERS.map(() => null); this.connecting = BROKERS.map(() => false);
+    this.retryAt = BROKERS.map(() => 0); this.backoff = BROKERS.map(() => 3000);
     return new Promise((resolve, reject) => {
       let left = BROKERS.length, settled = false, grace = null;
-      const ok = () => { if (settled) return; settled = true; clearTimeout(grace); resolve(this.addr); };
+      const ok = () => { if (settled) return; settled = true; clearTimeout(grace); this._stopMaint = everySecond(() => this._maintain()); resolve(this.addr); };
       BROKERS.forEach((url, i) => {
-        new MqttClient(url, {
-          onMessage: (topic, data) => {
-            if (data[0] === 1) { const n = data[1], cid = dec.decode(data.subarray(2, 2 + n)); const c = this.conns.get(cid); if (c?.onraw) c.onraw(data.slice(2 + n).buffer); return; }
-            try { this._on(i, JSON.parse(dec.decode(data))); } catch { /* not ours */ }
-          },
-          onClose: () => { this.clients[i] = null; for (const c of [...this.conns.values()]) if (c.broker === i) c._closed(); },
-        }).connect(6000).then((c) => {
-          if (this.closed) { c.close(); return; }
-          this.clients[i] = c;
-          c.subscribe(ROOT + this.addr); for (const al of this.aliases) c.subscribe(ROOT + al);
-          if (!grace) grace = setTimeout(ok, 600);
-        }, () => { /* this broker is down or blocked here */ }).finally(() => {
+        this._connectBroker(i).then(() => { if (!grace) grace = setTimeout(ok, 600); }, () => {}).finally(() => {
           if (--left === 0 && !settled) { if (this.clients.some(Boolean)) ok(); else { settled = true; reject(Object.assign(new Error('No relay server reachable'), { type: 'network' })); } }
         });
       });
     });
   }
+  _connectBroker(i) {
+    this.connecting[i] = true;
+    return new MqttClient(BROKERS[i], {
+      onMessage: (topic, data) => {
+        if (data[0] === 1) { const n = data[1], cid = dec.decode(data.subarray(2, 2 + n)); const c = this.conns.get(cid); if (c?.onraw) c.onraw(data.slice(2 + n).buffer); return; }
+        try { this._on(i, JSON.parse(dec.decode(data))); } catch { /* not ours */ }
+      },
+      onClose: () => {
+        if (this.clients[i]) this.clients[i] = null;
+        this.retryAt[i] = performance.now() + 1000;
+        for (const c of [...this.conns.values()]) if (c.broker === i) c._closed();
+      },
+    }).connect(6000).then((c) => {
+      this.connecting[i] = false;
+      if (this.closed) { c.close(); return c; }
+      this.clients[i] = c; this.backoff[i] = 3000;
+      c.subscribe(ROOT + this.addr); for (const al of this.aliases) c.subscribe(ROOT + al);
+      return c;
+    }, (e) => {
+      this.connecting[i] = false;
+      this.retryAt[i] = performance.now() + this.backoff[i]; this.backoff[i] = Math.min(60000, this.backoff[i] * 2);
+      throw e;
+    });
+  }
+  _maintain() {
+    if (this.closed) return;
+    const now = performance.now();
+    BROKERS.forEach((url, i) => { if (!this.clients[i] && !this.connecting[i] && now >= this.retryAt[i]) this._connectBroker(i).catch(() => {}); });
+  }
+  connectedBrokers() { return this.clients.filter((c) => c?.open).length; }
   _sub(name) { for (const c of this.clients) c?.subscribe(ROOT + name); }
   _post(i, m) { m.from = this.addr; const c = this.clients[i]; if (c?.open) c.publish(ROOT + m.to, JSON.stringify(m)); }
   _postRaw(i, to, cid, buf) {
@@ -114,7 +136,7 @@ export class RelayTransport {
     });
   }
   close() {
-    this.closed = true;
+    this.closed = true; this._stopMaint?.();
     for (const c of [...this.conns.values()]) c.close();
     setTimeout(() => { for (const c of this.clients) c?.close(); this.clients = []; }, 100);
     this.aliases.clear();

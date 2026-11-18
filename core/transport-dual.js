@@ -3,6 +3,7 @@
 // to the relay automatically if WebRTC can't connect. Same interface as the other transports (see core/net.js).
 // Addresses combine both parts: "p:<peerjs id>|r:<relay id>"; room aliases are "room:<CODE>".
 import { PeerTransport } from './transport-peer.js';
+import { everySecond } from './keepalive.js';
 import { RelayTransport, BROKERS } from './transport-relay.js';
 
 const params = new URLSearchParams(location.search);
@@ -41,8 +42,22 @@ export class DualTransport {
     if (this.peerOk) { try { await this.peer.claim(this.peer.roomAddr(code)); any = true; } catch (e) { err = e; if (e.type === 'unavailable-id') throw e; } }
     if (this.relayOk) { try { await this.relay.claim(this.relay.roomAddr(code)); any = true; } catch (e) { if (e.type === 'unavailable-id' && !any) throw e; err = err || e; } }
     if (!any) throw err || new Error('Could not claim room');
+    (this.codes ||= new Set()).add(code);
+    if (!this._stopKeep) { let n = 0; this._stopKeep = everySecond(() => { if (++n % 6 === 0) this._keepClaims(); }); }
   }
-  release(alias) { const code = alias.slice(5); if (this.peerOk) this.peer.release(this.peer.roomAddr(code)); if (this.relayOk) this.relay.release(this.relay.roomAddr(code)); }
+  // Host: keep the party code registered on the direct-link server (re-register if it got dropped).
+  _keepClaims() {
+    for (const code of this.codes || []) {
+      const pa = this.peer.roomAddr(code);
+      if (!this.peer.aliasUp(pa) && !this.reclaiming) { this.reclaiming = true; this.peer.reclaim(pa).finally(() => { this.reclaiming = false; }); }
+    }
+  }
+  // What friends can reach right now: { direct: party code registered on the PeerJS server, relay: brokers up }.
+  reachable() {
+    const code = [...(this.codes || [])][0];
+    return { direct: !!code && this.peer.aliasUp(this.peer.roomAddr(code)), relay: this.relay?.connectedBrokers?.() || 0 };
+  }
+  release(alias) { const code = alias.slice(5); this.codes?.delete(code); if (this.peerOk) this.peer.release(this.peer.roomAddr(code)); if (this.relayOk) this.relay.release(this.relay.roomAddr(code)); }
   // Both routes at once. The direct link is preferred: if the relay answers first we still give the direct link a
   // couple of seconds; otherwise the player joins through the relay right away and net.js moves them to the direct
   // link in the background as soon as it works. Errors keep the most useful type: 'peer-unavailable' only if
@@ -86,5 +101,5 @@ export class DualTransport {
     return (BLOCK_DIRECT ? blocked(timeout) : this.peer.connect(a.room ? this.peer.roomAddr(a.room) : a.p, timeout)).then((c) => { c.via = 'direct'; return c; });
   }
   relayInfo() { return this.relay ? this.relay.clients.map((c, i) => `${new URL(BROKERS[i]).hostname}:${c?.open ? 'ok' : 'down'}`).join(' ') : 'off'; }
-  close() { this.peer.close(); this.relay?.close(); }
+  close() { this._stopKeep?.(); this.peer.close(); this.relay?.close(); }
 }
