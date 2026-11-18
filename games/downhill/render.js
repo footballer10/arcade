@@ -433,8 +433,17 @@ export function buildCourse(course) {
 
   // ---- Kickers / tables: packed-snow ramps with a coloured lip and side walls
   const rampMat = new THREE.MeshStandardMaterial({ color: 0xeef4ff, roughness: 0.7, side: THREE.DoubleSide });
-  const sideMat = new THREE.MeshStandardMaterial({ color: course.mapId === 'park' ? 0x6a4cff : 0x3f7fd9, roughness: 0.8, side: THREE.DoubleSide });
-  const lipMat = new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.6, emissive: course.mapId === 'park' ? 0x662200 : 0x000000, side: THREE.DoubleSide });
+  const sideMat = new THREE.MeshStandardMaterial({ color: course.mapId === 'park' ? 0x6a63b8 : 0x8fa4bd, roughness: 0.9, side: THREE.DoubleSide });
+  const lipMat = new THREE.MeshStandardMaterial({ color: 0xe0752b, roughness: 0.7, emissive: course.mapId === 'park' ? 0x3a1a08 : 0x000000, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const lipEdgeMat = new THREE.MeshBasicMaterial({ color: 0x1c2330, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+  // a thin strip that hugs the snow surface across the ramp width (follows the slope, no floating slab)
+  const lipStrip = (xc, w, z, depth, lift, mat) => {
+    const n = 10, pp = [], ii = [];
+    for (let i = 0; i <= n; i++) { const x = xc - w / 2 + (w * i) / n; for (const zz of [z - depth, z]) pp.push(x, groundH(x, zz) + lift, zz); }
+    for (let i = 0; i < n; i++) { const a = i * 2; ii.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pp, 3)); g.setIndex(ii); g.computeVertexNormals();
+    group.add(new THREE.Mesh(g, mat));
+  };
   const base = (x, z) => course.groundH(x, z) - course.rampH(x, z) - 0.3;
   for (const r of course.ramps) {
     const total = r.total || r.len;
@@ -466,13 +475,11 @@ export function buildCourse(course) {
     for (let k = 0; k < quads.length; k += 4) { const [qa, qb, qc, qd] = quads.slice(k, k + 4); arr.push(...qa, ...qb, ...qc, ...qa, ...qc, ...qd); }
     const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3)); sg.computeVertexNormals();
     group.add(new THREE.Mesh(sg, sideMat));
-    const edge = new THREE.Mesh(new THREE.BoxGeometry(r.w + 0.1, 0.18, 0.35), lipMat);
-    edge.position.set(r.x, groundH(r.x, zl) + 0.06, zl - 0.15);
-    edge.rotation.x = -Math.atan(1.25 * r.h / r.len);
-    group.add(edge);
+    lipStrip(r.x, r.w, zl + 0.03, 0.62, 0.05, lipEdgeMat);   // dark ink edge
+    lipStrip(r.x, r.w - 0.5, zl, 0.36, 0.07, lipMat);         // coloured lip on top
     if (r.type === 'table') { // landing knuckle marker
       const kz = r.z0 + r.len + r.gap;
-      const mk = new THREE.Mesh(new THREE.BoxGeometry(r.w, 0.05, 0.25), lipMat); mk.position.set(r.x, groundH(r.x, kz) + 0.06, kz); group.add(mk);
+      lipStrip(r.x, r.w - 0.5, kz, 0.3, 0.07, lipMat);
     }
   }
 
