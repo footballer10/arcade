@@ -708,7 +708,8 @@ function renderLobby() {
     const tags = [];
     if (p.id === S.hostId) tags.push('<span class="ph-tag gold">HOST</span>');
     if (p.isBot) tags.push('<span class="ph-tag">BOT</span>');
-    const ping = (!p.isBot && pings[p.id] ? `<span class="ph-tag">${pings[p.id]}ms</span>` : '') + (p.via === 'relay' && p.connected ? '<span class="ph-tag" title="Connected through the backup relay (a direct link was blocked). Works fine, just a little slower.">relay</span>' : '');
+    const relay = p.via === 'relay' && p.connected;
+    const ping = !p.isBot && (pings[p.id] || relay) ? `<span class="ph-tag" ${relay ? 'title="Connected through the backup relay (this network blocks direct links). Works fine, just a little slower."' : ''}>${pings[p.id] ? pings[p.id] + 'ms' : ''}${relay ? (pings[p.id] ? ' · ' : '') + 'relay' : ''}</span>` : '';
     const acts = host && p.id !== pid ? (p.isBot ? `<button class="ph-btn small danger" data-kick="${p.id}" title="Remove bot">✕</button>`
       : `<button class="ph-btn small" data-host="${p.id}" title="Make host">👑</button><button class="ph-btn small danger" data-kick="${p.id}" title="Kick">✕</button>`) : '';
     const rdy = p.isBot || p.ready;
