@@ -20,11 +20,13 @@ export const TILE_FALL = 0.9;                // seconds a tile shakes before it 
 // ---------------------------------------------------------------- solids
 export function solid(o) {
   const s = Object.assign({ shape: 'box', hx: 1, hy: 0.5, hz: 1, r: 1, bx: 0, by: 0, bz: 0, bry: 0, ox: 0, oz: 0, anim: null, hit: 0, belt: null, bounce: 0,
-    tile: -1, door: -1, fake: false, noStand: false, until: 0, blink: null, finish: false, noHang: false, look: 'floor', col: 0 }, o);
+    tile: -1, door: -1, fake: false, noStand: false, ice: false, safe: false, pal: 0, until: 0, blink: null, finish: false, noHang: false, look: 'floor', col: 0 }, o);
   s.q = {}; s.br = s.shape === 'cyl' ? s.r : Math.hypot(s.hx, s.hz);
   pose(s, 0, s); pose(s, 0, s.q);
   return s;
 }
+// giant rolling balls: travel one chute length every P seconds, then restart at the top
+export const rollU = (a, t) => (((t / a.P + a.ph) % 1) + 1) % 1;
 const pulse = (u) => (u < 0.1 ? u / 0.1 : u < 0.42 ? 1 : u < 0.72 ? 1 - (u - 0.42) / 0.3 : 0);
 const smooth = (u) => u * u * (3 - 2 * u);
 // writes x, y, z, ry, c (cos ry), sn (sin ry) and, for pendulums, th (swing angle) into o
@@ -35,6 +37,7 @@ export function pose(s, t, o) {
     case 'spin': ry += a.w * t + 0.5 * (a.acc || 0) * t * t; break;
     case 'slide': { const k = Math.sin(a.w * t + a.ph); x += a.v[0] * k; y += a.v[1] * k; z += a.v[2] * k; break; }
     case 'piston': { const k = smooth(pulse((((t * a.f + a.ph) % 1) + 1) % 1)); x += a.v[0] * k; y += a.v[1] * k; z += a.v[2] * k; break; }
+    case 'roll': { const u = rollU(a, t), d = u * a.P; x += a.v[0] * d; y += a.v[1] * d; z += a.v[2] * d; o.rollA = d / (s.r || 1); break; }
     case 'pend': { const th = a.amp * Math.sin(a.w * t + a.ph); x += a.d[0] * Math.sin(th) * a.L; y -= Math.cos(th) * a.L; z += a.d[1] * Math.sin(th) * a.L; o.th = th; break; }
   }
   const c = Math.cos(ry), sn = Math.sin(ry);
@@ -48,6 +51,7 @@ export function setPoses(W, t, dt) {
 // blinking platforms: on for `on` of every `p` seconds (phase ph), a pure function of the stage clock
 export const blinkU = (s, t) => ((t / s.blink.p + s.blink.ph) % 1 + 1) % 1;
 export function active(s, W) {
+  if (s.anim && s.anim.k === 'roll') { const u = rollU(s.anim, W.t); if (u < 0.02 || u > 0.985) return false; }
   if (s.blink && blinkU(s, W.t) > s.blink.on) return false;
   if (s.tile >= 0) return W.dyn[s.tile] < 2;
   if (s.door >= 0 && !s.fake) return W.dyn[s.door] === 0;
@@ -121,12 +125,13 @@ export function stepPlayer(p, inp, dt, W) {
   // ---- run
   if (ctl) {
     const slow = (p.grab ? 0.55 : 1) * (p.gby ? 0.4 : 1);
-    const a = (grounded ? C.ACC : C.AIR_ACC) * dt;
+    const ice = grounded && W.solids[p.gr].ice;
+    const a = (grounded ? (ice ? C.ACC * 0.085 : C.ACC) : C.AIR_ACC) * dt;
     let dx = mx * C.RUN * slow - p.vx, dz = mz * C.RUN * slow - p.vz; const dl = Math.hypot(dx, dz);
     if (dl > a) { dx *= a / dl; dz *= a / dl; }
     p.vx += dx; p.vz += dz;
     if (ml > 0.1) p.face += angDiff(Math.atan2(mx, mz), p.face) * Math.min(1, dt * 16);
-  } else if (grounded) { const f = Math.max(0, 1 - (p.slide ? 3.2 : 6) * dt); p.vx *= f; p.vz *= f; }
+  } else if (grounded) { const f = Math.max(0, 1 - (p.slide ? 3.2 : W.solids[p.gr].ice ? 0.6 : 6) * dt); p.vx *= f; p.vz *= f; }
   // ---- jump (also: a jump press gets you up early from a belly slide)
   if (p.slide && jp && grounded && p.down > 0.05) { p.down = 0; p.slide = false; p.tumble = false; p.jbuf = 0; p.vy = 6; p.gr = -1; ev |= EV.JUMP; }
   else if (ctl && p.jbuf > 0 && p.coy > 0) { p.vy = C.JUMP; p.gr = -1; p.coy = 0; p.jbuf = 0; p.jumping = true; ev |= EV.JUMP; }
@@ -144,6 +149,13 @@ export function stepPlayer(p, inp, dt, W) {
   if (p.jumping && !inp.jh && p.vy > 0) p.vy -= C.JUMP_CUT * dt;
   if (p.vy <= 0) p.jumping = false;
   if (p.vy < -C.MAXFALL) p.vy = -C.MAXFALL;
+  // ---- wind from big fans: gusts shove you sideways (more when airborne)
+  if (W.winds) for (const f of W.winds) {
+    if (p.x < f.x0 || p.x > f.x1 || p.z < f.z0 || p.z > f.z1 || p.y < f.y0 || p.y > f.y1) continue;
+    if (f.on < 1 && ((((W.t / f.p + f.ph) % 1) + 1) % 1) > f.on) continue;
+    const k = p.gr >= 0 ? 1 : 1.5;
+    p.x += f.fx * k * dt; p.z += f.fz * k * dt;
+  }
   // ---- carried by the ground (moving / spinning platforms, conveyor belts)
   if (p.gr >= 0) {
     const s = W.solids[p.gr];

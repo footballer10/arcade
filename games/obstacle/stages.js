@@ -12,17 +12,24 @@ export const STAGES = {
   bounce: { name: 'Bounce Castle', kind: 'race', icon: '🏰', desc: 'Bounce pads over castle walls, then wobbly zig-zag beams. Up, over and across!', time: 150, mods: ['bouncers', 'zigzag'] },
   logs: { name: 'Log Jam', kind: 'race', icon: '🪵', desc: 'Hop the rolling logs, cross the stepping-stone islands and dodge the hammers.', time: 150, fixed: ['logroll', 'islands', 'hammers', 'logroll', 'zigzag'] },
   gauntlet: { name: 'Grand Gauntlet', kind: 'race', icon: '⚔️', desc: 'Sweepers, a wall rush, lifts, turnstiles and bounce walls back to back. No mercy!', time: 170, fixed: ['sweepers', 'wallrush', 'rising', 'turnstiles', 'bouncers'] },
+  chute: { name: 'Fruit Chute', kind: 'race', icon: '🍉', desc: 'Giant balls roll down the chute at you! Dodge them, ride the belts and keep moving.', time: 170, fixed: ['ballrun', 'conveyor', 'pushers', 'ballrun', 'turnstiles', 'ballrun'] },
+  bigfans: { name: 'Big Fans', kind: 'race', icon: '🌬️', desc: 'Huge fans blast gusts across narrow bridges. Lean into the wind or get blown off!', time: 170, fixed: ['fans', 'gaps', 'fans', 'islands', 'fans', 'zigzag'] },
+  frost: { name: 'Freezy Peak', kind: 'race', icon: '🧊', desc: 'Slippery ice slaloms. You can\'t stop on a dime, so plan your turns.', time: 170, fixed: ['iceslide', 'hammers', 'iceslide', 'bouncers', 'iceslide', 'wallrush'] },
+  sky: { name: 'Sky High Run', kind: 'race', icon: '🚀', desc: 'Trampolines, lifts and vanishing platforms way up in the sky. Bounce, steer and don\'t look down!', time: 170, fixed: ['trampolines', 'rising', 'trampolines', 'blinkers', 'trampolines'] },
+  gate: { name: 'Gate Crash', kind: 'race', icon: '🚧', desc: 'Swinging gates open and slam shut on a timer. Pick the right gate and time your run!', time: 170, fixed: ['gatecrash', 'pushers', 'gatecrash', 'logroll', 'gatecrash'] },
+  tiptoe: { name: 'Tip Toe', kind: 'race', icon: '🤫', desc: 'Only some tiles are safe, and fake ones drop as soon as you step on them. Remember the path!', time: 150 },
   tiles: { name: 'Tile Drop', kind: 'survival', icon: '🟪', desc: 'Tiles drop after you step on them. Three floors, then the slime. Keep moving!', time: 75 },
   sweep: { name: 'Sweep Out', kind: 'survival', icon: '🧹', desc: 'Two giant arms that keep speeding up. Jump the low one, and don\'t jump into the high one!', time: 65 },
   bumpers: { name: 'Pinball Pit', kind: 'survival', icon: '🎱', desc: 'Giant bumpers sweep across the platform and a bar spins in the middle. Stay on!', time: 70 },
   dodge: { name: 'Dodge Dome', kind: 'survival', icon: '🛡️', desc: 'Walls sweep across the dome. Jump them or get swept off!', time: 70 },
   sumo: { name: 'Sumo Slam', kind: 'final', icon: '🥋', desc: 'Shove your rivals off the shrinking ring. Dive into them and hold E to grab!', time: 110 },
+  mountain: { name: 'Fall Mountain', kind: 'final', icon: '🏔️', desc: 'Race up the mountain past rolling balls, fans and trampolines, then climb to the crown!', time: 210, fixed: ['ballrun', 'fans', 'trampolines', 'turnstiles', 'tower'] },
   crown: { name: 'Crown Summit', kind: 'final', icon: '👑', desc: 'Fight through the course, climb the tower and grab the crown first!', time: 170 },
   last: { name: 'Bean Arena', kind: 'final', icon: '🏟️', desc: 'Last one standing on the spinning arena. The outer ring is falling away…', time: 100 },
 };
 // every obstacle section a race can draw from (each race = its 2 signature sections + 3 of these)
-export const POOL = ['sweepers', 'hammers', 'spinners', 'gaps', 'discs', 'rising', 'punchers', 'conveyor', 'doors2', 'bouncers', 'blinkers', 'pushers', 'wallrush', 'turnstiles', 'zigzag', 'logroll', 'islands'];
-export const RACES = ['whirl', 'hop', 'doors', 'climb', 'rotor', 'bounce', 'logs', 'gauntlet'], SURVIVALS = ['tiles', 'sweep', 'bumpers', 'dodge'], FINALS = ['crown', 'last', 'sumo'];
+export const POOL = ['sweepers', 'hammers', 'spinners', 'gaps', 'discs', 'rising', 'punchers', 'conveyor', 'doors2', 'bouncers', 'blinkers', 'pushers', 'wallrush', 'turnstiles', 'zigzag', 'logroll', 'islands', 'ballrun', 'fans', 'iceslide', 'trampolines', 'gatecrash'];
+export const RACES = ['whirl', 'hop', 'doors', 'climb', 'rotor', 'bounce', 'logs', 'gauntlet', 'chute', 'bigfans', 'frost', 'sky', 'gate', 'tiptoe'], SURVIVALS = ['tiles', 'sweep', 'bumpers', 'dodge'], FINALS = ['crown', 'last', 'sumo', 'mountain'];
 
 // ---------------------------------------------------------------- match plan + qualifying spots
 // opts: {rounds: '3'|'4', pool: 'all'|'races'|'survival', final: 'random'|'crown'|'last'}
@@ -59,8 +66,8 @@ const cyl = (x, y, z, r, hy, o = {}) => solid({ shape: 'cyl', bx: x, by: y, bz: 
 const TAU = Math.PI * 2, HALF = 7;
 
 function builder(rng, kind) {
-  const B = { rng, kind, solids: [], route: [], cps: [], dynN: 0, doors: [], minY: 0, maxY: 0 };
-  B.add = (s) => { s.idx = B.solids.length; B.solids.push(s); B.minY = Math.min(B.minY, s.by - s.hy); B.maxY = Math.max(B.maxY, s.by + s.hy); return s; };
+  const B = { rng, kind, solids: [], route: [], cps: [], dynN: 0, doors: [], minY: 0, maxY: 0, winds: [], fans: [], cur: 0 };
+  B.add = (s) => { s.pal = B.cur; s.idx = B.solids.length; B.solids.push(s); B.minY = Math.min(B.minY, s.by - s.hy); B.maxY = Math.max(B.maxY, s.by + s.hy); return s; };
   B.node = (n) => { B.route.push({ w: 0, r: 1.3, ...n }); };
   B.dyn = () => B.dynN++;
   return B;
@@ -296,6 +303,64 @@ const MODS = {
     B.node({ x: 0, y, z: zz + 2.5, w: 1 });
     return { z: zz + 3, y };
   },
+  // giant balls roll down the lane toward you (Fruit Chute / Fall Mountain): weave between them or jump the gaps
+  ballrun(B, z, y) {
+    const r = B.rng, L = 32, R = 1.2, spd = 7.6, path = L + 18, P = path / spd;
+    B.add(slab(0, y, z + L / 2, HALF, L / 2, { look: 'floor' }));
+    const xs = r.shuffle([-4.4, 0, 4.4]);
+    xs.forEach((x, i) => B.add(cyl(x + r.range(-0.9, 0.9), y + R, z + L + 9, R, R, { anim: { k: 'roll', v: [0, 0, -spd], P, ph: i / 3 + r.range(0, 0.12) }, hit: 1.5, look: 'ball', noHang: true })));
+    for (const dz of [11, 22]) B.add(cyl(r.range(-4.5, 4.5), y + 1, z + dz, 0.6, 1, { look: 'post', noStand: true }));
+    for (const dz of [3, 9, 15, 21, 27, L - 1]) B.node({ x: 0, y, z: z + dz, w: 4, r: 1.5 });
+    return { z: z + L, y };
+  },
+  // narrow bridge with big fans blasting gusts across it
+  fans(B, z, y) {
+    const r = B.rng, L = 32, HW = 2.9;
+    B.add(slab(0, y, z + L / 2, HW, L / 2, { look: 'bridge' }));
+    let flip = r() < 0.5 ? 1 : -1;
+    for (let i = 0; i < 3; i++) {
+      const z0 = z + 3 + i * 9.5, ph = r.range(0, 1); flip = -flip;
+      B.winds.push({ x0: -HW - 1.5, x1: HW + 1.5, z0, z1: z0 + 8.5, y0: y - 1.5, y1: y + 6, fx: flip * 4.9, fz: 0, p: 3.6, on: 0.55, ph });
+      B.fans.push({ x: -flip * (HW + 1.8), y: y + 1.5, z: z0 + 4.2, dir: flip, p: 3.6, on: 0.58, ph });
+    }
+    for (const dz of [2, 6, 11, 15, 20, 24, L - 1]) B.node({ x: 0, y, z: z + dz, w: 0.3, r: 0.9 });
+    return { z: z + L, y };
+  },
+  // slippery ice with posts to slalom around
+  iceslide(B, z, y) {
+    const r = B.rng, L = 30;
+    B.add(slab(0, y, z + L / 2, HALF, L / 2, { look: 'ice', ice: true }));
+    let sx = r() < 0.5 ? 1 : -1;
+    [6, 12, 18, 24].forEach((dz) => { sx = -sx; const px = sx * r.range(1.2, 3.4); B.add(cyl(px, y + 1, z + dz, 0.7, 1, { look: 'post', noStand: true })); B.node({ x: -sx * 3.0, y, z: z + dz - 1, w: 0.5, r: 1.3 }); B.node({ x: -sx * 3.0, y, z: z + dz + 1.4, w: 0.5, r: 1.3 }); });
+    B.node({ x: 0, y, z: z + L - 1, w: 2, r: 1.5 });
+    return { z: z + L, y };
+  },
+  // a field of trampolines over the slime: bounce from pad to pad
+  trampolines(B, z, y) {
+    const r = B.rng, n = 4, gap = 6.3, ids = [];
+    B.node({ x: 0, y, z: z - 0.9, w: 1.5 });
+    for (let i = 0; i < n; i++) {
+      const x = (i % 2 ? -1 : 1) * r.range(0.8, 2.2), zz = z + 2.6 + i * gap;
+      const p = B.add(box(x, y - 0.3, zz, 2.2, 0.3, 2.2, { bounce: 14.2, look: 'pad' }));
+      B.node({ padAlts: [p.idx], y, z: zz, r: 1.2 });
+    }
+    const L = 2.6 + (n - 1) * gap + 2.2 + 2.2;
+    B.node({ x: 0, y, z: z + L + 1.8, w: 2, leap: true });
+    return { z: z + L, y };
+  },
+  // rows of swinging gates that open and slam shut: get through an open one
+  gatecrash(B, z, y) {
+    const r = B.rng, rows = 3, L = rows * 8.5 + 3, HW = 7.25;
+    B.add(slab(0, y, z + L / 2, HW, L / 2, { look: 'floor' }));
+    for (const s of [-1, 1]) B.add(box(s * (HW + 0.3), y + 0.7, z + L / 2, 0.3, 0.7, L / 2, { look: 'rail', noHang: true }));
+    for (let k = 0; k < rows; k++) {
+      const zz = z + 5.5 + k * 8.5, ids = [], p = r.range(3.0, 3.8);
+      for (let i = 0; i < 5; i++) { const x = -HW + 1.45 + i * 2.9; ids.push(B.add(box(x, y + 1.7, zz, 1.4, 1.7, 0.3, { blink: { p, on: 0.58, ph: r.range(0, 1) }, look: 'swing', noHang: true })).idx); }
+      B.node({ gates: ids, y, z: zz });
+    }
+    B.node({ x: 0, y, z: z + L - 0.8, w: 3 });
+    return { z: z + L, y };
+  },
   // spiral staircase around a column (walkable, no jumping needed), a spinning arm sweeping the stairs, crown on top
   tower(B, z, y) {
     const r = B.rng, cz = z + 9.5, R = 5.6, n = 18, da = 0.36, rise = 0.45;
@@ -333,6 +398,7 @@ function buildRace(rng, id, mods) {
       B.node({ x: 0, y, z: z + 2.5, w: 3 });
       z += 5;
     }
+    B.cur = i;
     ({ z, y } = MODS[m](B, z, y));
   });
   if (!B.crown) {
@@ -429,6 +495,37 @@ function buildSumo(rng) {
   return B;
 }
 
+// Tip Toe: a grid of tiles with one hidden safe path; every other tile drops almost as soon as you step on it
+function buildTiptoe(rng) {
+  const B = builder(rng, 'race');
+  B.add(slab(0, 0, -1.5, 9, 7.5, { look: 'start' }));
+  B.spawns = [];
+  for (let i = 0; i < 8; i++) B.spawns.push({ x: -5.25 + (i % 4) * 3.5, z: -5 + Math.floor(i / 4) * 3, face: 0 });
+  rng.shuffle(B.spawns);
+  B.node({ x: 0, y: 0, z: 4.5, w: 3 });
+  const cols = 6, rows = 18, sx = 2.4, z0 = 7.6, xOf = (c) => (c - (cols - 1) / 2) * sx;
+  const path = []; let c = rng.int(1, 4);
+  for (let r = 0; r < rows; r++) {
+    const c2 = Math.max(0, Math.min(cols - 1, c + rng.int(-2, 2)));
+    for (let k = c; k !== c2; k += Math.sign(c2 - c)) path.push([r, k]);
+    path.push([r, c2]); c = c2;
+  }
+  const safe = new Set(path.map(([r, k]) => r * 10 + k)), tileIdx = new Map();
+  for (let r = 0; r < rows; r++) for (let k = 0; k < cols; k++) {
+    const t = B.add(slab(xOf(k), 0, z0 + r * sx, 1.12, 1.12, { tile: B.dyn(), safe: safe.has(r * 10 + k), look: 'sqtile', checker: (r + k) % 2 }));
+    tileIdx.set(r * 10 + k, t.idx);
+  }
+  const seen = new Set();
+  for (const [r, k] of path) { const key = r * 10 + k; if (seen.has(key)) continue; seen.add(key); B.node({ sid: tileIdx.get(key), y: 0, center: true, tip: [r, k] }); }
+  B.tipIdx = tileIdx; B.tipCols = cols; B.tipRows = rows;
+  const zEnd = z0 + rows * sx;
+  B.add(slab(0, 0, zEnd + 6.5, 9, 6, { look: 'finish' }));
+  B.finishZ = zEnd + 2.4; B.finishY = 0;
+  B.node({ x: 0, y: 0, z: zEnd + 6, w: 4 });
+  B.len = zEnd + 12; B.hasTiles = true; B.tileFall = 0.4;
+  return B;
+}
+
 // stage id + seeded rng -> stage data {id, meta, solids, moving, route, cps, spawns, killY, dynN, ...}
 // signature sections + n more from the pool (no repeats), shuffled so each seed plays differently;
 // the stage's own two signatures are spread out (one early, one late)
@@ -448,19 +545,20 @@ export function buildStage(id, rng, mods = null) {
   else if (id === 'bumpers') B = buildBumpers(rng);
   else if (id === 'dodge') B = buildDodge(rng);
   else if (id === 'sumo') B = buildSumo(rng);
+  else if (id === 'tiptoe') B = buildTiptoe(rng);
   else if (mods) B = buildRace(rng, id, mods);
   else if (meta.fixed) B = buildRace(rng, id, meta.fixed);
-  else if (id === 'crown') B = buildRace(rng, id, [...pickMods(rng, [rng() < 0.5 ? 'sweepers' : 'turnstiles'], 2), 'tower']);
-  else B = buildRace(rng, id, pickMods(rng, meta.mods, 3));
+  else if (id === 'crown') B = buildRace(rng, id, [...pickMods(rng, [rng() < 0.5 ? 'sweepers' : 'turnstiles'], 3), 'tower']);
+  else B = buildRace(rng, id, pickMods(rng, meta.mods, 4));
   const solids = B.solids;
   return {
-    id, meta, mode: id === 'crown' ? 'crown' : (id === 'last' || id === 'sumo') ? 'last' : meta.kind === 'race' ? 'race' : 'survive',
+    id, meta, mode: (id === 'crown' || id === 'mountain') ? 'crown' : (id === 'last' || id === 'sumo') ? 'last' : meta.kind === 'race' ? 'race' : 'survive',
     solids, moving: solids.filter((s) => s.anim), route: B.route, cps: B.cps, spawns: B.spawns, doors: B.doors, layers: B.layers,
-    dynN: B.dynN, killY: (id === 'tiles' ? -10 : B.minY) - 6, finishZ: B.finishZ, finishY: B.finishY, crown: B.crown, arenaR: B.arenaR, len: B.len, maxY: B.maxY,
+    dynN: B.dynN, killY: (id === 'tiles' ? -10 : B.minY) - 6, finishZ: B.finishZ, finishY: B.finishY, crown: B.crown, arenaR: B.arenaR, len: B.len, maxY: B.maxY, winds: B.winds, fans: B.fans, hasTiles: !!B.hasTiles, tileFall: B.tileFall,
   };
 }
 // world object for a stage (one per simulation: host, client prediction)
-export function makeWorld(st) { return { solids: st.solids, moving: st.moving, dyn: new Uint8Array(st.dynN), t: 0, killY: st.killY }; }
+export function makeWorld(st) { return { solids: st.solids, moving: st.moving, dyn: new Uint8Array(st.dynN), t: 0, killY: st.killY, winds: st.winds }; }
 // where a player (index i among this round's players) starts
 export function spawnOf(st, i) { const s = st.spawns[i % st.spawns.length]; const k = Math.floor(i / st.spawns.length); return { x: s.x + k * 0.6, y: 0.05, z: s.z, face: s.face }; }
 export function respawnOf(st, cp, i) {
