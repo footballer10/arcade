@@ -9,7 +9,7 @@ export const ZONE_STAGES = [20, 15.5, 11.5, 8, 4.5];
 export const SUDDEN_DEATH = 150; // after this, zone collapses to 0 over 20s
 export const MAX_PLAYERS = 8;
 export const TICK_RATE = 60;
-export const MAX_REWIND = 18; // ticks (300 ms) of lag compensation
+export const MAX_REWIND = 27; // ticks (450 ms) of lag compensation: covers players on the relay (~200 ms ping + smoothing delay)
 export const MAX_AMMO = 3;
 // Global balance knobs: lower dmg = longer rounds.
 export const TUNE = { dmg: 0.7, kb: 1 };
@@ -122,10 +122,9 @@ export const MUT = { key: 'none' }; // the mutator active this round (clients se
 export const cdRate = () => (MUT.key === 'turbo' ? 2 : 1);
 
 export const POWERUPS = ['speed', 'shield', 'dmg', 'heal', 'giant'];
-export const DASH_CD = 1.4;
 export const BOO_CD = 4;
-const DASH_SPEED = 24;
-const KB_DECAY = 3.2;
+// Movement feel (tunable: see tuning.js).
+export const MOVE = { DASH_CD: 1.4, DASH_SPEED: 24, KB_DECAY: 3.2 };
 export const TELEPORT_MAX = 7;
 export const BOMB_RANGE = 10;
 export const WELL_RANGE = 9;
@@ -191,7 +190,7 @@ export function integrate(p, inp, dt, speedMul = 1) {
   const k = Math.min(1, dt * (MAP.slip ? 2.4 : 14));
   p.mvx += (mx * spd * control - p.mvx) * k;
   p.mvz += (mz * spd * control - p.mvz) * k;
-  const kd = Math.exp(-dt * KB_DECAY); p.kbx *= kd; p.kbz *= kd;
+  const kd = Math.exp(-dt * MOVE.KB_DECAY); p.kbx *= kd; p.kbz *= kd;
   if (charging) {
     p.chargeT -= dt;
     if (p.chargeT <= 0) { p.dvx *= 0.35; p.dvz *= 0.35; }
@@ -206,8 +205,8 @@ export function applyDash(p, inp) {
   let dx = inp.mx || 0, dz = inp.mz || 0;
   const l = Math.hypot(dx, dz);
   if (l < 0.1) { dx = Math.cos(p.aim); dz = Math.sin(p.aim); } else { dx /= l; dz /= l; }
-  p.dvx = dx * DASH_SPEED; p.dvz = dz * DASH_SPEED;
-  p.dashCd = DASH_CD;
+  p.dvx = dx * MOVE.DASH_SPEED; p.dvz = dz * MOVE.DASH_SPEED;
+  p.dashCd = MOVE.DASH_CD;
   p.invT = 0.15;
 }
 
@@ -739,7 +738,7 @@ export class Sim {
   pull(q, x, z, stopShort, owner) {
     const dx = x - q.x, dz = z - q.z, d = Math.hypot(dx, dz);
     if (d < stopShort + 0.3) return;
-    const v = (d - stopShort) * KB_DECAY;
+    const v = (d - stopShort) * MOVE.KB_DECAY;
     q.kbx = (dx / d) * v; q.kbz = (dz / d) * v; q.mvx = q.mvz = 0;
     if (q === owner) q.invT = Math.max(q.invT, 0.15);
     this.fx.push({ k: 'hooked', x: r2(q.x), z: r2(q.z), x1: r2(x), z1: r2(z), id: owner.id, self: q === owner ? 1 : 0 });

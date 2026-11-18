@@ -2,6 +2,13 @@ export const manifest = {
   id: 'arena',
   name: 'Arena Royale',
   tagline: 'Last one standing. Knock them off the edge!',
+  // Shown on the pre-round screen next to the settings: goal, how to win, key tips (short sentences).
+  howTo: [
+    "Knock the other players out: push them off the edge or bring their health to zero.",
+    "Last one standing wins the round. First to win 2 or 3 rounds (host's choice) wins the match.",
+    "Aim with the mouse, attack with left click, use your special with right click or Q, dash with Shift or Space.",
+    "The more damage you take, the further you fly when hit. The gas zone shrinks, so keep to the middle.",
+  ],
   minPlayers: 2,
   maxPlayers: 8,
   teams: false,
@@ -11,6 +18,7 @@ export const manifest = {
   controlsHelp: [
     ['WASD / Arrows', 'Move'], ['Mouse', 'Aim'], ['Left click (hold)', 'Attack (3 ammo, refills)'], ['Right click / Q', 'Special'],
     ['Shift / Space', 'Dash (brief invulnerability)'], ['Mouse wheel', 'Zoom'], ['1 – 4', 'Emotes'], ['Click while out', 'Switch who you spectate'],
+    ['Click a character @ round end', 'Change character for next round'],
   ],
   picks: [
     { key: 'char', label: 'Character', default: 'blaster', choices: [

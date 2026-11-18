@@ -1,14 +1,14 @@
 // Full party flow with 3 browser contexts (real WebRTC through a local PeerJS server):
 // create → join by link and by code → bot → ready → play GAME to results → lobby → refresh-rejoin → no errors.
 // usage: node e2e.mjs [gameId ...]
-import { startStatic, startPeer, launch, openPage, createParty, joinByCode, joinByLink, waitFor, state, sleep, check } from './harness.mjs';
+import { startStatic, startPeer, startRelay, RELAY, launch, openPage, createParty, joinByCode, joinByLink, waitFor, state, sleep, check } from './harness.mjs';
 import { play } from './drivers.mjs';
 
 // host choices on the pre-round screen (keep test rounds short)
 const SETUP = { golf: (A) => A.click('[data-opt="holes"][data-v="1"]'), arena: (A) => A.click('[data-opt="wins"][data-v="2"]') };
 const games = process.argv.slice(2).length ? process.argv.slice(2) : ['coingrab'];
-const BASE = 'http://127.0.0.1:8080/index.html?dev=1&peer=127.0.0.1:9000&testfps=' + (process.env.TESTFPS || 6) + (process.env.NETLOG ? '&netlog=1' : '');
-const srv = await startStatic(8080); await startPeer(9000);
+const BASE = 'http://127.0.0.1:8080/index.html?dev=1&peer=127.0.0.1:9000' + RELAY + (process.env.EXTRA || '') + '&testfps=' + (process.env.TESTFPS || 6) + (process.env.NETLOG ? '&netlog=1' : '');
+const srv = await startStatic(8080); await startPeer(9000); await startRelay(9002);
 const { browser, context } = await launch();
 const pages = [];
 try {

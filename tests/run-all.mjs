@@ -1,6 +1,6 @@
 // Runs every test file in sequence and reports a summary. usage: node run-all.mjs
 import { spawnSync } from 'node:child_process';
-const runs = [['e2e.mjs', 'coingrab', 'golf', 'downhill', 'arena'], ['memory.mjs', 'coingrab', 'golf', 'downhill', 'arena'], ['migration.mjs', 'coingrab'], ['migration.mjs', 'golf'], ['migration.mjs', 'downhill', { TESTFPS: '1' }], ['migration.mjs', 'arena'], ['party.mjs'], ['local.mjs'], ['solo.mjs'], ['solo.mjs', 'nopeer'], ['emotes.mjs']];
+const runs = [['e2e.mjs', 'coingrab', 'golf', 'downhill', 'arena'], ['memory.mjs', 'coingrab', 'golf', 'downhill', 'arena'], ['migration.mjs', 'coingrab'], ['migration.mjs', 'golf'], ['migration.mjs', 'downhill', { TESTFPS: '1' }], ['migration.mjs', 'arena'], ['party.mjs'], ['local.mjs'], ['solo.mjs'], ['solo.mjs', 'nopeer'], ['solo.mjs', 'relayonly'], ['emotes.mjs'], ['portal.mjs'], ['upgrade.mjs', 'arena'], ['joinpaths.mjs'], ['hostdrop.mjs'], ['e2e.mjs', 'coingrab', 'arena', { EXTRA: '&forcerelay=1' }]];
 const results = [];
 // Downhill's big terrain is very costly in software WebGL; with three pages sharing one CPU-rendered GPU the
 // new host can't finish WebRTC handshakes unless test rendering is capped hard (players with GPUs are unaffected).

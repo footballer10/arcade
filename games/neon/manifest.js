@@ -3,6 +3,13 @@ export const manifest = {
   id: 'neon',
   name: 'Neon Rush',
   tagline: 'Anti-gravity racing. Drift to charge boost, chain drifts to win!',
+  // Shown on the pre-round screen next to the settings: goal, how to win, key tips (short sentences).
+  howTo: [
+    "Race anti-gravity ships around the track. First over the line after the last lap wins.",
+    "Hold Space while steering to drift. The drift charges blue, then pink, then gold: let go for a speed boost.",
+    "Chain drifts quickly for bigger boosts, but holding gold too long overheats the drift.",
+    "Hold Shift to spend your boost meter. In Knockout mode the last-place ship is knocked out every lap.",
+  ],
   minPlayers: 1,
   maxPlayers: 8,
   teams: false,
