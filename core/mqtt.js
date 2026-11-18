@@ -1,5 +1,6 @@
 // Tiny MQTT 3.1.1 client over WebSocket (no library). Used by transport-relay.js to pass party messages through a
 // free public broker when a direct WebRTC connection can't be made. QoS 0 only: connect, subscribe, publish, ping.
+import { everySecond } from './keepalive.js';
 const enc = new TextEncoder(), dec = new TextDecoder();
 function varLen(n) { const out = []; do { let b = n % 128; n = Math.floor(n / 128); if (n > 0) b |= 128; out.push(b); } while (n > 0); return out; }
 function str(s) { const b = enc.encode(s); return [b.length >> 8, b.length & 255, ...b]; }
@@ -14,7 +15,7 @@ export class MqttClient {
   // url: wss://host:port/path · onMessage(topic, Uint8Array) · onClose()
   constructor(url, { onMessage, onClose, keepAlive = 30 } = {}) {
     this.url = url; this.onMessage = onMessage; this.onClose = onClose; this.keepAlive = keepAlive;
-    this.ws = null; this.buf = new Uint8Array(0); this.pid = 1; this.closed = false; this.ping = 0;
+    this.ws = null; this.buf = new Uint8Array(0); this.pid = 1; this.closed = false; this.ping = null;
   }
   connect(timeoutMs = 8000) {
     return new Promise((resolve, reject) => {
@@ -41,7 +42,7 @@ export class MqttClient {
           if (type === 2) {            // CONNACK
             if (done) continue;
             done = true; clearTimeout(t);
-            if (body[1] === 0) { this.ping = setInterval(() => this._send(packet(12, 0, [])), this.keepAlive * 500); resolve(this); }
+            if (body[1] === 0) { let n = 0; this.ping = everySecond(() => { if (++n >= this.keepAlive / 2) { n = 0; this._send(packet(12, 0, [])); } }); resolve(this); }
             else reject(new Error('relay refused ' + body[1]));
           } else if (type === 3) {     // PUBLISH (QoS 0)
             const tl = (body[0] << 8) | body[1];
@@ -50,10 +51,11 @@ export class MqttClient {
         }
       };
       this.ws.onerror = () => fail(new Error('relay unreachable'));
-      this.ws.onclose = () => { clearInterval(this.ping); if (!done) fail(new Error('relay closed')); else if (!this.closed) { this.closed = true; this.onClose?.(); } };
+      this.ws.onclose = () => { this.ping?.(); this.ping = null; if (!done) fail(new Error('relay closed')); else if (!this.closed) { this.closed = true; this.onClose?.(); } };
     });
   }
   get open() { return !this.closed && this.ws?.readyState === 1; }
+  backlog() { return this.ws?.bufferedAmount || 0; }
   _send(p) { if (this.ws?.readyState === 1) this.ws.send(p); }
   subscribe(topic) { const id = this.pid = (this.pid % 65535) + 1; this._send(packet(8, 2, [id >> 8, id & 255, ...str(topic), 0])); }
   unsubscribe(topic) { const id = this.pid = (this.pid % 65535) + 1; this._send(packet(10, 2, [id >> 8, id & 255, ...str(topic)])); }
@@ -62,5 +64,5 @@ export class MqttClient {
     const t = str(topic), body = new Uint8Array(t.length + p.length); body.set(t); body.set(p, t.length);
     this._send(packet(3, 0, body));
   }
-  close() { if (this.closed) return; this.closed = true; clearInterval(this.ping); try { this._send(packet(14, 0, [])); this.ws?.close(); } catch { /* */ } }
+  close() { if (this.closed) return; this.closed = true; this.ping?.(); this.ping = null; try { this._send(packet(14, 0, [])); this.ws?.close(); } catch { /* */ } }
 }

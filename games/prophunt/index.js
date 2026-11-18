@@ -15,6 +15,7 @@ import { HostSim, makePlan, standingsOf, applyRow, pickTarget, moveSpeed, T, R, 
 import { makeBrain } from './bots.js';
 import { createView } from './render.js';
 import { createSound } from './audio.js';
+import { SnapBuffer } from '../../core/interp.js';
 
 const CSS = `
 .ph-tag{position:absolute;left:0;top:0;font:.9rem var(--font);color:#fff;white-space:nowrap;text-shadow:var(--stroke);padding:0 8px;border-radius:10px;pointer-events:none;
@@ -204,6 +205,10 @@ export async function start(ctx) {
       v.px = far ? r[1] : sx; v.py = far ? r[2] : sy; v.pz = far ? r[3] : sz;
       applyRow(v, r); v.tx = r[1]; v.ty = r[2]; v.tz = r[3]; v.x = v.px; v.y = v.py; v.z = v.pz;
       v.at = now; v.span = Math.max(40, Math.min(250, now - (v.lastAt || now - 83))); v.lastAt = now;
+      // relay-proof smoothing: placed on the host's clock and drawn a little in the past (core/interp.js)
+      if (!v.buf) v.buf = new SnapBuffer();
+      if (far) v.buf.clear();
+      if (s.ht) v.buf.push(s.ht / 1000, { x: r[1], y: r[2], z: r[3] }, net.now() / 1000);
     }
   }
   function onPhase(ph, prev) {
@@ -296,7 +301,7 @@ export async function start(ctx) {
     if (api.autopilot && !myBrainOn && sim.players.has(ctx.myId)) { myBrainOn = true; sim.brains.set(ctx.myId, makeBrain(ctx.myId, sim, ctx.bots.level, ctx.bots.Brain)); }
     sim.step(dt);
     snapAcc += dt;
-    if (snapAcc >= 1 / SNAP_HZ && !ended) { snapAcc = 0; net.toAll(sim.snapshot()); }
+    if (snapAcc >= 1 / SNAP_HZ && !ended) { snapAcc = 0; const sn = sim.snapshot(); sn.ht = Math.round(net.now()); net.toAll(sn); }   // ht: host clock, for smooth drawing on clients
   });
 
   // ---------------------------------------------------------------- frame: local movement, camera, render, HUD
@@ -343,8 +348,9 @@ export async function start(ctx) {
     for (const [id, v] of view) {
       if (id === ctx.myId && !api.autopilot && me) continue;
       if (v.tx == null || v.at == null) continue;
-      const f = Math.max(0, Math.min(1, (performance.now() - v.at) / v.span));
-      v.x = v.px + (v.tx - v.px) * f; v.y = v.py + (v.ty - v.py) * f; v.z = v.pz + (v.tz - v.pz) * f;
+      const b = !net.isHost && v.buf?.sample(net.now() / 1000);
+      if (b) { v.x = b.x; v.y = b.y; v.z = b.z; }
+      else { const f = Math.max(0, Math.min(1, (performance.now() - v.at) / v.span)); v.x = v.px + (v.tx - v.px) * f; v.y = v.py + (v.ty - v.py) * f; v.z = v.pz + (v.tz - v.pz) * f; }
       if (v.alive && v.moving && phase !== 'post') { v.snd = (v.snd || 0) - dt; if (v.snd <= 0) { v.snd = v.kind >= 0 && v.role === 'H' ? 0.22 : 0.34; if (v.kind >= 0 && v.role === 'H') sfx.hop(v.x, v.y, v.z, KINDS[v.kind].size[1]); else sfx.step(v.x, v.y, v.z); } }
     }
     // --- spectating / camera focus

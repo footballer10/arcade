@@ -13,10 +13,12 @@
 import { Emitter } from './emitter.js';
 import { DualTransport } from './transport-dual.js';
 import { LocalTransport } from './transport-local.js';
+import { simTransport } from './netsim.js';
+import { everySecond } from './keepalive.js';
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const randomCode = () => Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
-export const PROTOCOL = 1;
+export const PROTOCOL = 3;   // 2: binary relay packets · 3: confirmed relay→direct switch
 const HOST_TIMEOUT = 15000;    // client: no word from host for this long -> host lost (a closed tab is detected sooner via the connection's close event)
 const CLIENT_TIMEOUT = 20000; // host: no word from a client -> dropped
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -24,7 +26,7 @@ const NETLOG = /[?&]netlog=1/.test(location.search);
 const nlog = (...a) => { if (NETLOG) console.info('[net]', Math.round(performance.now()), ...a); };
 
 // 'peer' (every real online party) = direct WebRTC with an automatic MQTT-relay fallback; 'local' = tabs (tests).
-export function createTransport(kind) { return kind === 'local' ? new LocalTransport() : new DualTransport(); }
+export function createTransport(kind) { return simTransport(kind === 'local' ? new LocalTransport() : new DualTransport()); }
 
 export class PartyNet extends Emitter {
   constructor(kind, pid) {
@@ -33,10 +35,12 @@ export class PartyNet extends Emitter {
     this.t = null; this.role = null; this.code = null; this.hostPid = null; this.hostConn = null;
     this.conns = new Map();         // host: pid -> {conn, lastSeen, ping, addr}
     this.roster = [];               // [{pid, addr, human}] in join order (kept fresh by the hub) – used for host migration
+    this.diag = [];                 // connection attempts (join / rejoin / upgrade) for the connection report
+    this.stats = { rtts: [], freezes: 0, worstFreeze: 0, since: Date.now() };
     this.offset = 0; this.bestRtt = 1e9; this.rtt = 0; this.lastHost = 0;
     this.closed = false; this.helloInfo = null; this.nextHost = null; this.migrating = false;
     this.onHello = () => ({ ok: true }); // host-side admission hook set by the hub
-    this._timer = setInterval(() => this._beat(), 1000);
+    this._stopBeat = everySecond(() => this._beat());   // keeps going in background tabs
     // Closing a tab doesn't reliably close WebRTC channels quickly, so say goodbye explicitly.
     this._bye = () => {
       if (this.role === 'host') for (const r of this.conns.values()) r.conn.send({ h: 'hostleaving' });
@@ -90,6 +94,25 @@ export class PartyNet extends Emitter {
     }
     if (this.role !== 'host') { conn.send({ h: 'reject', reason: 'Not the host' }); setTimeout(() => conn.close(), 300); return; }
     if (m.v !== PROTOCOL) { conn.send({ h: 'reject', reason: 'Version mismatch — refresh the page.' }); setTimeout(() => conn.close(), 300); return; }
+    // A player on the relay found a direct link: keep the old connection until they confirm the switch, so an
+    // attempt they give up on changes nothing.
+    const cur = this.conns.get(m.pid);
+    if (m.upgrade && cur && cur.conn !== conn && cur.conn.open) {
+      const rec = cur;
+      conn.onraw = (ab) => { rec.lastSeen = performance.now(); const u = new Uint8Array(ab); this.emit('raw', u[0], ab.slice(1), m.pid); };
+      conn.onclose = () => {};
+      conn.onmessage = (msg) => {
+        if (msg?.h !== 'switched' || this.conns.get(m.pid) !== rec) return;
+        const old = rec.conn;
+        rec.conn = conn; rec.via = conn.via || 'direct'; rec.lastSeen = performance.now();
+        conn.onmessage = (x) => this._fromClient(m.pid, rec, x);
+        conn.onclose = () => { if (this.conns.get(m.pid) === rec && rec.conn === conn) { nlog('client conn closed', m.pid); this.conns.delete(m.pid); this.emit('peerleave', m.pid); } };
+        old.onclose = null; setTimeout(() => { try { old.close(); } catch { /* */ } }, 1500);
+        this.emit('peerjoin', m.pid, m, rec.via);
+      };
+      conn.send({ h: 'welcome', hostPid: this.pid, code: this.code, ht: performance.now() });
+      return;
+    }
     const verdict = this.onHello(m.pid, m) || { ok: true };
     if (!verdict.ok) { conn.send({ h: 'reject', reason: verdict.reason }); setTimeout(() => conn.close(), 400); return; }
     const old = this.conns.get(m.pid);
@@ -98,7 +121,7 @@ export class PartyNet extends Emitter {
     this.conns.set(m.pid, rec);
     conn.onmessage = (msg) => this._fromClient(m.pid, rec, msg);
     conn.onraw = (ab) => { rec.lastSeen = performance.now(); const u = new Uint8Array(ab); this.emit('raw', u[0], ab.slice(1), m.pid); };
-    conn.onclose = () => { if (this.conns.get(m.pid) === rec) { nlog('client conn closed', m.pid); this.conns.delete(m.pid); this.emit('peerleave', m.pid); } };
+    conn.onclose = () => { if (this.conns.get(m.pid) === rec && rec.conn === conn) { nlog('client conn closed', m.pid); this.conns.delete(m.pid); this.emit('peerleave', m.pid); } };
     conn.send({ h: 'welcome', hostPid: this.pid, code: this.code, ht: performance.now() });
     this.emit('peerjoin', m.pid, m, rec.via);
   }
@@ -165,10 +188,12 @@ export class PartyNet extends Emitter {
           if (!m || typeof m !== 'object') return;
           if (m.h === 'welcome') {
             if (this.hostConn && this.hostConn !== c) { this.hostConn.onclose = null; this.hostConn.close(); }
-            this.hostConn = c; this.via = c.via || 'direct'; this.role = 'client'; this.hostPid = m.hostPid; this.code = m.code; this.lastHost = performance.now();
+            this.hostConn = c; this.via = c.via || 'direct'; this.role = 'client';
+            this.diag.push({ at: Date.now(), what: extra.migrate ? 'migrate' : extra.rejoin ? 'rejoin' : 'join', ok: true, path: this.via + (c.path ? ' ' + c.path : ''), ice: c.directErr || null });
+            this.nextUpgrade = performance.now() + 4000; this.upgradeGap = 12000; this.hostPid = m.hostPid; this.code = m.code; this.lastHost = performance.now();
             this.offset = m.ht - performance.now(); this.bestRtt = 1e9; this.nextHost = null; this.migrating = false;
             c.onmessage = (msg) => this._fromHost(c, msg);
-            c.onraw = (ab) => { if (c !== this.hostConn) return; this.lastHost = performance.now(); const u = new Uint8Array(ab); this.emit('raw', u[0], ab.slice(1), this.hostPid); };
+            c.onraw = (ab) => this._rawFromHost(c, ab);
             c.onclose = () => { if (c === this.hostConn) { nlog('host conn closed'); this._hostLost(); } };
             finish(true);
             this.emit('status', 'connected');
@@ -183,15 +208,23 @@ export class PartyNet extends Emitter {
       }).catch((e) => finish(e));
     });
   }
+  _isHostConn(c) { return c === this.hostConn || (c === this.graceConn && performance.now() < this.graceUntil); }
+  // Freezes: game packets stream at 10–30 per second during a round, so a 0.5–10 s silence is the link stalling.
+  _gameIn() {
+    const now = performance.now(), gap = now - (this.lastGame || 0);
+    if (this.lastGame && gap > 500 && gap < 10000) { this.stats.freezes++; this.stats.worstFreeze = Math.max(this.stats.worstFreeze, Math.round(gap)); }
+    this.lastGame = now;
+  }
   _fromHost(c, msg) {
-    if (c !== this.hostConn) return;
+    if (!this._isHostConn(c)) return;
     this.lastHost = performance.now();
     if (!msg || typeof msg !== 'object') return;
-    if (msg.g !== undefined) { this.emit('game', msg.g, msg.d, this.hostPid); return; }
+    if (msg.g !== undefined) { this._gameIn(); this.emit('game', msg.g, msg.d, this.hostPid); return; }
     switch (msg.h) {
       case 'pong': {
         const now = performance.now(), rtt = now - msg.ct;
         this.rtt = this.rtt ? this.rtt * 0.7 + rtt * 0.3 : rtt;
+        this.stats.rtts.push(Math.round(rtt)); if (this.stats.rtts.length > 120) this.stats.rtts.shift();
         const off = msg.ht + rtt / 2 - now;
         if (rtt <= this.bestRtt * 1.3 || Math.abs(off - this.offset) > 250) { this.offset = this.bestRtt > 5e8 ? off : this.offset * 0.7 + off * 0.3; this.bestRtt = Math.min(this.bestRtt * 1.02 + 1, rtt); }
         return;
@@ -201,6 +234,59 @@ export class PartyNet extends Emitter {
       case 'hostleaving': nlog('host leaving'); this.lastHost = 0; this._hostLost(); return;
     }
     this.emit('msg', msg, this.hostPid);
+  }
+  _rawFromHost(c, ab) { if (!this._isHostConn(c)) return; this._gameIn(); this.lastHost = performance.now(); const u = new Uint8Array(ab); this.emit('raw', u[0], ab.slice(1), this.hostPid); }
+  // A client that had to use the backup relay keeps trying the direct (WebRTC) link in the background and moves
+  // over as soon as it works. Messages still in flight on the relay are accepted for a few seconds after the swap.
+  async _tryUpgrade() {
+    if (this.role !== 'client' || this.migrating || this.closed || this.via !== 'relay' || this._upgrading || !this.t.connectDirect || !this.hostConn) return;
+    this._upgrading = true;
+    const t0 = performance.now();
+    try {
+      const c = await this.t.connectDirect(this.t.roomAddr(this.code), 20000);
+      await new Promise((resolve) => {
+        const bail = () => { clearTimeout(t); try { c.close(); } catch { /* */ } resolve(); };
+        const t = setTimeout(bail, 8000);
+        c.onclose = () => { clearTimeout(t); resolve(); };
+        c.onmessage = (m) => {
+          if (!m || typeof m !== 'object') return;
+          if (m.h !== 'welcome') { if (m.h === 'reject' || m.h === 'redirect') bail(); return; }
+          clearTimeout(t);
+          if (m.hostPid !== this.hostPid || this.migrating || this.role !== 'client' || !this.hostConn) { bail(); return; }
+          const old = this.hostConn;
+          this.graceConn = old; this.graceUntil = performance.now() + 4000;
+          old.onclose = null; setTimeout(() => { try { old.close(); } catch { /* */ } if (this.graceConn === old) this.graceConn = null; }, 4000);
+          this.hostConn = c; this.via = 'direct'; this.lastHost = performance.now(); this.bestRtt = 1e9; this.rtt = 0;
+          c.send({ h: 'switched' });   // the host moves us over (and closes the relay) only after this
+          c.onmessage = (msg) => this._fromHost(c, msg);
+          c.onraw = (ab) => this._rawFromHost(c, ab);
+          c.onclose = () => { if (c === this.hostConn) { nlog('host conn closed'); this._hostLost(); } };
+          this.diag.push({ at: Date.now(), what: 'upgrade', ok: true, ms: Math.round(performance.now() - t0), path: c.path || null });
+          nlog('upgraded to direct');
+          this.emit('upgraded');
+          resolve();
+        };
+        c.send({ h: 'hello', v: PROTOCOL, pid: this.pid, addr: this.t.addr, ...this.helloInfo, rejoin: true, upgrade: true });
+      });
+    } catch (e) {
+      this.diag.push({ at: Date.now(), what: 'upgrade', ok: false, err: e.type || e.message, ice: e.ice || null });
+    } finally {
+      this._upgrading = false;
+      this.nextUpgrade = performance.now() + Math.min(90000, (this.upgradeGap = Math.min(90000, (this.upgradeGap || 15000) * 1.5)));
+      if (this.diag.length > 12) this.diag.splice(0, this.diag.length - 12);
+    }
+  }
+  // Plain-text summary of how this player is connected (Settings → Copy connection report).
+  report() {
+    const lines = [`Party Arcade connection report (${new Date().toISOString()})`, `role: ${this.role || 'none'} · party: ${this.code || '-'} · path to host: ${this.isHost ? 'is host' : this.via || '-'} · ping: ${Math.round(this.rtt || 0)} ms`];
+    if (this.isHost) for (const [pid, r] of this.conns) lines.push(`  player ${pid.slice(0, 6)}: ${r.via}${r.conn.path ? ' (' + r.conn.path + ')' : ''} · ping ${Math.round(r.ping)} ms`);
+    lines.push(`direct link server: ${this.t.peerOk === false ? 'UNREACHABLE' : 'ok'} · relay servers: ${this.t.relayInfo?.() || '-'}`);
+    const r = [...this.stats.rtts].sort((a, b) => a - b), q = (f) => r.length ? r[Math.min(r.length - 1, Math.floor(r.length * f))] : '-';
+    if (!this.isHost) lines.push(`ping last ${r.length} samples: best ${q(0)} · typical ${q(0.5)} · bad ${q(0.9)} · worst ${q(1)} ms · freezes over 0.5 s: ${this.stats.freezes} (worst ${this.stats.worstFreeze} ms) in ${Math.round((Date.now() - this.stats.since) / 60000)} min · relay packets dropped (backed up): ${this.t.relay?.dropped || 0}`);
+    if (this.hostConn?.path) lines.push(`direct path: ${this.hostConn.path}`);
+    for (const d of this.diag) lines.push(`${new Date(d.at).toLocaleTimeString()} ${d.what}: ${d.ok ? 'ok' : 'FAILED (' + d.err + ')'}${d.ms ? ' in ' + d.ms + ' ms' : ''}${d.path ? ' via ' + d.path : ''}${d.ice ? ' · ' + d.ice : ''}`);
+    lines.push(`browser: ${navigator.userAgent}`);
+    return lines.join('\n');
   }
   setRoster(list) { this.roster = list; }
   // Heavy moments (a game loading: module import, course build, shader compiles) can freeze a slow laptop's
@@ -288,6 +374,7 @@ export class PartyNet extends Emitter {
       if (this.hostConn?.open) this.hostConn.send({ h: 'ping', ct: now, rtt: Math.round(this.rtt) });
       const hostLimit = now < (this.relaxUntil || 0) ? 45000 : HOST_TIMEOUT;
       if (!this.migrating && this.hostConn && now - this.lastHost > hostLimit) { nlog('host silent', Math.round(now - this.lastHost)); this._hostLost(); }
+      else if (this.via === 'relay' && now > (this.nextUpgrade || 0)) this._tryUpgrade();
     } else if (this.role === 'host') {
       const clientLimit = now < (this.relaxUntil || 0) ? 45000 : CLIENT_TIMEOUT;
       for (const [pid, r] of this.conns) if (now - r.lastSeen > clientLimit) { nlog('client silent', pid); this.conns.delete(pid); r.conn.onclose = null; r.conn.close(); this.emit('peerleave', pid); }
@@ -328,7 +415,7 @@ export class PartyNet extends Emitter {
     if (this.closed) return;
     this.closed = true;
     try { this.hostConn?.send({ h: 'bye' }); } catch { /* */ }
-    clearInterval(this._timer); removeEventListener('pagehide', this._bye);
+    this._stopBeat(); removeEventListener('pagehide', this._bye);
     setTimeout(() => { try { this.t?.close(); } catch { /* */ } }, 150);
     this.role = null; this.clearListeners();
   }

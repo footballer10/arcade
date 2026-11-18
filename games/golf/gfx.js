@@ -25,20 +25,24 @@ const dots = (g, w, h, n, color, r0, r1) => { g.fillStyle = color; for (let i = 
 // Textures are near-white so each world tints them through material.color.
 // felt: two crisp mowing stripes per repeat (the lane UVs repeat every 2.5 m, so 4 stripes across a 5 m lane)
 const turfMap = canvasTex(128, 128, (g, w, h) => {
-  g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h);
-  g.fillStyle = '#e4e4e4'; g.fillRect(w / 2, 0, w / 2, h);
-  dots(g, w, h, 40, 'rgba(255,255,255,.35)', 0.8, 1.6);
+  const grd = g.createLinearGradient(0, 0, w, 0);   // two soft-edged mowing stripes per repeat (edges blurred so diagonals stay smooth)
+  grd.addColorStop(0, '#ffffff'); grd.addColorStop(0.44, '#ffffff'); grd.addColorStop(0.5, '#e9e9e9'); grd.addColorStop(0.94, '#e9e9e9'); grd.addColorStop(1, '#ffffff');
+  g.fillStyle = grd; g.fillRect(0, 0, w, h);
 });
 // grass: flat colour with sparse cartoon tufts and soft lighter patches
-const groundMap = canvasTex(256, 256, (g, w, h) => {
+const groundMap = canvasTex(512, 512, (g, w, h) => {
   g.fillStyle = '#ececec'; g.fillRect(0, 0, w, h);
-  dots(g, w, h, 6, 'rgba(255,255,255,.3)', 16, 34);
-  g.strokeStyle = '#d2d2d2'; g.lineWidth = 3; g.lineCap = 'round';
+  // soft patches, drawn wrapped so the tile repeats seamlessly
   for (let i = 0; i < 9; i++) {
-    const x = rnd() * w, y = rnd() * h;
-    g.beginPath(); g.moveTo(x - 5, y - 6); g.lineTo(x, y + 3); g.lineTo(x + 2, y - 9); g.lineTo(x + 5, y + 3); g.lineTo(x + 10, y - 5); g.stroke();
+    const x = rnd() * w, y = rnd() * h, r = 40 + rnd() * 50;
+    for (const ox of [-w, 0, w]) for (const oy of [-h, 0, h]) { g.fillStyle = 'rgba(255,255,255,.28)'; g.beginPath(); g.ellipse(x + ox, y + oy, r, r * 0.7, 0, 0, 7); g.fill(); }
   }
-}, { repeat: [90, 90] });
+  g.strokeStyle = '#d8d8d8'; g.lineWidth = 4; g.lineCap = 'round'; g.lineJoin = 'round';
+  for (let i = 0; i < 7; i++) {
+    const x = 20 + rnd() * (w - 40), y = 20 + rnd() * (h - 40);
+    g.beginPath(); g.moveTo(x - 7, y - 8); g.lineTo(x, y + 4); g.lineTo(x + 3, y - 12); g.lineTo(x + 7, y + 4); g.lineTo(x + 14, y - 7); g.stroke();
+  }
+}, { repeat: [45, 45] });
 // painted rail: flat colour, a bright top lip and one dark groove
 const woodMap = canvasTex(64, 64, (g, w, h) => {
   g.fillStyle = '#f2f2f2'; g.fillRect(0, 0, w, h);

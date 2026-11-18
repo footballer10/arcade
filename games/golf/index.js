@@ -447,12 +447,11 @@ export async function start(ctx) {
   // Floor of one tile as a height-mapped grid (ramps, banks, hills, kickers, gaps). UVs follow the lane.
   function tileFloor(hole, t) {
     const N = 24, T = C.T, e = 1e-3, pos = [], uv = [], ok = [], idx = [];
-    const d = t.d, px = -d[1], pz = d[0];
     for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
       const x = t.cx - T / 2 + T * i / N, z = t.cz - T / 2 + T * j / N;
       const h = C.heightAt(hole, Math.min(t.cx + T / 2 - e, Math.max(t.cx - T / 2 + e, x)), Math.min(t.cz + T / 2 - e, Math.max(t.cz - T / 2 + e, z)));
       pos.push(x, h ?? 0, z); ok.push(h !== null);
-      uv.push(((x - t.cx) * px + (z - t.cz) * pz) / 2.5 + 0.5, ((x - t.cx) * d[0] + (z - t.cz) * d[1]) / 2.5);
+      uv.push((x + z) / 3.5, (x - z) / 3.5); // world-space diagonal stripes: unbroken across every corner
     }
     const v = (i, j) => j * (N + 1) + i;
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {

@@ -14,6 +14,7 @@ import { HostSim, standingsOf } from './sim.js';
 import { makeBot, botThink } from './bots.js';
 import { createView } from './render.js';
 import { createSound } from './sound.js';
+import { SnapBuffer } from '../../core/interp.js';
 
 const SNAP_HZ = 15, SEND_HZ = 30;
 // The stack gauge: every floor from the top down, how much of it is left, and who is on it.
@@ -68,7 +69,7 @@ export async function start(ctx) {
   // ---------------------------------------------------------------- shared client view of the match
   const info = { wins: Object.fromEntries(ids.map((id) => [id, 0])), pts: Object.fromEntries(ids.map((id) => [id, 0])), bumps: {}, cracked: {}, out: [] };
   let collapsed = false, finalTwo = false;
-  let round = -1, level = null, phase = 'wait', phaseT = 0, tC = 0, ended = false;
+  let round = -1, level = null, phase = 'wait', phaseT = 0, tC = 0, ended = false, tmOff = null;
   let snapA = null, snapB = null, snapAt = 0, snapGap = 1 / SNAP_HZ;
   const view = new Map();         // id -> drawn state
   let me = null;                  // my predicted player (clients)
@@ -247,12 +248,16 @@ export async function start(ctx) {
     phase = m.ph; phaseT = m.pt;
     const d = m.tm - tC; if (Math.abs(d) > 0.3) tC = m.tm; else tC += d * 0.15;
     const now = performance.now();
+    // smooth estimate of the host's round clock (from the fastest snapshots), for drawing others without stutter
+    const off = m.tm - now / 1000;
+    tmOff = m.ph !== 'play' ? null : tmOff == null || off > tmOff ? off : tmOff + (off - tmOff) * 0.04;
     snapGap = snapB ? Math.max(0.03, Math.min(0.3, (now - snapAt) / 1000)) : 1 / SNAP_HZ;
     snapA = snapB || m; snapB = m; snapAt = now;
     ids.forEach((id, i) => {
       const r = m.p[i]; if (!r) return;
       const v = view.get(id);
       Object.assign(v, { vx: r[3], vy: r[4], vz: r[5], g: !!r[6], l: r[7], alive: !!r[9], auth: r[10], dashCd: r[11], stun: r[12], dashT: r[13] });
+      if (id !== ctx.myId) { if (!v.buf) v.buf = new SnapBuffer({ angles: ['face'] }); if (m.ph === 'play' && tmOff != null) v.buf.push(m.tm, { x: r[0], y: r[1], z: r[2], face: r[8] }, now / 1000 + tmOff); else v.buf.clear(); }
       if (id === ctx.myId && me) {
         if (me.auth !== r[10]) Object.assign(me, { x: r[0], y: r[1], z: r[2], vx: r[3], vy: r[4], vz: r[5], g: !!r[6], l: r[7], face: r[8], auth: r[10], stun: r[12], dashT: r[13] });
         me.alive = !!r[9]; me.dashCd = Math.max(me.dashCd, r[11] - 0.1);
@@ -269,7 +274,9 @@ export async function start(ctx) {
     const f = snapA && snapB ? Math.min(1.2, (performance.now() - snapAt) / 1000 / snapGap) : 1;
     ids.forEach((id, i) => {
       const v = view.get(id);
-      if (snapB) {
+      const sm = phase === 'play' && tmOff != null && id !== ctx.myId && v.buf?.sample(performance.now() / 1000 + tmOff);   // relay-proof smoothing (core/interp.js)
+      if (sm) { v.x = sm.x; v.y = sm.y; v.z = sm.z; v.face = sm.face; }
+      else if (snapB) {
         const a = snapA.p[i], b = snapB.p[i];
         if (a && b) { v.x = a[0] + (b[0] - a[0]) * f; v.y = a[1] + (b[1] - a[1]) * f; v.z = a[2] + (b[2] - a[2]) * f; v.face = b[8]; }
       }

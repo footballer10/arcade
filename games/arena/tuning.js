@@ -1,7 +1,7 @@
 // Arena feel constants. These values are the defaults the game uses (they override the same keys in sim.js).
 // Tune them by playing in the developer portal: run `python3 tools/portal.py` (see docs/PORTAL.md).
 import { tunable } from '../../core/tune.js';
-import { CHARS, MELEE, SHOTS, TUNE, MOVE } from './sim.js';
+import { CHARS, MELEE, SHOTS, TUNE, MOVE, CUBE } from './sim.js';
 
 tunable('arena', [
   { target: TUNE, group: 'Everyone', items: {
@@ -12,6 +12,11 @@ tunable('arena', [
     DASH_SPEED: { value: 24,  label: 'Dash speed', min: 8, max: 45 },
     DASH_CD:    { value: 1.4, label: 'Dash cooldown (s)', min: 0.3, max: 4 },
     KB_DECAY:   { value: 3.2, label: 'Knockback fade', hint: 'higher = you stop sliding sooner', min: 0.8, max: 8 },
+  } },
+  { target: CUBE, group: 'Power cubes', items: {
+    MAX:     { value: 5,    label: 'Max cubes held', hint: 'Showdown-style stacking buff', min: 1, max: 9, step: 1 },
+    HP_PCT:  { value: 0.12, label: 'Max HP gained per cube', min: 0.02, max: 0.3 },
+    DMG_PCT: { value: 0.08, label: 'Damage dealt gained per cube', min: 0.02, max: 0.3 },
   } },
   { target: CHARS.blaster, group: 'Blaster', items: {
     BLASTER_SPEED:  { value: 7.0, prop: 'speed',  label: 'Move speed', min: 3, max: 14 },
