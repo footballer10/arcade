@@ -16,8 +16,8 @@ export const manifest = {
   roundLengthSec: 200,           // 3 holes × up to 60 s + flyovers + scorecards
   thumbnail: 'games/golf/thumb.svg',
   controlsHelp: [
-    ['Left drag', 'Pull back from your ball & release to shoot (dots show the path)'], ['Right drag', 'Orbit camera · right-click while aiming cancels'],
-    ['Mouse wheel', 'Zoom'], ['E', 'Use power-up'], ['Space', 'Recenter camera'], ['1 – 4', 'Emotes'], ['Click / ← →', 'Switch who you spectate (after you finish)'],
+    ['Left drag', 'Pull back from your ball & release to shoot (dots show the path)'], ['A / D · ← →', 'Rotate the camera around your ball'], ['W / S · ↑ ↓', 'Tilt the camera'], ['Right drag', 'Orbit camera too · right-click while aiming cancels'],
+    ['Mouse wheel', 'Zoom'], ['E', 'Use power-up'], ['Space', 'Recenter camera'], ['1 – 4', 'Emotes'], ['Click · ← →', 'Switch who you spectate (after you finish)'],
   ],
   picks: [],
   options: [

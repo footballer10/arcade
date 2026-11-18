@@ -13,6 +13,7 @@ export { manifest } from './manifest.js';
 
 const EMOTES = ['😂', '😡', '👏 Nice!', '😱 Oops!'];
 const PLACE_PTS = [10, 7, 5, 4, 3, 2, 1, 1];
+const BALL_VIS = 1.25;   // balls are drawn a little larger than their physics radius so they read from the play camera
 const STEP = 1 / 240, HOLE_END_SECS = 6, INTRO_SECS = 3.0, PODIUM_SECS = 4.5;
 const ITEM_RESPAWN = { normal: 12, chaos: 4 };
 const BOT_SKILL = { easy: [0.2, 0.45], normal: [0.55, 0.9], hard: [0.92, 1] };
@@ -23,6 +24,7 @@ const CSS = `
 .golf-intro{position:absolute;left:50%;top:26%;transform:translate(-50%,-50%);text-align:center;color:#fff;text-shadow:var(--stroke),0 6px 0 var(--ink);animation:golfIntro 3s forwards;white-space:nowrap;pointer-events:none}
 .golf-intro .h{font-size:4.5rem;line-height:1}.golf-intro .s{font-size:1.5rem}.golf-intro .m{font-size:1.7rem;color:var(--yellow);margin-top:6px}
 @keyframes golfIntro{0%{opacity:0;transform:translate(-50%,-50%) scale(.7)}12%{opacity:1;transform:translate(-50%,-50%) scale(1)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-60%) scale(1)}}
+.golf-vig{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 58%,rgba(20,14,50,.3) 100%)}
 .golf-emotes{position:absolute;left:14px;bottom:20px;display:flex;gap:6px}
 .golf-emotes button{font-size:1.2rem;padding:4px 9px}`;
 
@@ -103,6 +105,7 @@ export async function start(ctx) {
   scene.add(aimGroup, pullLine);
 
   // play-area panels: hole intro, between-hole scorecard, emote buttons
+  ctx.container.appendChild(ui.el('div', 'golf-vig'));
   const intro = ui.el('div', 'golf-intro hidden', '<div class="h"></div><div class="s"></div><div class="m"></div>'); ctx.container.appendChild(intro);
   const card = ui.el('div', 'ph-panel'); Object.assign(card.style, { position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', zIndex: 5, display: 'none', maxWidth: '94vw' });
   ctx.container.appendChild(card);
@@ -491,14 +494,7 @@ export async function start(ctx) {
         add(G.box(t.d[0] ? 0.06 : T, 1.1, t.d[0] ? T : 0.06, M.pit), lx, t.h0 - 0.56, lz);
       }
       if (t.type === 'bank') {
-        // raised stone planter fills the corner behind the curved rail
-        const N = 14, pos = [], idx = [], ok = [];
-        for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) { const x = t.cx - T / 2 + T * i / N, z = t.cz - T / 2 + T * j / N; pos.push(x, t.h0 + 0.5, z); ok.push(Math.hypot(x - t.ic[0], z - t.ic[1]) > T - 0.3); }
-        const v = (i, j) => j * (N + 1) + i;
-        for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const a = v(i, j), b = v(i + 1, j), c = v(i, j + 1), d = v(i + 1, j + 1); if (ok[a] && ok[b] && ok[c] && ok[d]) idx.push(a, c, b, b, c, d); }
-        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-        g.setAttribute('uv', new THREE.Float32BufferAttribute(pos.filter((_, k) => k % 3 !== 1).map(v => v / 1.6), 2)); g.setIndex(idx); g.computeVertexNormals();
-        const pm = new THREE.Mesh(g, M.stone); pm.receiveShadow = true; pm.userData.noInk = true; course.add(pm);
+        const arc = hole.arcs.find((a) => a.t === t); if (arc) course.add(G.bankWall(hole, arc));
         const ox = t.cx + (t.din[0] - t.d[0]) * (T / 2 - 0.75), oz = t.cz + (t.din[1] - t.d[1]) * (T / 2 - 0.75);
         const bush = new THREE.Mesh(new THREE.SphereGeometry(0.55, 14, 10), G.toon({ color: th.bush })); bush.userData.inkMe = true;
         bush.castShadow = true; add(bush, ox, t.h0 + 0.85, oz).scale.set(1.1, 0.9, 1.1);
@@ -535,7 +531,7 @@ export async function start(ctx) {
       add(w.kind === 'tunnel' ? G.box(ww, hh, dd, M.stone, { uvScale: 1.2 }) : G.box(ww, hh, dd, w.kind === 'inner' ? M.paint : M.wood, { round: 0.05 }), w.x, (w.y0 + w.y1) / 2, w.z);
       if (w.kind === 'inner') add(G.box(ww + 0.02, 0.05, dd + 0.02, M.red, { round: 0.02 }), w.x, w.y1, w.z);
     }
-    for (const o of hole.obbs) add(G.box(o.hx * 2, o.y1 - o.y0, o.hz * 2, M.wood, { round: 0.05 }), o.x, (o.y0 + o.y1) / 2, o.z).rotation.y = -o.a;
+    for (const o of hole.obbs) if (!o.arc) add(G.box(o.hx * 2, o.y1 - o.y0, o.hz * 2, M.wood, { round: 0.05 }), o.x, (o.y0 + o.y1) / 2, o.z).rotation.y = -o.a;
     for (const { t, y } of hole.tunnels) {
       add(G.box(t.d[0] ? 3.6 : 2.7, 0.06, t.d[0] ? 2.7 : 3.6, M.glass), t.cx, y + 0.95, t.cz).castShadow = false;
       for (const s of [-1, 1]) {
@@ -606,6 +602,7 @@ export async function start(ctx) {
       const label = G.makeLabel(p.id === S.myId ? 'You' : p.name, p.color);
       course.add(ball, label, blob); ballMeshes.set(p.id, { ball, label, blob, trail: new G.Trail(course, p.color), sink: 0, wasSunk: false });
     }
+    const rs = G.railShadows(hole); if (rs) course.add(rs);
     G.inkCourse(course);
     course.add(G.buildScenery(hole, gy, th));
     const dir = G.applyTheme(th, themeCtx); weather.set(th.weather);
@@ -791,10 +788,13 @@ export async function start(ctx) {
   ctx.input.on('press', (a) => {
     if (a === 'use') useMyItem();
     else if (a === 'jump' && S.phase === 'playing') resetCamera();
-    else if (a === 'left') cycleSpec(-1);
-    else if (a === 'right') cycleSpec(1);
   });
-  ctx.input.on('key', (code, down) => { if (down && /^Digit[1-4]$/.test(code)) emote(+code.slice(5) - 1); });
+  ctx.input.on('key', (code, down) => {
+    if (!down) return;
+    if (/^Digit[1-4]$/.test(code)) emote(+code.slice(5) - 1);
+    else if (code === 'ArrowLeft') cycleSpec(-1);
+    else if (code === 'ArrowRight') cycleSpec(1);
+  });
   ctx.input.on('release', () => { if (!ctx.input.enabled) aimCancel(); });
 
   // ---------------------------------------------------------------- host migration, late joiners, leavers
@@ -831,6 +831,7 @@ export async function start(ctx) {
   // ---------------------------------------------------------------- loops
   ctx.tick((dt) => { try { hostTick(dt); } catch (e) { console.error(e); } });
   let lastSec = 0, liveAt = 0, fpsFrames = 0, fpsAt = performance.now(), slowSecs = 0, autoDone = false;
+  const camSph = new THREE.Spherical(), camOff = new THREE.Vector3();
   const sm = (x) => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
   const preview = { b: null };
   ctx.frame((dt, now) => {
@@ -863,22 +864,22 @@ export async function start(ctx) {
         if (pod) {
           const p = pod.pos.get(id); ball.visible = label.visible = !!p && !gone; trail.mesh.visible = false;
           blob.visible = !!p && !gone;
-          if (p) { const hop = id === pod.win ? Math.abs(Math.sin(tsec * 5)) * 0.35 : 0; ball.scale.setScalar(1); ball.position.set(p.x, p.y + C.BALL_R + hop, p.z); label.position.set(p.x, p.y + C.BALL_R + 0.5 + hop, p.z); ball.material.opacity = 1; blob.position.set(p.x, p.y + 0.01, p.z); blob.scale.setScalar(C.BALL_R * 1.5); }
+          if (p) { const hop = id === pod.win ? Math.abs(Math.sin(tsec * 5)) * 0.35 : 0; ball.scale.setScalar(BALL_VIS); ball.position.set(p.x, p.y + C.BALL_R * BALL_VIS + hop, p.z); label.position.set(p.x, p.y + C.BALL_R * BALL_VIS + 0.5 + hop, p.z); ball.material.opacity = 1; blob.position.set(p.x, p.y + 0.01, p.z); blob.scale.setScalar(C.BALL_R * 1.5 * BALL_VIS); }
           continue;
         }
         if (b.sunk && !bm.wasSunk) bm.sink = 0.4;
         bm.wasSunk = b.sunk;
         if (bm.sink > 0) {
           bm.sink -= dt; const k = Math.max(0, bm.sink / 0.4);
-          ball.visible = true; label.visible = blob.visible = false; ball.scale.setScalar(sc * (0.6 + 0.4 * k)); ball.position.set(cup.x, cup.y + b.r * k - 0.25 * (1 - k), cup.z);
+          ball.visible = true; label.visible = blob.visible = false; ball.scale.setScalar(sc * BALL_VIS * (0.6 + 0.4 * k)); ball.position.set(cup.x, cup.y + b.r * BALL_VIS * k - 0.25 * (1 - k), cup.z);
         } else {
           const vis = !b.sunk && !gone;
           ball.visible = vis; label.visible = vis;
-          ball.scale.setScalar(sc); ball.position.set(b.x, b.y + b.r, b.z); label.position.set(b.x, b.y + b.r * 2 + 0.25, b.z);
+          ball.scale.setScalar(sc * BALL_VIS); ball.position.set(b.x, b.y + b.r * BALL_VIS, b.z); label.position.set(b.x, b.y + b.r * 2 * BALL_VIS + 0.25, b.z);
           ball.rotation.x += b.vz * dt / b.r; ball.rotation.z -= b.vx * dt / b.r;
           const fy = vis ? C.heightAt(S.hole, b.x, b.z) : null;
           blob.visible = fy !== null && b.y - fy < 3;
-          if (blob.visible) { const k = Math.max(0.35, 1 - (b.y - fy) * 0.4); blob.position.set(b.x, fy + 0.035, b.z); blob.scale.setScalar(b.r * 1.5 * k); }
+          if (blob.visible) { const k = Math.max(0.35, 1 - (b.y - fy) * 0.4); blob.position.set(b.x, fy + 0.035, b.z); blob.scale.setScalar(b.r * 1.5 * BALL_VIS * k); }
         }
         bm.ink ??= ball.children.find((c) => c.userData.ink);
         if (bm.ink) bm.ink.visible = !(b.ghost > 0);
@@ -911,6 +912,16 @@ export async function start(ctx) {
         const tgt = new THREE.Vector3(sunk ? cup.x : cb.x, (sunk ? cup.y : cb.y) + cb.r, sunk ? cup.z : cb.z);
         const d = tgt.sub(controls.target).multiplyScalar(Math.min(1, dt * 6));
         controls.target.add(d); camera.position.add(d);
+        // keyboard camera: A/D orbit, W/S tilt (arrows too while you are still playing; they switch spectated player once you're done)
+        const playing = mb && !mb.sunk && !mb.out, K = (c) => ctx.input.key(c);
+        const rot = ((K('KeyA') || (playing && K('ArrowLeft'))) ? 1 : 0) - ((K('KeyD') || (playing && K('ArrowRight'))) ? 1 : 0);
+        const tilt = ((K('KeyS') || (playing && K('ArrowDown'))) ? 1 : 0) - ((K('KeyW') || (playing && K('ArrowUp'))) ? 1 : 0);
+        if (rot || tilt) {
+          camSph.setFromVector3(camOff.copy(camera.position).sub(controls.target));
+          camSph.theta += rot * dt * 1.9 * ctx.settings.get('sens');
+          camSph.phi = Math.max(0.2, Math.min(controls.maxPolarAngle, camSph.phi + tilt * dt * 1.1 * ctx.settings.get('sens')));
+          camera.position.copy(controls.target).add(camOff.setFromSpherical(camSph));
+        }
       }
       if (turnRing) {
         const ready = mb && canShoot();
@@ -967,7 +978,7 @@ export async function start(ctx) {
     }
   }
 
-  window.__golf = { S, C, applyShot, useItem, balls, canShoot, shoot };
+  window.__golf = { S, C, applyShot, useItem, balls, canShoot, shoot, camera, controls };
   return {
     standings,
     stop() {
