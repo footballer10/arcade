@@ -117,7 +117,7 @@ export async function start(ctx) {
   const rec = [];                        // replay recording: packed snapshots at 30 Hz
   let replay = null, skips = new Set(), mySkip = false;
   let ballCam = (() => { try { return localStorage.getItem('partyhub.rs.ballcam2') === '1'; } catch { return false; } })();   // car cam by default: steering always matches the screen
-  const hooks = window.__rs = { autopilot: false, turbo: 1, get W() { return W; }, get phase() { return W.phase; }, get score() { return [W.sA, W.sB]; }, roster, lag: 0, err: { car: 0, ball: 0, n: 0, carMax: 0, ballMax: 0 } };
+  const hooks = window.__rs = { autopilot: false, turbo: 1, get W() { return W; }, get phase() { return W.phase; }, get score() { return [W.sA, W.sB]; }, roster, lag: 0, get replaying() { return !!replay; }, err: { car: 0, ball: 0, n: 0, carMax: 0, ballMax: 0 } };
   let autoBot = null;
   const brain = (i) => { let b = bots.get(i); if (!b) { b = newBot(ctx.bots.level, ctx.rng(0xb07 + i)); bots.set(i, b); } return b; };
   if (isSim) ref = new Referee(W, kickRng);
@@ -136,7 +136,6 @@ export async function start(ctx) {
   }
   input.on('press', (a) => {
     if (a === 'secondary') { ballCam = !ballCam; try { localStorage.setItem('partyhub.rs.ballcam2', ballCam ? '1' : '0'); } catch { /* */ } ui.toast(ballCam ? '🎥 Ball cam ON' : '🎥 Ball cam OFF', '', 1000); }
-    if (a === 'jump' && W.phase === PH.REPLAY && !mySkip && !ctx.spectator) { mySkip = true; net.toHost({ t: 'skip' }); ui.toast('⏭ Voted to skip the replay', '', 1400); }
   });
 
   // ---------------------------------------------------------------- host simulation
@@ -277,7 +276,7 @@ export async function start(ctx) {
 
   // ---------------------------------------------------------------- events
   net.onMessage((m, from) => {
-    if (m.t === 'skip' && isSim) { skips.add(from); return; }
+    if (m.t === 'skip' && isSim) { if (W.phase === PH.REPLAY && (ref?.goalTick == null || m.tk === ref.goalTick)) skips.add(from); return; }
     if (m.t === 'stats' && !isSim) { stats = m.st; return; }
     if (m.t === 'ev') hostEvent(m.e);
   });
@@ -294,7 +293,7 @@ export async function start(ctx) {
   });
   ctx.on('leave', (id) => { const i = idxOf.get(id); if (i != null && !roster[i].isBot) ui.toast(`🤖 A bot drives for ${roster[i].name}`, '', 2200); });
 
-  let lastGoal = null, demoedBy = -1, prevClock = W.clock, cheer = 0, goT = -1;
+  let goalTickSeen = null, prevPhase = -1, lastGoal = null, demoedBy = -1, prevClock = W.clock, cheer = 0, goT = -1;
   let shake = 0, flash = 0, popT = 0, pulse = [0, 0], countShown = -1, lastScore = [0, 0];
   function pop(html, ms = 1300) { popEl.innerHTML = html; popEl.classList.add('on'); popT = ms / 1000; }
   const nm = (i) => (i >= 0 && roster[i] ? ui.esc(roster[i].name) : '?');
@@ -310,11 +309,11 @@ export async function start(ctx) {
         const tag = e.ot ? 'GOLDEN GOAL!' : e.g === 3 ? 'HAT TRICK!' : e.aerial ? 'AERIAL GOAL!' : e.speed > 50 ? 'ROCKET GOAL!' : e.own ? 'OWN GOAL!' : 'GOAL!';
         lastGoal = e;
         pop(`<span style="color:${tc.css}">${tag}</span><small>${who} · ${Math.round(e.speed * 3.6)} km/h</small>`, 2600);
-        W.sA = e.sA; W.sB = e.sB;
+        W.sA = e.sA; W.sB = e.sB; goalTickSeen = e.tick;
         if (e.scorer === myIdx && !e.own) ui.toast('⚽ You scored!', 'gold', 2200);
         break;
       }
-      case 'replay': startReplay(e.tick); break;
+      case 'replay': goalTickSeen = e.tick; break;
       case 'kick': replay = null; mySkip = false; skips.clear(); sfx.sfx('whistle'); break;
       case 'overtime': replay = null; mySkip = false; skips.clear(); ui.banner('OVERTIME! Next goal wins', 2600); sfx.sfx('overtime'); break;
       case 'zero': ui.banner('0:00 — ball still live!', 1600, { small: true }); break;
@@ -389,10 +388,11 @@ export async function start(ctx) {
   function startReplay(goalTick) {
     const from = goalTick - 60 * 2.8, to = goalTick + 60 * 0.6;
     const frames = rec.filter((r) => r.tick >= from && r.tick <= to);
-    if (frames.length < 6) { replay = null; return; }
+    if (frames.length < 8) { replay = null; return; }   // nothing worth showing (e.g. joined a moment ago)
+    mySkip = false; skips.clear();
     const b = frames.find((r) => r.tick >= goalTick) || frames[frames.length - 1];
     const gz = b.f[HDR + N * (CK + 1) + 2] >= 0 ? 1 : -1;   // ball z at the goal tick (header, cars, then ball x,y,z)
-    replay = { frames, tt: frames[0].tick, goalTick, boomed: false, side: Math.random() < 0.5 ? -1 : 1, gz, t: 0 };
+    replay = { frames, tt: frames[0].tick, goalTick, boomed: false, side: Math.random() < 0.5 ? -1 : 1, gz, t: 0, armed: false, hold: 0 };
     replayEl.classList.add('on');
   }
   function replayFrame(dt) {
@@ -525,10 +525,22 @@ export async function start(ctx) {
   // ---------------------------------------------------------------- per-frame
   const proj = new THREE.Vector3();
   ctx.frame((dt, now) => {
+    // The replay starts the moment this screen's copy of the match enters the replay phase. It must not depend on
+    // the order the host's reliable 'replay' event and the unreliable snapshot arrive in (that race cancelled it).
+    if (W.phase === PH.REPLAY && prevPhase !== PH.REPLAY && !replay && goalTickSeen != null) startReplay(goalTickSeen);
+    prevPhase = W.phase;
+    // Skipping is deliberate: HOLD Space for 0.6 s, after the first 0.8 s, and only once Space has been let go
+    // (Space is also jump, and people mash it while the goal is celebrated).
+    if (replay && !mySkip && !ctx.spectator) {
+      const R = replay;
+      if (!input.down('jump')) { R.armed = true; R.hold = 0; }
+      else if (R.armed && R.t > 0.8) { R.hold += dt; if (R.hold >= 0.6) { mySkip = true; net.toHost({ t: 'skip', tk: R.goalTick }); ui.toast('⏭ Skipping the replay…', '', 1200); } }
+    }
     // world to draw
     if (replay && W.phase === PH.REPLAY) { const r = replayFrame(dt); drawFrom(r.a, r.b, r.f, false); }
     else { if (replay && W.phase !== PH.REPLAY) { replay = null; } drawFrom(W, W, Math.min(1, acc / DT), !isSim); }
     replayEl.classList.toggle('on', !!replay);
+    if (replay) { const txt = mySkip ? '● REPLAY · skipping…' : replay.hold > 0 ? `● REPLAY · hold Space… ${Math.round(Math.min(1, replay.hold / 0.6) * 100)}%` : '● REPLAY · hold Space to skip'; if (replayEl.textContent !== txt) replayEl.textContent = txt; }
     const decay = Math.exp(-dt / 0.1);
     for (const o of off) o.multiplyScalar(decay);
     ballOff.multiplyScalar(Math.exp(-dt / 0.12));
@@ -608,7 +620,7 @@ export async function start(ctx) {
     if (myIdx >= 0) {
       const c = W.cars[myIdx], s = st[myIdx] || {};
       const T = TEAM[myTeam];
-      ui.status(c.demo > 0 ? `💥 Respawning… ${Math.ceil(c.demo)}` : W.phase === PH.REPLAY ? `${T.emoji} ${T.name} · <kbd>Space</kbd> skip replay` : `${T.emoji} ${T.name}${s.g ? ` · ⚽ ${s.g}` : ''}${s.s ? ` · 🧤 ${s.s}` : ''}`);
+      ui.status(c.demo > 0 ? `💥 Respawning… ${Math.ceil(c.demo)}` : W.phase === PH.REPLAY ? `${T.emoji} ${T.name} · hold <kbd>Space</kbd> to skip` : `${T.emoji} ${T.name}${s.g ? ` · ⚽ ${s.g}` : ''}${s.s ? ` · 🧤 ${s.s}` : ''}`);
       ui.bar(c.boost / 100, `🚀 BOOST ${Math.round(c.boost)}`);
       ui.abilities([
         { key: 'Space', label: c.gnd ? 'Jump' : c.dj ? 'Flip' : 'Jump', ready: !!(c.gnd || c.dj) },
