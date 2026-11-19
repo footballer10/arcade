@@ -445,14 +445,19 @@ export async function start(ctx) {
   const _m4v = new THREE.Vector3();
   const raceClockNow = () => (isHostSim ? raceT : lastSnapT + (phase === 1 ? (performance.now() - lastSnapAt) / 1000 : 0));
   const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _u = new THREE.Vector3(), _m = new THREE.Matrix4(), _q = new THREE.Quaternion();
+  // Space (as well as A/D) cycles who you're watching once you're out of the running (derezzed, finished, or
+  // just spectating); only among ships still in the race, so you never land on another dead one by hand.
   input.on('press', (a) => {
     if (!(ctx.spectator || myIdx < 0 || ships[myIdx]?.out || ships[myIdx]?.fin)) return;
-    if (a !== 'left' && a !== 'right') return;
-    const o = order(ships).map((s) => ships.indexOf(s)); const k = o.indexOf(cam.target);
-    cam.target = o[(k + (a === 'right' ? 1 : o.length - 1)) % o.length];
+    if (a !== 'left' && a !== 'right' && a !== 'jump') return;
+    const o = order(ships).map((s) => ships.indexOf(s)).filter((i) => !ships[i].out);
+    if (!o.length) return;
+    const k = o.indexOf(cam.target);
+    cam.target = o[((k < 0 ? 0 : k) + (a === 'left' ? -1 : 1) + o.length) % o.length];
   });
   function updateCamera(dt, now) {
-    if (myIdx >= 0 && ships[myIdx]?.out && cam.target === myIdx) cam.target = ships.indexOf(order(ships)[0]);
+    // whoever you're watching got derezzed (yourself included): move on to whoever's leading among the rest
+    if (ships[cam.target]?.out) { const alive = order(ships).map((s) => ships.indexOf(s)).filter((i) => !ships[i].out); if (alive.length) cam.target = alive[0]; }
     let ti = cam.target;
     if (ti < 0 || ti >= N) { ti = ships.indexOf(order(ships)[0]); cam.target = myIdx >= 0 ? myIdx : ti; }
     const st = drawSt[ti], v = views[ti];
