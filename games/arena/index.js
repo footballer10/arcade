@@ -3,11 +3,12 @@
 // snapshots (net.js) on the unreliable channel at 20 Hz; binary inputs; client prediction + interpolation.
 // ctx.net: raw host→all = snapshots, raw client→host = inputs; JSON {t:'fx'} {t:'emote'} {t:'chars'}.
 import './tuning.js';
-import { Sim, CHARS, CHAR_KEYS, ARENA_R, WINS_TO_WIN, MOVE, MAPS, MAP_KEYS, MAP, setMap, integrate, applyDash, zoneNextIn, clampTo, TELEPORT_MAX, BOMB_RANGE, WELL_RANGE, MUTATORS, MUT_KEYS, MUT, BOO_CD, cdRate } from './sim.js';
+import { Sim, CHARS, CHAR_KEYS, ARENA_R, WINS_TO_WIN, MOVE, CUBE, MAPS, MAP_KEYS, MAP, setMap, integrate, applyDash, zoneNextIn, clampTo, TELEPORT_MAX, BOMB_RANGE, WELL_RANGE, MUTATORS, MUT_KEYS, MUT, BOO_CD, cdRate } from './sim.js';
 import { botInput } from './bots.js';
 import { Renderer, cssColor } from './render.js';
 import { encodeSnapshot, decodeSnapshot, encodeInput, decodeInput } from './net.js';
 import { sfx, unlockAudio, shutdownAudio } from './audio.js';
+import { AdaptiveDelay } from '../../core/interp.js';
 export { manifest } from './manifest.js';
 
 const STEP = 1 / 60, INTERP_MS = 100, SNAP_MS = 50;
@@ -86,6 +87,10 @@ export async function start(ctx) {
   let sim = null;
   const inputs = new Map(), lastSeqs = new Map();
   let snaps = [], latest = null, lastSnapTick = -1, lastSnapAt = 0, snapBytes = 0;
+  // Snapshots are placed on the HOST's timeline (tick × 1/60 s), not by when they arrived: over the relay they arrive
+  // bunched together, and arrival times would make others stutter. hostOff maps our clock to the host's (fastest
+  // arrivals); interpDelay grows on a jittery link.
+  let hostOff = null; const interpDelay = new AdaptiveDelay({ min: INTERP_MS / 1000, start: INTERP_MS / 1000, interval: SNAP_MS / 1000 });
   let pred = null, history = [], visOff = { x: 0, z: 0 }, lastSentDash = 0, viewTick = 0;
   let spectateId = null, lastAim = 0, lastView = null, lastBeep = 0, ended = false, netFx = [], lastSend = 0, acc = 0, lastTick = performance.now();
   const isHost = () => net.isHost;
@@ -171,10 +176,11 @@ export async function start(ctx) {
   function finish() {
     const ps = [...sim.players.values()];
     const top = (key) => [...ps].sort((a, b) => b[key] - a[key])[0];
-    const k = top('kills'), d = top('dmg'), f = top('falls'), aw = [];
+    const k = top('kills'), d = top('dmg'), f = top('falls'), c = top('cubesTotal'), aw = [];
     if (k && k.kills) aw.push(`💥 Most KOs: ${k.name} (${k.kills})`);
     if (d && d.dmg) aw.push(`🥊 Heavy hitter: ${d.name} (${d.dmg * 10})`);
     if (f && f.falls) aw.push(`🤿 Splash champ: ${f.name} (${f.falls} dunks)`);
+    if (c && c.cubesTotal) aw.push(`📦 Power player: ${c.name} (${c.cubesTotal} cubes)`);
     ctx.endGame(standings(), { stats: Object.fromEntries(ps.map((p) => [p.id, `${p.wins} round${p.wins === 1 ? '' : 's'} · ${p.kills} KO`])), note: aw.join('   ') });
   }
 
@@ -229,7 +235,11 @@ export async function start(ctx) {
   function onSnapshot(s) {
     const now = performance.now();
     lastSnapAt = now;
-    snaps.push({ time: now, s });
+    const ht = s.tick * STEP * 1000, off = ht - now;
+    if (snaps.length && ht < snaps[snaps.length - 1].time - 1000) { snaps = []; hostOff = null; }   // host tick restarted
+    hostOff = hostOff == null || off > hostOff ? off : hostOff + (off - hostOff) * 0.04;
+    interpDelay.observe((now + hostOff - ht) / 1000);
+    snaps.push({ time: ht, s });
     if (snaps.length > 40) snaps.shift();
     latest = snaps[snaps.length - 1];
     MUT.key = MUT_KEYS[s.mut] || 'none';
@@ -260,7 +270,7 @@ export async function start(ctx) {
   function lerpAng(a, b, f) { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return a + d * f; }
   function clientView(now) {
     if (!latest) return null;
-    const rt = now - INTERP_MS;
+    const rt = now + (hostOff ?? 0) - interpDelay.value * 1000;
     let a = null, b = null;
     for (let i = snaps.length - 1; i >= 0; i--) if (snaps[i].time <= rt) { a = snaps[i]; b = snaps[i + 1] || null; break; }
     if (!a) a = snaps[0];
@@ -348,6 +358,8 @@ export async function start(ctx) {
       if (hpEl.firstChild.innerHTML !== nm) hpEl.firstChild.innerHTML = nm;
       const buffs = [];
       if (me.speedT > 0) buffs.push(`⚡ ${Math.ceil(me.speedT)}s`); if (me.dmgT > 0) buffs.push(`🔥 ${Math.ceil(me.dmgT)}s`); if (me.shield > 0) buffs.push(`🛡 ${Math.ceil(me.shield * 10)}`);
+      const cubes = Math.max(0, Math.round((me.maxHp / CHARS[me.char].hp - 1) / CUBE.HP_PCT));
+      if (cubes > 0) buffs.push(`📦 x${cubes}`);
       hpEl.lastChild.textContent = buffs.join('  ');
       const gh = !me.alive && me.ghost;
       const dashF = Math.max(0, me.dashCd / MOVE.DASH_CD), spF = gh ? 1 : Math.max(0, me.spCd / CHARS[me.char].spCd);
@@ -437,7 +449,7 @@ export async function start(ctx) {
       case 'dash': sfx('dash', mine ? 0.8 : vol * 0.4); break;
       case 'bump': sfx('bump', vol); if (mine) renderer.shake(0.25); break;
       case 'sweep': sfx('sweep', vol); if (mine) { renderer.shake(0.5); renderer.hitstop(60); } break;
-      case 'pickup': sfx('pickup', mine ? 1 : vol * 0.4); if (mine) renderer.popText(e.x, e.z, { speed: 'SPEED!', shield: 'SHIELD!', dmg: 'DAMAGE!', heal: '+HEAL', giant: 'GIANT!' }[e.type], 'buff'); break;
+      case 'pickup': sfx('pickup', mine ? 1 : vol * 0.4); if (mine) renderer.popText(e.x, e.z, { speed: 'SPEED!', shield: 'SHIELD!', dmg: 'DAMAGE!', heal: '+HEAL', giant: 'GIANT!', cube: 'POWER CUBE!' }[e.type], 'buff'); break;
       case 'falling': sfx('fall', vol); break;
       case 'fight': sfx('fight'); bannerText = 'FIGHT!'; bannerT = 0.8; break;
       case 'zone': sfx('zone'); bannerText = 'The zone is closing!'; bannerT = 1.5; break;

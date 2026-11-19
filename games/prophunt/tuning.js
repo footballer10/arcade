@@ -11,6 +11,7 @@ tunable('prophunt', [
   } },
   { target: R, group: 'Movement', items: {
     SPRINT: { value: 1.5, label: 'Sprint multiplier (Shift)', min: 1, max: 2.5 },
+    PROP_MOVE: { value: 0.55, label: 'Prop speed while hunted (x walk)', min: 0.2, max: 1.2 },
   } },
   { target: PHYS, group: 'Movement', items: {
     G:         { value: 22,  label: 'Gravity', min: 10, max: 40 },

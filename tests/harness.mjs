@@ -53,15 +53,16 @@ export async function startRelay(port = 9002) {
 }
 export const RELAY = '&relay=ws://127.0.0.1:9002';
 
-export async function launch({ headless = true } = {}) {
-  const browser = await chromium.launch({ headless, args: ['--disable-features=WebRtcHideLocalIpsWithMdns', '--autoplay-policy=no-user-gesture-required', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--js-flags=--expose-gc'] });
+export async function launch({ headless = true, realChrome = false } = {}) {
+  // realChrome: keep Chrome's normal WebRTC privacy (local addresses hidden behind random .local names)
+  const browser = await chromium.launch({ headless, args: [...(realChrome ? [] : ['--disable-features=WebRtcHideLocalIpsWithMdns']), '--autoplay-policy=no-user-gesture-required', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--js-flags=--expose-gc'] });
   const peerjs = await peerBundle();
   // Tests run several 3D pages on one machine with software WebGL, so by default they use a smaller window and
   // the Low graphics setting (pass {full:true} for screenshots). Real players each have their own GPU.
   async function context({ full = false, viewport = null } = {}) {
     if (viewport) full = true;
     const ctx = await browser.newContext({ viewport: viewport || (full ? { width: 1366, height: 800 } : { width: 640, height: 400 }) });
-    if (!full) await ctx.addInitScript(() => { try { const k = 'partyhub.settings.v1'; const s = JSON.parse(localStorage.getItem(k) || '{}'); if (!s.quality) localStorage.setItem(k, JSON.stringify({ ...s, quality: 'low' })); } catch { /* */ } });
+    if (!full) await ctx.addInitScript(() => { try { const k = 'partyhub.settings.v1'; const s = JSON.parse(localStorage.getItem(k) || '{}'); if (!s.quality) localStorage.setItem(k, JSON.stringify({ ...s, quality: 'low', qv: 2 })); } catch { /* */ } });
     await ctx.route('https://cdn.jsdelivr.net/**', (route) => {
       const u = new URL(route.request().url());
       const m = u.pathname.match(/^\/npm\/three@0\.160\.0\/(.*)$/);

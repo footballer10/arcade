@@ -8,7 +8,7 @@ export const manifest = {
     "You start on a stack of hexagon floors above a glowing void.",
     "Every tile you touch cracks and drops about a second later, so keep moving and plan your route.",
     "Fall through a hole to land on the floor below. Fall off the bottom floor and you're out.",
-    "Last one standing wins the round. First to win 2 rounds wins. Hold the mouse button to run towards the cursor; jump to cross gaps and dash with Shift to bump others.",
+    "Last one standing wins the round. First to win 2 rounds wins. Hold the mouse button to run towards the cursor; jump to cross gaps (Space twice = double jump), E to dive, and dash with Shift to bump others.",
   ],
   minPlayers: 1,
   maxPlayers: 8,
@@ -17,7 +17,7 @@ export const manifest = {
   roundLengthSec: 210,          // best of 3 (first to 2): 2–3 rounds of ~60–90 s
   thumbnail: 'games/floorfall/thumb.svg',
   controlsHelp: [
-    ['WASD / Arrows', 'Run'], ['Hold mouse button', 'Run towards the cursor (any angle, slow near it)'], ['Space', 'Jump (cross a gap, or stall on a cracking tile)'], ['Shift', 'Dash (bumps players · works in the air)'],
+    ['WASD / Arrows', 'Run'], ['Hold mouse button', 'Run towards the cursor (any angle, slow near it)'], ['Space', 'Jump (cross a gap, or stall on a cracking tile) · press again in the air to double jump'], ['E', 'Dive: plunge down fast in the air to land sooner'], ['Shift', 'Dash (bumps players · works in the air)'],
     ['Every tile you touch', 'Cracks, then drops ~1 s later'], ['Fall through a hole', 'Land on the layer below · off the bottom = out'],
   ],
   picks: [],

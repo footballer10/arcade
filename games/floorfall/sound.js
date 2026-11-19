@@ -47,6 +47,8 @@ export function createSound(ctx) {
     jump() { if (A() && gate('j', 60)) { audio.tone('square', 300, 620, 0.08, 0.04); audio.tone('sine', 500, 900, 0.1, 0.05); } },
     land(k = 0.5) { if (A() && gate('l', 70)) { audio.tone('sine', 2400, 2300, 0.06, 0.03 + 0.03 * k); audio.burst(0.07, 0.07 + 0.08 * k, 'lowpass', 1400, 200); audio.tone('sine', 150, 60, 0.1, 0.05 + 0.08 * k); } },
     fall() { if (A() && gate('f', 250)) audio.burst(0.55, 0.12, 'bandpass', 600, 2400); },
+    jump2() { if (A() && gate('j2', 60)) { audio.tone('triangle', 520, 1100, 0.1, 0.06); audio.tone('sine', 780, 1500, 0.12, 0.05, 0.03); } },
+    dive() { if (A() && gate('dv', 80)) { audio.burst(0.22, 0.14, 'bandpass', 2600, 500); audio.tone('sawtooth', 700, 160, 0.2, 0.05); } },
     dash() { if (A()) { audio.burst(0.18, 0.15, 'bandpass', 900, 3400); audio.tone('sawtooth', 320, 760, 0.1, 0.03); } },
     hit(mine) { if (!A()) return; const v = mine ? 1 : 0.5; audio.tone('square', 220, 80, 0.14, 0.12 * v); audio.burst(0.15, 0.25 * v, 'lowpass', 3200, 250); audio.tone('sine', 700, 1400, 0.12, 0.06 * v, 0.03); },
     out(mine) { if (!A()) return; const v = mine ? 1 : 0.45; audio.tone('sawtooth', 600, 70, 0.9, 0.07 * v); audio.burst(1.1, 0.18 * v, 'lowpass', 1800, 80, 0.1); audio.tone('sine', 90, 30, 1.0, 0.16 * v, 0.25); },

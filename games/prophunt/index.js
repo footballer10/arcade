@@ -11,10 +11,11 @@ export { manifest } from './manifest.js';
 import './tuning.js';
 import { KINDS } from './props.js';
 import { makeLevel, stepBody, bodySize, roomAt, lineOfSight, MAP_IDS, BEAN, PHYS } from './level.js';
-import { HostSim, makePlan, standingsOf, applyRow, pickTarget, T, R, TAUNTS } from './sim.js';
+import { HostSim, makePlan, standingsOf, applyRow, pickTarget, moveSpeed, T, R, TAUNTS } from './sim.js';
 import { makeBrain } from './bots.js';
 import { createView } from './render.js';
 import { createSound } from './audio.js';
+import { SnapBuffer } from '../../core/interp.js';
 
 const CSS = `
 .ph-tag{position:absolute;left:0;top:0;font:.9rem var(--font);color:#fff;white-space:nowrap;text-shadow:var(--stroke);padding:0 8px;border-radius:10px;pointer-events:none;
@@ -31,11 +32,15 @@ const CSS = `
 .pr-sel:after{content:'';position:absolute;left:50%;bottom:-11px;margin-left:-8px;border:8px solid transparent;border-top-color:var(--ink);border-bottom:0}
 .pr-sel kbd{font-size:.8rem}
 @keyframes pr-bob{from{margin-top:0}to{margin-top:-6px}}
-.pr-sniff{position:absolute;left:50%;bottom:118px;transform:translateX(-50%);font:1.4rem var(--font);color:#fff;text-shadow:var(--stroke);padding:4px 16px;border:3px solid var(--ink);border-radius:16px;pointer-events:none;z-index:3;transition:opacity .3s}
+.pr-ping{position:absolute;left:0;top:0;width:0;height:0;z-index:3;pointer-events:none;font:1.5rem var(--font);will-change:transform,opacity}
+.pr-ping .ic{position:absolute;left:0;top:0;transform:translate(-50%,-50%);padding:2px 10px;border-radius:16px;border:3px solid var(--ink);background:color-mix(in srgb,var(--c) 75%,#fff 10%);box-shadow:0 3px 0 var(--ink);text-shadow:none}
+.pr-ping .ar{position:absolute;left:0;top:0;font-size:1.7rem;line-height:1;color:var(--c);text-shadow:var(--stroke)}
+.pr-sniff{position:absolute;left:50%;top:calc(50% - 130px);transform:translateX(-50%);font:1.7rem var(--font);color:#fff;text-shadow:var(--stroke);padding:4px 18px;border:4px solid var(--ink);border-radius:20px;box-shadow:0 4px 0 var(--ink);pointer-events:none;z-index:5;transition:opacity .3s;white-space:nowrap}
 `;
 const SNAP_HZ = 12, SEND_HZ = 20, STEP = 1 / 60;
 const HUNT = (o) => T.HUNT[o.time] || T.HUNT.normal;
 const KEY_TAUNT = 'KeyF';
+const TAUNT_ICON = { kazoo: '🎺', quack: '🦆', honk: '📯', slide: '🎶', boing: '🌀', cuckoo: '🐦' };
 
 export async function start(ctx) {
   const { ui, input, net } = ctx;
@@ -94,6 +99,7 @@ export async function start(ctx) {
   });
   input.on('key', (code, down) => {
     if (code !== KEY_TAUNT || !down || !me || !me.alive || me.role !== 'H' || ended) return;
+    if (phase === 'intro') { ui.toast('📢 Taunts open as soon as the hiding starts', '', 1400); return; }
     if (phase !== 'hunt' && phase !== 'hide') return;
     if (clock - lastTauntAt < R.TAUNT_CD) { ui.toast(`📢 Taunt ready in ${Math.ceil(R.TAUNT_CD - (clock - lastTauntAt))} s`, '', 1000); return; }
     lastTauntAt = clock; act({ a: 'taunt' });
@@ -199,6 +205,10 @@ export async function start(ctx) {
       v.px = far ? r[1] : sx; v.py = far ? r[2] : sy; v.pz = far ? r[3] : sz;
       applyRow(v, r); v.tx = r[1]; v.ty = r[2]; v.tz = r[3]; v.x = v.px; v.y = v.py; v.z = v.pz;
       v.at = now; v.span = Math.max(40, Math.min(250, now - (v.lastAt || now - 83))); v.lastAt = now;
+      // relay-proof smoothing: placed on the host's clock and drawn a little in the past (core/interp.js)
+      if (!v.buf) v.buf = new SnapBuffer();
+      if (far) v.buf.clear();
+      if (s.ht) v.buf.push(s.ht / 1000, { x: r[1], y: r[2], z: r[3] }, net.now() / 1000);
     }
   }
   function onPhase(ph, prev) {
@@ -222,9 +232,21 @@ export async function start(ctx) {
         api.stats.taunts++;
         sfx.taunt(tauntOf(m.id), m.x, m.y, m.z, m.forced ? 1.3 : 1);
         gfx.fx.notes(m.x, m.y, m.z, p(m.id)?.colorHex ?? 0xffffff, m.daring || m.forced); gfx.fx.tauntHat(m.id);
+        { // visible taunt: shockwave rings + speech bubble (red ring for a forced taunt, big for a daring one)
+          const icon = m.forced ? '📢' : TAUNT_ICON[tauntOf(m.id)] || '🎺', col = m.forced ? 0xff4d5e : m.daring ? 0xffd23f : p(m.id)?.colorHex ?? 0xffffff;
+          const hv = view.get(m.id), bodyH = hv && hv.kind >= 0 && hv.role === 'H' ? KINDS[hv.kind].size[1] : 1.75;
+          gfx.fx.taunt(m.x, m.y, m.z, col, icon, { big: m.daring || m.forced, h: bodyH });
+          // seekers (and anyone watching) also get a pointer at the screen edge while the taunt is off-screen
+          if (m.id !== ctx.myId && (ctx.spectator || !me || me.role === 'S' || !me.alive)) {
+            const el = ui.el('div', 'pr-ping', `<div class="ic">${icon}</div><div class="ar">▲</div>`); el.style.setProperty('--c', m.forced ? '#ff4d5e' : p(m.id)?.colorCss || '#fff');
+            ctx.container.appendChild(el); pings.push({ el, x: m.x, y: m.y + 1, z: m.z, t: 0 });
+            while (pings.length > 6) pings.shift().el.remove();
+          }
+        }
         if (m.id === ctx.myId) { ui.toast(m.forced ? '📢 Forced taunt!' : m.daring ? `😈 DARING TAUNT! +${m.pts}` : `📢 Taunt +${m.pts}`, m.daring ? 'gold' : '', 1600); if (m.forced) lastTauntAt = clock; }
         break;
       }
+      case 'tauntno': if (m.id === ctx.myId) { lastTauntAt = clock - (R.TAUNT_CD - m.left); ui.toast(`📢 Taunt ready in ${Math.ceil(m.left)} s`, '', 1000); } break;   // the host refused (cooldown): say so instead of failing silently
       case 'fwarn': if (m.id === ctx.myId) { ui.banner(`📢 FORCED TAUNT IN ${m.in}! Taunt now to pick the moment`, 1800, { small: true }); sfx.warn(); } break;
       case 'swing': if (m.id !== ctx.myId) gfx.fx.swing(m.id); break;
       case 'found': {
@@ -264,9 +286,10 @@ export async function start(ctx) {
     }
   }
   let vigT = 0, sniffT = 0;
+  const pings = [];
   function showSniff(d) {
     const [txt, col] = d < 5 ? ['🔥 BURNING HOT!', '#ff4d5e'] : d < 10 ? ['♨️ Warm…', '#ff8c42'] : d < 18 ? ['🌬️ Cool', '#3ea6ff'] : ['🧊 Ice cold', '#8fd3ff'];
-    sniffEl.textContent = '👃 ' + txt; sniffEl.style.background = col; sniffEl.classList.remove('hidden'); sniffT = R.SNIFF_T;
+    sniffEl.textContent = `👃 ${txt}${d < 90 ? ' · about ' + Math.max(2, Math.round(d / 2) * 2) + ' m' : ''}`; sniffEl.style.background = col; sniffEl.classList.remove('hidden'); sniffT = R.SNIFF_T;
     sfx.sniff(d < 10);
   }
 
@@ -278,14 +301,14 @@ export async function start(ctx) {
     if (api.autopilot && !myBrainOn && sim.players.has(ctx.myId)) { myBrainOn = true; sim.brains.set(ctx.myId, makeBrain(ctx.myId, sim, ctx.bots.level, ctx.bots.Brain)); }
     sim.step(dt);
     snapAcc += dt;
-    if (snapAcc >= 1 / SNAP_HZ && !ended) { snapAcc = 0; net.toAll(sim.snapshot()); }
+    if (snapAcc >= 1 / SNAP_HZ && !ended) { snapAcc = 0; const sn = sim.snapshot(); sn.ht = Math.round(net.now()); net.toAll(sn); }   // ht: host clock, for smooth drawing on clients
   });
 
   // ---------------------------------------------------------------- frame: local movement, camera, render, HUD
   let sendAcc = 0, predAcc = 0, stepSnd = 0, lastTick = -1;
   const canMove = () => me && me.alive && !api.autopilot && (phase === 'hunt' || (phase === 'hide' && me.role === 'H'));
   ctx.frame((dt, now) => {
-    clock += dt;
+    clock = now / 1000;                 // wall-clock seconds (a slow frame rate must not stretch cooldowns)
     if (!L) { const k = Math.max(0, round); useRound(k); }
     const cam = gfx.cam;
     const fpMode = me && me.alive && me.role === 'S' && phase !== 'post' && !api.autopilot;
@@ -303,7 +326,7 @@ export async function start(ctx) {
         const ax = input.axis();
         const fx = Math.sin(cam.yaw), fz = Math.cos(cam.yaw), rx = -Math.cos(cam.yaw), rz = Math.sin(cam.yaw);
         let mx = rx * ax.x + fx * -ax.y, mz = rz * ax.x + fz * -ax.y; const l = Math.hypot(mx, mz); if (l > 1) { mx /= l; mz /= l; }
-        const speed = R.SPEED[me.role] * (input.down('boost') ? R.SPRINT : 1);
+        const speed = moveSpeed(me, phase, input.down('boost'));
         predAcc += dt; let k = 0;
         while (predAcc >= STEP && k < 8) {
           const land = stepBody(me, { mx, mz, speed, jump: myInput.j, jumpV: me.kind >= 0 ? PHYS.PROP_JUMP : PHYS.JUMP }, STEP, L); myInput.j = false;
@@ -325,8 +348,9 @@ export async function start(ctx) {
     for (const [id, v] of view) {
       if (id === ctx.myId && !api.autopilot && me) continue;
       if (v.tx == null || v.at == null) continue;
-      const f = Math.max(0, Math.min(1, (performance.now() - v.at) / v.span));
-      v.x = v.px + (v.tx - v.px) * f; v.y = v.py + (v.ty - v.py) * f; v.z = v.pz + (v.tz - v.pz) * f;
+      const b = !net.isHost && v.buf?.sample(net.now() / 1000);
+      if (b) { v.x = b.x; v.y = b.y; v.z = b.z; }
+      else { const f = Math.max(0, Math.min(1, (performance.now() - v.at) / v.span)); v.x = v.px + (v.tx - v.px) * f; v.y = v.py + (v.ty - v.py) * f; v.z = v.pz + (v.tz - v.pz) * f; }
       if (v.alive && v.moving && phase !== 'post') { v.snd = (v.snd || 0) - dt; if (v.snd <= 0) { v.snd = v.kind >= 0 && v.role === 'H' ? 0.22 : 0.34; if (v.kind >= 0 && v.role === 'H') sfx.hop(v.x, v.y, v.z, KINDS[v.kind].size[1]); else sfx.step(v.x, v.y, v.z); } }
     }
     // --- spectating / camera focus
@@ -348,7 +372,7 @@ export async function start(ctx) {
     if (alive && L && me.role === 'H' && (phase === 'hide' || phase === 'hunt') && !api.autopilot) {
       highlight = assistPick();
       if (highlight >= 0) { const dc = L.decoys[highlight]; hintTxt = `<kbd>E</kbd> / <kbd>Click</kbd> become ${KINDS[dc.k].icon} ${KINDS[dc.k].name}`; }
-      if (!hintTxt && me.kind >= 0 && !me.locked && phase === 'hunt' && Math.hypot(me.vx, me.vz) < 0.2) hintTxt = '<kbd>Right click</kbd> lock in place (stops the wobble)';
+      if (!hintTxt && me.kind >= 0 && !me.locked && phase === 'hunt') hintTxt = Math.hypot(me.vx, me.vz) < 0.2 ? '<kbd>Right click</kbd> lock in place (stops the wobble)' : '🐢 Props shuffle slowly while hunted: stay put and lock in!';
       if (!hintTxt && me.kind < 0) hintTxt = 'Walk up to an object and point roughly at it, then <kbd>E</kbd> or <kbd>Click</kbd>';
     }
     if (fpMode && phase === 'hunt') {
@@ -367,6 +391,19 @@ export async function start(ctx) {
     const lp = gfx.camera.position;
     sfx.setListener({ x: lp.x, z: lp.z, yaw: cam.yaw }, (x, y, z) => !!L && !lineOfSight(L, [lp.x, lp.y, lp.z], [x, y + 0.3, z]));
     if (phase === 'hunt' && (pt < 30 || lastSnap?.lp)) sfx.music(true, 'tense');
+    // --- taunt pointers: fade out after 3 s; hidden while the taunt is on screen (the rings are visible), otherwise pinned to the screen edge
+    for (let i = pings.length - 1; i >= 0; i--) {
+      const g = pings[i]; g.t += dt;
+      if (g.t > 3) { g.el.remove(); pings.splice(i, 1); continue; }
+      const q = gfx.project(g.x, g.y, g.z), W = ctx.container.clientWidth, H = ctx.container.clientHeight;
+      const on = !q.behind && Math.abs(q.x) < 0.92 && Math.abs(q.y) < 0.9;
+      if (on) { g.el.style.display = 'none'; continue; }
+      const k = 0.86 / (Math.max(Math.abs(q.x), Math.abs(q.y) * (W / H) * 0.62) || 1), nx = q.x * k, ny = q.y * k;
+      const px = Math.max(70, Math.min(W - 70, ((nx + 1) / 2) * W)), py = Math.max(120, Math.min(H - 190, ((1 - ny) / 2) * H));
+      g.el.style.display = ''; g.el.style.opacity = g.t > 2 ? String(3 - g.t) : '1';
+      g.el.style.transform = `translate(${px}px, ${py}px) translate(-50%, -50%) scale(${1 + Math.sin(g.t * 14) * 0.06})`;
+      g.el.lastChild.style.transform = `translate(-50%, -50%) rotate(${Math.atan2(q.x, q.y).toFixed(2)}rad) translateY(-38px)`;   // arrow orbits the icon, pointing at the taunt
+    }
     // --- render
     const viewerRole = ctx.spectator || !me || !me.alive ? 'spec' : me.role;
     gfx.update(dt, now, {

@@ -222,7 +222,7 @@ export async function start(ctx) {
       const b = encInput(sampleInput());
       seq++; hist.push({ seq, b }); if (hist.length > 90) hist.shift();
       W.cars[myIdx].inp = b;
-      if (++sendT >= 1) {
+      if (++sendT >= 2) {        // 30 packets a second; each carries the last 10 inputs, so a lost or late one costs nothing
         sendT = 0;
         const n = Math.min(10, hist.length), buf = new Uint8Array(6 + n), dv = new DataView(buf.buffer);
         dv.setUint8(0, 1); dv.setUint32(1, seq, true); dv.setUint8(5, n);
@@ -267,9 +267,11 @@ export async function start(ctx) {
       for (const h of hist) { W.cars[myIdx].inp = h.b; stepWorld(W); quantize(W); }   // same float32 rounding as the host: replays match exactly
     }
     // fold the correction into offsets that decay, so nothing pops
-    W.cars.forEach((c, i) => { off[i].add(pre[i].sub(new THREE.Vector3(c.x, c.y, c.z))); if (off[i].length() > 7) off[i].set(0, 0, 0); });
+    // on a laggy link (relay) other cars are predicted further ahead, so bigger corrections are normal: glide, don't snap
+    const lagF = Math.min(1, Math.max(0, ((net.ping() || 0) - 60) / 200));
+    W.cars.forEach((c, i) => { off[i].add(pre[i].sub(new THREE.Vector3(c.x, c.y, c.z))); if (off[i].length() > (i === myIdx ? 7 : 7 + 7 * lagF)) off[i].set(0, 0, 0); });
     const be = preBall.sub(new THREE.Vector3(W.ball.x, W.ball.y, W.ball.z)).length();
-    ballOff.add(preBall); if (ballOff.length() > 9) ballOff.set(0, 0, 0);
+    ballOff.add(preBall); if (ballOff.length() > 9 + 5 * lagF) ballOff.set(0, 0, 0);
     if (myIdx >= 0) { const E = hooks.err, ce = off[myIdx].length(); E.n++; E.car += ce; E.ball += be; E.carMax = Math.max(E.carMax, ce); E.ballMax = Math.max(E.ballMax, be); }
   }
   function record(f) { rec.push({ tick: f[1], f }); while (rec.length && rec[0].tick < f[1] - 60 * 8) rec.shift(); }
@@ -541,9 +543,10 @@ export async function start(ctx) {
     else { if (replay && W.phase !== PH.REPLAY) { replay = null; } drawFrom(W, W, Math.min(1, acc / DT), !isSim); }
     replayEl.classList.toggle('on', !!replay);
     if (replay) { const txt = mySkip ? '● REPLAY · skipping…' : replay.hold > 0 ? `● REPLAY · hold Space… ${Math.round(Math.min(1, replay.hold / 0.6) * 100)}%` : '● REPLAY · hold Space to skip'; if (replayEl.textContent !== txt) replayEl.textContent = txt; }
-    const decay = Math.exp(-dt / 0.1);
-    for (const o of off) o.multiplyScalar(decay);
-    ballOff.multiplyScalar(Math.exp(-dt / 0.12));
+    // corrections fade out: fast for my own car, slower (smoother) for others and the ball when the ping is high
+    const lagF = Math.min(1, Math.max(0, ((net.ping() || 0) - 60) / 200));
+    off.forEach((o, i) => o.multiplyScalar(Math.exp(-dt / (i === myIdx ? 0.1 : 0.1 + 0.12 * lagF))));
+    ballOff.multiplyScalar(Math.exp(-dt / (0.12 + 0.08 * lagF)));
     // ball spin (visual)
     const bw = W.ball, wl = Math.hypot(bw.wx, bw.wy, bw.wz);
     if (wl > 1e-3 && view.ball.root.visible) { _q.setFromAxisAngle(_v.set(bw.wx / wl, bw.wy / wl, bw.wz / wl), wl * dt * (replay ? 0.5 : 1)); ballQ.premultiply(_q); view.ball.mesh.quaternion.copy(ballQ); }

@@ -30,6 +30,7 @@ export function tunable(id, groups) {
       if (it.min === undefined) it.min = v > 0 ? +(v * 0.25).toPrecision(2) : v < 0 ? v * 2.5 : 0;
       if (it.max === undefined) it.max = v > 0 ? +(v * 2.5).toPrecision(2) : v < 0 ? v * 0.25 : 1;
       if (it.step === undefined) it.step = niceStep(v);
+      it.code = g.target[it.prop];                // what the game's own file says (should match: see drift())
       g.target[it.prop] = v;                      // the file's value is the default
       entry.items.set(name, it);
     }
@@ -39,6 +40,13 @@ export function tunable(id, groups) {
   return entry;
 }
 export const tuningOf = (id) => REG.get(id) || null;
+// Values where the game's code file and tuning.js disagree. tuning.js wins at runtime, so a change made only in the
+// code file is silently undone: the tests (tests/portal.mjs) fail on any drift.
+export function drift(id) {
+  const e = REG.get(id); if (!e) return [];
+  return [...e.items.values()].filter((it) => it.code !== undefined && Math.abs(it.code - it.value) > 1e-9 * Math.max(1, Math.abs(it.value)))
+    .map((it) => ({ name: it.name, tuning: it.value, code: it.code }));
+}
 export function overrides(id) {
   if (!DEV_HOST) return {};
   try { return JSON.parse(localStorage.getItem(KEY(id)) || '{}') || {}; } catch { return {}; }

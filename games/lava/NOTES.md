@@ -17,6 +17,7 @@ crumble; shove your friends off. Last one standing wins the round, best of 5.
   (they don't grow back); rising columns carry you up like a lift; gold slabs orbit, slide or lift; purple obsidian
   blinks out on a timer (it flashes first); pumice rafts float on the lava but sink under weight.
 - **Shove** (left click / E) knocks anyone in front of you; a **dash** (Shift) works once in the air and saves short jumps.
+- **Double jump:** press Space again in the air (once; resets on landing) to save a bad fall or stretch a jump that's just short.
 - When you're out you become a **volcano spirit**: aim with the mouse and click to lob a telegraphed lava bomb
   (6 s cooldown). Bombs knock players and heat rocks; a bomb that sends someone into the lava is a "Bomb KO"
   (tie-breaker). Bot spirits throw too.
@@ -64,3 +65,29 @@ reconnects.
 ## Balance (headless, 6 bots)
 Rounds with 6 normal bots last ~60 s (43–98 s); first death ~27 s in; hard bots place best, easy clearly worst.
 The climb can't go on forever: no new rock after 95 s, so a round ends by ~110–130 s even for a perfect player.
+
+
+## Playtest fixes: bots and a double jump (2026-11-19)
+- **Bots were too good at every difficulty**, especially shoving and dodging lava bombs (they'd hop off a platform
+  and straight back onto it, dodging an explosion with inhuman precision). Root causes and fixes, all in `bots.js`:
+  - Jump-target judgment used the same fixed 0.88-of-true-reach margin for every skill level, so even "easy" bots
+    almost never misjudged a gap. `reachMargin(L)` now scales with skill (~1.06 easy, ~0.93 normal, ~0.81 hard):
+    weak bots sometimes commit to a jump that's genuinely a bit too far and walk off an edge for it; hard bots are
+    now a little more conservative too, not literally perfect.
+  - Bomb "dodging" had full, instant knowledge of a bomb's landing spot from the moment it was thrown, and pulled
+    bots away from it fairly strongly (`-6*skill`). It's now gated by a skill-scaled reaction window (bots only
+    start reacting `0.3 + skill*0.9` seconds before impact — hard notices sooner, easy barely reacts in time) and
+    weaker (`-3*skill`), which also stops the "off and back on" cheese: a bot no longer knows to flee a bomb that's
+    still a second-plus from landing, so it doesn't pre-emptively hop away and immediately hop back once the
+    now-visible-only-at-the-last-moment threat resolves.
+  - Shove opportunism had a flat baseline (even "easy" bots punished an open edge ~60% of the time); both the
+    pre-emptive counter-shove and the opportunistic edge shove are now pure `skill * x` with no floor.
+  - Scoring noise when picking a platform (`(1-skill)*multiplier`) was raised from 1.6 to 4.5, so weak bots now
+    visibly pick a worse platform sometimes, not just a slightly-randomized version of the optimal one.
+- **Added a double jump** (world.js `DJUMP`, tunable): press Space again while airborne, once per air-time, for an
+  extra (smaller) jump — lets you save a jump that's falling short or punch through a bad fall to reach lower
+  ground sooner ("jump and dive"). Encoded in the snapshot (bit 32) so it's visible on every client, with its own
+  sfx/particle flourish. Bots use it too, gated by skill, as an alternative to the existing air-dash rescue.
+- Verified: headless jump-physics test still 300/300; 8000-level connectivity sweep still 0% disconnected; balance
+  script still averages ~73-80 s rounds with easy clearly worst and hard modestly ahead of normal (not dominant);
+  full test suite (e2e, memory, migration, solo, party) and the tuning portal's drift check all pass.

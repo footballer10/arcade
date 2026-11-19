@@ -14,6 +14,7 @@ import { HostSim, INTRO_T, standingsOf } from './host.js';
 import { makeBot, botThink } from './bots.js';
 import { createView } from './render.js';
 import { createSound } from './audio.js';
+import { SnapBuffer } from '../../core/interp.js';
 
 const CSS = `
 .lv-tags{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:2}
@@ -252,7 +253,10 @@ export async function start(ctx) {
       let v = view.get(id); if (!v) { v = {}; view.set(id, v); }
       v.px = v.x ?? r.x; v.py = v.y ?? r.y; v.pz = v.z ?? r.z; v.pface = v.face ?? r.face;
       v.tx = r.x; v.ty = r.y; v.tz = r.z; v.tface = r.face; v.at = now; v.span = Math.max(30, now - (v.lastAt || now - 50)); v.lastAt = now;
-      Object.assign(v, { vx: r.vx, vy: r.vy, vz: r.vz, alive: r.alive, grounded: r.grounded, dashing: r.dashing, stunned: r.stunned, shoving: r.shoving });
+      // relay-proof smoothing during play: drawn a little in the past from a timestamped buffer (core/interp.js)
+      if (!v.buf) v.buf = new SnapBuffer({ angles: ['face'] });
+      if (phase === 'play') v.buf.push(s.t, { x: r.x, y: r.y, z: r.z, face: r.face }, tC); else v.buf.clear();
+      Object.assign(v, { vx: r.vx, vy: r.vy, vz: r.vz, alive: r.alive, grounded: r.grounded, dashing: r.dashing, stunned: r.stunned, shoving: r.shoving, airJump: r.airJump });
     }
   });
 
@@ -290,7 +294,7 @@ export async function start(ctx) {
       if (sim.round !== round) useRound(sim.round);
       S = sim.S; st = sim.st; lava = sim.lava; phase = sim.phase; phaseT = sim.phaseT; tC = sim.t;
       info.round = sim.round; info.wins = sim.wins; info.pts = sim.pts; info.ko = sim.ko; info.deaths = sim.deaths; info.hist = sim.hist;
-      for (const p of sim.players) { const v = view.get(p.id); if (!v) continue; Object.assign(v, { x: p.x, y: p.y, z: p.z, vx: p.vx, vy: p.vy, vz: p.vz, face: p.face, alive: p.alive, grounded: p.gr >= 0, dashing: p.dashT > 0, stunned: p.stun > 0, shoving: p.shoveT > 0 }); }
+      for (const p of sim.players) { const v = view.get(p.id); if (!v) continue; Object.assign(v, { x: p.x, y: p.y, z: p.z, vx: p.vx, vy: p.vy, vz: p.vz, face: p.face, alive: p.alive, grounded: p.gr >= 0, dashing: p.dashT > 0, stunned: p.stun > 0, shoving: p.shoveT > 0, airJump: p.airJump }); }
     } else if (level) {
       phaseT += dt * (api.turbo || 1);
       if (phase === 'play') tC += dt * (api.turbo || 1);
@@ -304,6 +308,7 @@ export async function start(ctx) {
           const inp = api.autopilot ? botThink({ S, st, lava, lv: level.lv, t: ts, players: [...ids.map((id) => (id === ctx.myId ? me : { ...view.get(id), id, gr: -1 }))], level }, me, myBot, STEP) : myInput;
           const ev = stepPlayer(me, inp, STEP, S);
           if (ev & 2) { sfx.dash(); gfx.fx.kick(1); }
+          if (ev & 16) { sfx.doubleJump(); gfx.fx.doubleJump(me.x, me.y, me.z, ctx.player(ctx.myId)?.colorHex); }
           if (ev & 4) { gfx.fx.shove(me.x, me.y, me.z, me.face, ctx.player(ctx.myId).colorHex); sfx.shove(false); }
           if (ev & 8) { sfx.land(Math.min(1, me.landed / 15)); gfx.fx.land(me.x, me.y, me.z, Math.min(1, me.landed / 15)); }
           for (const [id, v] of view) if (id !== ctx.myId && v.alive) separate(me, v, false);
@@ -315,11 +320,13 @@ export async function start(ctx) {
       // others: interpolate between the last two snapshots
       for (const [id, v] of view) {
         if (id === ctx.myId || v.tx == null) continue;
+        const b = phase === 'play' && v.buf?.sample(tC);
+        if (b) { v.x = b.x; v.y = b.y; v.z = b.z; v.face = b.face; continue; }
         const f = Math.min(1.2, (now - v.at) / v.span);
         v.x = v.px + (v.tx - v.px) * f; v.y = v.py + (v.ty - v.py) * f; v.z = v.pz + (v.tz - v.pz) * f;
         let da = v.tface - v.pface; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2; v.face = v.pface + da * Math.min(1, f);
       }
-      if (me) { const v = view.get(ctx.myId); Object.assign(v, { x: me.x, y: me.y, z: me.z, vx: me.vx, vy: me.vy, vz: me.vz, face: me.face, alive: me.alive, grounded: me.gr >= 0, dashing: me.dashT > 0, stunned: me.stun > 0, shoving: me.shoveT > 0 }); }
+      if (me) { const v = view.get(ctx.myId); Object.assign(v, { x: me.x, y: me.y, z: me.z, vx: me.vx, vy: me.vy, vz: me.vz, face: me.face, alive: me.alive, grounded: me.gr >= 0, dashing: me.dashT > 0, stunned: me.stun > 0, shoving: me.shoveT > 0, airJump: me.airJump }); }
       // send input + predicted state
       sendAcc += dt;
       if (me && !ctx.spectator && sendAcc >= 1 / SEND_HZ) { sendAcc = 0; myInput.face = me.face; net.toHost({ t: 'in', i: { ...myInput }, p: [+me.x.toFixed(3), +me.y.toFixed(3), +me.z.toFixed(3), +me.vx.toFixed(2), +me.vy.toFixed(2), +me.vz.toFixed(2), me.gr], a: me.auth }); }
@@ -329,6 +336,7 @@ export async function start(ctx) {
       const mp = sim.byId.get(ctx.myId);
       if (mp) {
         if (mp.dashT > 0 && !mp._dashFx) { mp._dashFx = true; sfx.dash(); gfx.fx.kick(1); } else if (mp.dashT <= 0) mp._dashFx = false;
+        if (mp.airJump && !mp._djFx) { mp._djFx = true; sfx.doubleJump(); gfx.fx.doubleJump(mp.x, mp.y, mp.z, ctx.player(ctx.myId)?.colorHex); } else if (!mp.airJump) mp._djFx = false;
         if (mp.shoveT > 0 && !mp._shFx) { mp._shFx = true; gfx.fx.shove(mp.x, mp.y, mp.z, mp.face, ctx.player(ctx.myId).colorHex); sfx.shove(false); } else if (mp.shoveT <= 0) mp._shFx = false;
         if (mp.gr >= 0 && mp._air) { const k = Math.min(1, (mp._vy || 0) / 15); sfx.land(k); gfx.fx.land(mp.x, mp.y, mp.z, k); }
         mp._air = mp.gr < 0; if (mp.gr < 0) mp._vy = -mp.vy;

@@ -73,7 +73,7 @@ class Walker {
 export function makeBrain(id, sim, level, Brain) {
   const B = new Brain(level);
   const rnd = Math.random;
-  const st = { mode: 'start', walker: new Walker(), slot: null, kind: -1, rot: 0, panicT: 0, nextTaunt: 10 + rnd() * 20, bold: rnd(), look: 0, seen: new Map(), visited: new Set(), cycles: 0, target: null, aimT: 0, rechecked: false, thr: 1.5, checked: new Set(), sniffHint: null, sniffT: -99, inspect: [], curScore: 0, approach: null, chaseT: 0, pause: 0, sweep: 1, glanceT: 0, glance: null, coolT: 0, lastHp: 100, cue: 0 };
+  const st = { mode: 'start', walker: new Walker(), slot: null, kind: -1, rot: 0, panicT: 0, nextTaunt: 2 + rnd() * 9, bold: rnd(), look: 0, seen: new Map(), visited: new Set(), cycles: 0, target: null, aimT: 0, rechecked: false, thr: 1.5, checked: new Set(), sniffHint: null, sniffT: -99, inspect: [], curScore: 0, approach: null, chaseT: 0, pause: 0, sweep: 1, glanceT: 0, glance: null, coolT: 0, lastHp: 100, cue: 0 };
   const lv = level;
   const noise = { easy: 1.05, normal: 0.8, hard: 0.5 }[lv.key] ?? 0.8;
   const sharp = 0.35 + 0.65 * lv.skill;   // how well tells are noticed
@@ -178,7 +178,7 @@ export function makeBrain(id, sim, level, Brain) {
         const want = lv.key === 'easy' ? st.nextTaunt <= 0 : (safe && st.nextTaunt <= 0) || (dare && st.nextTaunt <= 0);
         // the forced-taunt clock is about to run out: choose the least bad moment instead of being forced mid-stare
         const urgent = me.fz < 9 && (near > 5 || me.fz < 2.5);
-        if (want || urgent) { it.acts.push({ a: 'taunt' }); st.nextTaunt = (lv.key === 'easy' ? 12 : 16) + rnd() * 24; }
+        if (want || urgent) { it.acts.push({ a: 'taunt' }); st.nextTaunt = (lv.key === 'easy' ? 10 : 14) + rnd() * 20; }
       }
       if (nearS && near < 2.3 && me.locked) {
         const facing = Math.cos(angDiff(Math.atan2(me.x - nearS.x, me.z - nearS.z), nearS.yaw)) > 0.85;

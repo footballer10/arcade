@@ -14,6 +14,7 @@ import { HostSim, standingsOf } from './sim.js';
 import { makeBot, botThink } from './bots.js';
 import { createView } from './render.js';
 import { createSound } from './sound.js';
+import { SnapBuffer } from '../../core/interp.js';
 
 const SNAP_HZ = 15, SEND_HZ = 30;
 // The stack gauge: every floor from the top down, how much of it is left, and who is on it.
@@ -68,13 +69,13 @@ export async function start(ctx) {
   // ---------------------------------------------------------------- shared client view of the match
   const info = { wins: Object.fromEntries(ids.map((id) => [id, 0])), pts: Object.fromEntries(ids.map((id) => [id, 0])), bumps: {}, cracked: {}, out: [] };
   let collapsed = false, finalTwo = false;
-  let round = -1, level = null, phase = 'wait', phaseT = 0, tC = 0, ended = false;
+  let round = -1, level = null, phase = 'wait', phaseT = 0, tC = 0, ended = false, tmOff = null;
   let snapA = null, snapB = null, snapAt = 0, snapGap = 1 / SNAP_HZ;
   const view = new Map();         // id -> drawn state
   let me = null;                  // my predicted player (clients)
   let sim = null;
   let spec = null;                // who I watch when I'm out
-  const myInput = { mx: 0, mz: 0, j: 0, d: 0 };
+  const myInput = { mx: 0, mz: 0, j: 0, d: 0, u: 0 };
   const myBot = makeBot(ctx.bots.Brain, ctx.bots.level);
 
   function useRound(k) {
@@ -123,7 +124,7 @@ export async function start(ctx) {
       mx = Math.sin(head) * len; mz = Math.cos(head) * len;
     } else head = null;
     myInput.mx = mx; myInput.mz = mz;
-    myInput.j = input.presses('jump'); myInput.d = input.presses('boost');
+    myInput.j = input.presses('jump'); myInput.d = input.presses('boost'); myInput.u = input.presses('use');
     const p = myState();
     if (api.autopilot && p?.alive && level) {
       botThink(myBot, p, { lv: level, t: tC, players: [...positions().values()] }, dt);
@@ -143,6 +144,8 @@ export async function start(ctx) {
       case 'roundEnd': net.toAll({ t: 're', winners: d.winners, wins: d.wins, pts: sim.pts, bumps: sim.bumps, cracked: sim.cracked, k: d.round }); break;
       case 'hit': net.toAll({ t: 'hit', ...d }); break;
       case 'dash': net.toAll({ t: 'da', id: d.id }); break;
+      case 'jump2': net.toAll({ t: 'j2', id: d.id }); break;
+      case 'dive': net.toAll({ t: 'dv', id: d.id }); break;
       case 'thud': net.toAll({ t: 'th', id: d.id }); break;
       case 'done': finish(); break;
     }
@@ -233,6 +236,7 @@ export async function start(ctx) {
         gfx.burst(m.x, m.y, m.z, 0xfff27a, 18); gfx.burst(m.x, m.y, m.z, ctx.player(m.a)?.colorHex ?? 0xffffff, 10);
         break;
       }
+      case 'j2': case 'dv': if (m.id !== ctx.myId) { const v = view.get(m.id), f = focusPos(); if (v && Math.hypot(v.x - f.x, v.z - f.z) < 8 && Math.abs(v.y - f.y) < 3) (m.t === 'dv' ? snd.dive : snd.jump2)(); if (v) gfx.burst(v.x, v.y + 0.3, v.z, m.t === 'dv' ? 0xffffff : ctx.player(m.id)?.colorHex ?? 0xffffff, 8); } break;
       case 'da': if (m.id !== ctx.myId) { const v = view.get(m.id), f = focusPos(); if (v && Math.hypot(v.x - f.x, v.z - f.z) < 8 && Math.abs(v.y - f.y) < 2) snd.dash(); } break;
       case 'th': if (m.id === ctx.myId) gfx.shake(0.2); break;
     }
@@ -247,12 +251,16 @@ export async function start(ctx) {
     phase = m.ph; phaseT = m.pt;
     const d = m.tm - tC; if (Math.abs(d) > 0.3) tC = m.tm; else tC += d * 0.15;
     const now = performance.now();
+    // smooth estimate of the host's round clock (from the fastest snapshots), for drawing others without stutter
+    const off = m.tm - now / 1000;
+    tmOff = m.ph !== 'play' ? null : tmOff == null || off > tmOff ? off : tmOff + (off - tmOff) * 0.04;
     snapGap = snapB ? Math.max(0.03, Math.min(0.3, (now - snapAt) / 1000)) : 1 / SNAP_HZ;
     snapA = snapB || m; snapB = m; snapAt = now;
     ids.forEach((id, i) => {
       const r = m.p[i]; if (!r) return;
       const v = view.get(id);
       Object.assign(v, { vx: r[3], vy: r[4], vz: r[5], g: !!r[6], l: r[7], alive: !!r[9], auth: r[10], dashCd: r[11], stun: r[12], dashT: r[13] });
+      if (id !== ctx.myId) { if (!v.buf) v.buf = new SnapBuffer({ angles: ['face'] }); if (m.ph === 'play' && tmOff != null) v.buf.push(m.tm, { x: r[0], y: r[1], z: r[2], face: r[8] }, now / 1000 + tmOff); else v.buf.clear(); }
       if (id === ctx.myId && me) {
         if (me.auth !== r[10]) Object.assign(me, { x: r[0], y: r[1], z: r[2], vx: r[3], vy: r[4], vz: r[5], g: !!r[6], l: r[7], face: r[8], auth: r[10], stun: r[12], dashT: r[13] });
         me.alive = !!r[9]; me.dashCd = Math.max(me.dashCd, r[11] - 0.1);
@@ -269,7 +277,9 @@ export async function start(ctx) {
     const f = snapA && snapB ? Math.min(1.2, (performance.now() - snapAt) / 1000 / snapGap) : 1;
     ids.forEach((id, i) => {
       const v = view.get(id);
-      if (snapB) {
+      const sm = phase === 'play' && tmOff != null && id !== ctx.myId && v.buf?.sample(performance.now() / 1000 + tmOff);   // relay-proof smoothing (core/interp.js)
+      if (sm) { v.x = sm.x; v.y = sm.y; v.z = sm.z; v.face = sm.face; }
+      else if (snapB) {
         const a = snapA.p[i], b = snapB.p[i];
         if (a && b) { v.x = a[0] + (b[0] - a[0]) * f; v.y = a[1] + (b[1] - a[1]) * f; v.z = a[2] + (b[2] - a[2]) * f; v.face = b[8]; }
       }
@@ -309,11 +319,13 @@ export async function start(ctx) {
     if (mp && lastMe) {
       if (!lastMe.g && mp.g && mp.alive) snd.land(Math.min(1, (mp.l !== lastMe.l ? 1 : 0.4)));
       if (lastMe.g && !mp.g && mp.vy > 2) snd.jump();
+      if (mp.dj && !lastMe.dj) { snd.jump2(); gfx.burst(mp.x, mp.y + 0.3, mp.z, 0xffffff, 10); }
+      if (mp.dive && !lastMe.dive) { snd.dive(); gfx.burst(mp.x, mp.y + 0.3, mp.z, 0xffffff, 10); gfx.shake(0.12); }
       if (lastMe.g && !mp.g && mp.vy <= 2 && mp.alive) snd.fall();
       if ((mp.dashT || 0) > (lastMe.dashT || 0) + 0.05) snd.dash();
       if (mp.g && mp.l !== lastMe.l) gfx.shake(0.25);
     }
-    lastMe = mp ? { g: mp.g, l: mp.l, vy: mp.vy, dashT: mp.dashT } : null;
+    lastMe = mp ? { g: mp.g, l: mp.l, vy: mp.vy, dashT: mp.dashT, dj: mp.dj, dive: mp.dive } : null;
     const focus = focusPos();
     const alive = ids.filter((id) => pos.get(id)?.alive !== false).length;
     snd.intensity(N > 1 ? (N - alive) / Math.max(1, N - 1) * 0.8 + (tC > C.COLLAPSE_AT / (api.turbo || 1) ? 0.3 : 0) : Math.min(1, tC / 90));
@@ -343,7 +355,7 @@ export async function start(ctx) {
       return { id, name: pl?.name || '?', color: pl?.color ?? 0, value: '★'.repeat(w) || '·', me: id === ctx.myId, out };
     }).sort((a, b) => (a.out - b.out) || ((info.wins[b.id] || 0) - (info.wins[a.id] || 0))), need > 1 ? `First to ${need} ★` : '');
     const cd = mp?.dashCd || 0;
-    if (amAlive()) ui.abilities([{ key: 'Space', label: 'Jump', ready: !!mp?.g }, { key: 'Shift', label: 'Dash', cd: cd / C.DASH_CD, ready: cd <= 0 }]);
+    if (amAlive()) ui.abilities([{ key: 'Space', label: mp?.g || mp?.coy > 0 ? 'Jump' : 'Jump ×2', ready: !!mp?.g || (!mp?.dj && !mp?.g) }, { key: 'E', label: 'Dive', ready: !mp?.g && !mp?.dive }, { key: 'Shift', label: 'Dash', cd: cd / C.DASH_CD, ready: cd <= 0 }]);
     else ui.abilities([]);
   }
   ui.setScoreboard(() => { const src = sim || info; return { columns: ['Player', '★ Rounds', 'Outlived', 'Tiles cracked', 'Bumps'], rows: standings().flat().map((id) => [ui.esc(ctx.player(id)?.name || id), src.wins[id] || 0, src.pts[id] || 0, src.cracked?.[id] || 0, src.bumps?.[id] || 0]) }; });

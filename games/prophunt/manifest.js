@@ -19,6 +19,7 @@ export const manifest = {
   controlsHelp: [
     ['WASD / Arrows', 'Move (Shift = sprint, Space = jump)'], ['Mouse', 'Look (click to lock the mouse)'],
     ['HIDER · E or left click', 'Become the highlighted object (point roughly at it)'], ['HIDER · Q', 'Rotate your disguise'],
+    ['HIDER · moving', 'Props shuffle slowly once the hunt starts: pick a spot and lock in'],
     ['HIDER · Right click', 'Lock in place (no wobble)'], ['HIDER · F', 'Taunt for bonus points (braver = more)'],
     ['SEEKER · Left click', 'Bonk a suspicious object (wrong guess costs health)'], ['SEEKER · Q', 'Sniff: hot / cold hint'],
     ['When found', 'Space / click = switch who you watch'],

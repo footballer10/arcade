@@ -14,6 +14,7 @@ import { newBrain, botInput } from './bots.js';
 import { createWorld } from './render.js';
 import { ShipKit, Trail, Sparks, TIER_COLORS } from './ships.js';
 import { NeonAudio } from './audio.js';
+import { AdaptiveDelay } from '../../core/interp.js';
 export { manifest } from './manifest.js';
 
 const SNAP_EVERY = 3;            // host steps per snapshot (20 Hz)
@@ -116,6 +117,9 @@ export async function start(ctx) {
   let seq = 0; const hist = [];
   const snaps = [];                          // [{t, at, st:[ship states]}]
   let lastSnapAt = 0, lastSnapT = 0;
+  // Remote ships are drawn on the host's race clock (hostOff: our clock -> race time, from the fastest snapshots),
+  // a little in the past; the delay grows on a jittery link (relay) so bunched snapshots don't cause stutter.
+  let hostOff = null; const interpDelay = new AdaptiveDelay({ min: INTERP, start: INTERP, interval: 0.05 });
   const corr = new THREE.Vector3();          // visual error offset after reconciliation
   const env = { track, laps: KO ? 99 : laps, t: 0, others: ships };
   let koDone = 0;
@@ -267,7 +271,13 @@ export async function start(ctx) {
     }
     const snap = { t: f[2], at: performance.now(), endIn: f[3], phase: f[4], firstFin: f[5], st };
     if (snaps.length && snap.t < snaps[snaps.length - 1].t) return;   // out of order
+    const prevT = snaps.length ? snaps[snaps.length - 1].t : null;
     snaps.push(snap); if (snaps.length > 30) snaps.shift();
+    if (prevT !== null && snap.t > prevT) {          // only while the race clock runs
+      const off = snap.t - snap.at / 1000;
+      hostOff = hostOff == null || off > hostOff ? off : hostOff + (off - hostOff) * 0.04;
+      interpDelay.observe(snap.at / 1000 + hostOff - snap.t);
+    } else if (prevT !== null && snap.t === prevT) hostOff = null;
     lastSnapAt = snap.at; lastSnapT = snap.t; endIn = snap.endIn; phase = snap.phase; firstFin = snap.firstFin;
     raceT = Math.max(raceT, snap.t);
     // other ships: keep the latest state (used for slipstream + HUD); remote events -> effects
@@ -362,7 +372,7 @@ export async function start(ctx) {
       return out;
     }
     // remote ship on a client: interpolate the snapshot buffer
-    const rt = lastSnapT + (performance.now() - lastSnapAt) / 1000 - INTERP;
+    const rt = hostOff != null ? performance.now() / 1000 + hostOff - interpDelay.value : lastSnapT + (performance.now() - lastSnapAt) / 1000 - INTERP;
     let A = null, B = null;
     for (let k = snaps.length - 1; k >= 0; k--) if (snaps[k].t <= rt) { A = snaps[k]; B = snaps[k + 1] || null; break; }
     if (!A) { A = snaps[0]; B = null; }
@@ -446,14 +456,19 @@ export async function start(ctx) {
   const _m4v = new THREE.Vector3();
   const raceClockNow = () => (isHostSim ? raceT : lastSnapT + (phase === 1 ? (performance.now() - lastSnapAt) / 1000 : 0));
   const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _u = new THREE.Vector3(), _m = new THREE.Matrix4(), _q = new THREE.Quaternion();
+  // Space (as well as A/D) cycles who you're watching once you're out of the running (derezzed, finished, or
+  // just spectating); only among ships still in the race, so you never land on another dead one by hand.
   input.on('press', (a) => {
     if (!(ctx.spectator || myIdx < 0 || ships[myIdx]?.out || ships[myIdx]?.fin)) return;
-    if (a !== 'left' && a !== 'right') return;
-    const o = order(ships).map((s) => ships.indexOf(s)); const k = o.indexOf(cam.target);
-    cam.target = o[(k + (a === 'right' ? 1 : o.length - 1)) % o.length];
+    if (a !== 'left' && a !== 'right' && a !== 'jump') return;
+    const o = order(ships).map((s) => ships.indexOf(s)).filter((i) => !ships[i].out);
+    if (!o.length) return;
+    const k = o.indexOf(cam.target);
+    cam.target = o[((k < 0 ? 0 : k) + (a === 'left' ? -1 : 1) + o.length) % o.length];
   });
   function updateCamera(dt, now) {
-    if (myIdx >= 0 && ships[myIdx]?.out && cam.target === myIdx) cam.target = ships.indexOf(order(ships)[0]);
+    // whoever you're watching got derezzed (yourself included): move on to whoever's leading among the rest
+    if (ships[cam.target]?.out) { const alive = order(ships).map((s) => ships.indexOf(s)).filter((i) => !ships[i].out); if (alive.length) cam.target = alive[0]; }
     let ti = cam.target;
     if (ti < 0 || ti >= N) { ti = ships.indexOf(order(ships)[0]); cam.target = myIdx >= 0 ? myIdx : ti; }
     const st = drawSt[ti], v = views[ti];
