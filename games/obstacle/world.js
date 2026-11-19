@@ -7,7 +7,7 @@ export const C = {
   R: 0.42, H: 1.5, HL: 0.8,                  // radius, standing height, low height (diving / knocked down)
   RUN: 7.4, ACC: 62, AIR_ACC: 22,
   GRAV: 32, JUMP: 11.6, JUMP_CUT: 46, MAXFALL: 34,
-  DIVE: 10.8, DIVE_MAX: 13, DIVE_UP: 5.4, DIVE_AIR_UP: 3.4, SLIDE_T: 0.38,
+  DIVE: 12, DIVE_MAX: 14.5, DIVE_UP: 5.4, DIVE_AIR_UP: 4.4, SLIDE_T: 0.32, DIVE_STEER: 2.4,
   COYOTE: 0.11, JBUF: 0.14, STEP_UP: 0.5,
   HANG_MAX: 4, HANG_DROP: 1.25,
   HIT_MIN: 6, HIT_MAX: 15, DOWN_T: 0.9,
@@ -135,7 +135,15 @@ export function stepPlayer(p, inp, dt, W) {
     if (dl > a) { dx *= a / dl; dz *= a / dl; }
     p.vx += dx; p.vz += dz;
     if (ml > 0.1) p.face += angDiff(Math.atan2(mx, mz), p.face) * Math.min(1, dt * 16);
-  } else if (grounded) { const f = Math.max(0, 1 - (p.slide ? 3.2 : W.solids[p.gr].ice ? 0.6 : 6) * dt); p.vx *= f; p.vz *= f; }
+  } else if (grounded) { const f = Math.max(0, 1 - (p.slide ? 1.5 : W.solids[p.gr].ice ? 0.6 : 6) * dt); p.vx *= f; p.vz *= f; }
+  // ---- steer a dive / belly slide a little toward the stick (keeps the speed, only bends the path)
+  if ((p.dive || p.slide) && ml > 0.2) {
+    const sp = Math.hypot(p.vx, p.vz);
+    if (sp > 1) {
+      const cur = Math.atan2(p.vx, p.vz), d = angDiff(Math.atan2(mx, mz), cur), mxT = C.DIVE_STEER * (p.slide ? 0.6 : 1) * dt;
+      const na = cur + Math.max(-mxT, Math.min(mxT, d)); p.vx = Math.sin(na) * sp; p.vz = Math.cos(na) * sp; p.face = na;
+    }
+  }
   // ---- jump (also: a jump press gets you up early from a belly slide)
   if (p.slide && jp && grounded && p.down > 0.05) { p.down = 0; p.slide = false; p.tumble = false; p.jbuf = 0; p.vy = 6; p.gr = -1; ev |= EV.JUMP; }
   else if (ctl && p.jbuf > 0 && p.coy > 0) { p.vy = C.JUMP; p.gr = -1; p.coy = 0; p.jbuf = 0; p.jumping = true; ev |= EV.JUMP; }

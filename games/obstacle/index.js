@@ -72,6 +72,13 @@ export async function start(ctx) {
 
   const gfx = createView(ctx);
   const sfx = createSound(ctx.audio);
+  // reaching a checkpoint: confetti over the arch, a chime and a toast (counted so you know how far you are)
+  function onCheckpoint(n, st) {
+    const c = st.cps[n - 1]; if (!c) return;
+    gfx.fx.confetti(c.x, c.y + 3, c.z - 2.2, 70);
+    ctx.audio && sfx.qualify(false);
+    ui.toast(`🚩 Checkpoint ${n}/${st.cps.length}`, '', 1400);
+  }
   ctx.on('resize', gfx.resize);
   ctx.on('settings', (k) => { if (k === 'quality') gfx.applyQ(); });
 
@@ -387,7 +394,11 @@ export async function start(ctx) {
             if (st.mode === 'race' || st.mode === 'crown') { const s = respawnOf(st, me.cp, mySlot); Object.assign(me, { x: s.x, y: s.y, z: s.z, vx: 0, vy: 0, vz: 0, face: s.face, down: 0, tumble: false, dive: false, slide: false, gr: -1, hang: -1 }); me.rs = (me.rs + 1) & 255; }
             else me.falling = true;
           }
-          if (st.cps.length) for (let i = me.cp; i < st.cps.length; i++) { const c = st.cps[i]; if (me.z > c.z - 2.4 && me.y > c.y - 0.6 && me.gr >= 0) me.cp = i + 1; }
+          if (st.cps.length) {
+            const cp0 = me.cp;
+            for (let i = me.cp; i < st.cps.length; i++) { const c = st.cps[i]; if (me.z > c.z - 2.4 && me.y > c.y - 0.6 && me.gr >= 0) me.cp = i + 1; }
+            if (me.cp > cp0) onCheckpoint(me.cp, st);
+          }
           predAcc -= STEP; k++;
         }
         if (k >= 8 * turbo) predAcc = 0;

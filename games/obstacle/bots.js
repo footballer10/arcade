@@ -129,6 +129,7 @@ function raceTarget(G, p, b) {
     }
     let arrived = false;
     if (n.gates) arrived = p.z > n.z + 1.0;
+    else if (n.slideGap != null) arrived = p.z > n.z + 1.3;
     else if (n.padAlts) arrived = n.padAlts.includes(p.gr) || (p.gr < 0 && p.vy > 12.4 && Math.abs(p.z - n.z) < 3);
     else if (n.sidAlts) arrived = n.sidAlts.includes(p.gr);
     else if (n.sid != null) arrived = p.gr === n.sid && (!n.center || Math.hypot(p.x - G.W.solids[n.sid].x, p.z - G.W.solids[n.sid].z) < 1.8 || n.leap);
@@ -155,6 +156,19 @@ function raceTarget(G, p, b) {
       const near = p.z > n.z - 2.3;
       if (near && !(i.open && i.left > 0.9 - b.level.skill * 0.3)) return { tx: s.x, tz: n.z - 2.3, tsolid: -1 };       // hold at the gate
       return { tx: s.x, tz: n.z + 2.4, tsolid: -1 };
+    }
+    if (n.slideGap != null) {
+      // sliding wall with one moving gap: shadow the gap from just in front of the wall, step through when lined up
+      const W = G.W, s = W.solids[n.slideGap], lim = n.hw - 0.7;
+      const gx = (tau) => { pose(s, W.t + tau, TMP2); return Math.max(-lim, Math.min(lim, TMP2.x + n.off)); };
+      const lead = 0.12 + (1 - b.level.skill) * 0.25, err = (b.gapErr ??= (b.rnd() - 0.5) * b.level.aimError * 0.8);
+      const near = p.z > n.z - 2.6;
+      const cross = Math.max(0.15, (n.z + 0.8 - p.z) / C.RUN);
+      const lined = Math.abs(gx(0) - p.x) < 0.42 && Math.abs(gx(cross) - p.x) < 0.75;
+      if (near && !lined) return { tx: gx(lead) + err, tz: n.z - 2.0, tsolid: -1 };
+      if (!near) return { tx: gx(lead + 0.3), tz: n.z - 2.0, tsolid: -1 };
+      b.gapErr = null;
+      return { tx: gx(cross * 0.7), tz: n.z + 2.2, tsolid: -1 };
     }
     b.dropOK = n.rock != null;
     if (n.rock != null) {
@@ -342,7 +356,7 @@ function leapPlan(G, p, si, tx, tz, careful = false) {
 function hazard(G, p, mx, mz, lv) {
   const look = [0.12, 0.24, 0.36, 0.5], longLook = [0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 1.05];
   for (const s of G.W.moving) {
-    if (!s.hit || s.soft || s.anim.k === 'roll') continue;
+    if (!s.hit || s.soft || s.gapWall || s.anim.k === 'roll') continue;
     if (Math.abs(s.x - p.x) > s.br + 7 || Math.abs(s.z - p.z) > s.br + 7) continue;
     const piston = s.anim.k === 'piston';            // punchers fire fast: look further ahead before stepping into their lane
     for (const tau of piston ? longLook : look) {

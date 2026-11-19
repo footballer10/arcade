@@ -11,6 +11,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { pose, active, blinkU, lavaLevel, TILE_FALL } from './world.js';
 
 const TAU = Math.PI * 2;
@@ -55,7 +56,7 @@ export function createView(ctx) {
   const rim = new THREE.DirectionalLight(0xffa6dc, 0.32); rim.position.set(-20, 12, 30); scene.add(rim);
   const keep = new Set();
   const K = (x) => { keep.add(x); return x; };
-  let envTex = null, composer = null, bloom = null;
+  let envTex = null, composer = null, bloom = null, grade = null;
   function shadowQ() {
     const q = ctx.quality();
     sun.castShadow = q.shadows;
@@ -72,7 +73,17 @@ export function createView(ctx) {
       composer.addPass(new RenderPass(scene, camera));
       bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.28, 0.35, 1.1); composer.addPass(bloom);
       composer.addPass(new OutputPass());
-    } else if (!q.effects && composer) { composer.dispose(); bloom.dispose(); composer = bloom = null; }
+      grade = new ShaderPass({ uniforms: { tDiffuse: { value: null }, vig: { value: 0.32 }, sat: { value: 1.14 } },
+        vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+        fragmentShader: `uniform sampler2D tDiffuse; uniform float vig; uniform float sat; varying vec2 vUv;
+          void main(){ vec4 c = texture2D(tDiffuse, vUv); vec3 col = c.rgb;
+            float l = dot(col, vec3(0.299, 0.587, 0.114)); col = mix(vec3(l), col, sat);           // richer colour
+            col = (col - 0.5) * 1.06 + 0.5;                                                       // a touch of contrast
+            col += vec3(0.018, 0.008, -0.012) * (1.0 - l);                                        // warm the shadows
+            vec2 d = vUv - 0.5; col *= 1.0 - vig * smoothstep(0.32, 0.85, dot(d, d) * 2.2);        // soft vignette
+            gl_FragColor = vec4(clamp(col, 0.0, 1.0), c.a); }` });
+      composer.addPass(grade);
+    } else if (!q.effects && composer) { composer.dispose(); bloom.dispose(); grade.dispose?.(); composer = bloom = grade = null; }
   }
 
   // ---- textures (live for the whole game)
@@ -117,12 +128,25 @@ export function createView(ctx) {
         float s = max(dot(normalize(vp), sd), 0.0); c = min(c, vec3(0.97)); c += vec3(1.0,0.9,0.7) * (pow(s, 600.0) * 2.4 + pow(s, 12.0) * 0.22);
         gl_FragColor = vec4(c, 1.0); }` }));
   const sky = new THREE.Mesh(K(new THREE.SphereGeometry(800, 32, 16)), skyMat); scene.add(sky);
-  const slimeMat = K(new THREE.ShaderMaterial({ uniforms: { t: { value: 0 }, col: { value: new THREE.Color(0xff4fb3) }, fogC: { value: new THREE.Color(0xffd3f2) } },
-    vertexShader: 'uniform float t; varying vec2 vu; varying float vh; varying float vd; void main(){ vec3 p = position; float h = sin(p.x*0.16+t*1.3)*0.5 + cos(p.y*0.19+t*1.05)*0.5 + sin((p.x+p.y)*0.07+t*0.6)*0.4; p.z += h*0.5; vh = h; vu = p.xy; vec4 mv = modelViewMatrix * vec4(p,1.0); vd = -mv.z; gl_Position = projectionMatrix * mv; }',
-    fragmentShader: `uniform vec3 col; uniform vec3 fogC; uniform float t; varying vec2 vu; varying float vh; varying float vd;
-      void main(){ float s = smoothstep(0.62, 0.98, sin(vu.x*0.45+t*0.7)*0.5+0.5 + cos(vu.y*0.38-t*0.55)*0.32);
+  const slimeMat = K(new THREE.ShaderMaterial({ uniforms: { t: { value: 0 }, col: { value: new THREE.Color(0xff4fb3) }, fogC: { value: new THREE.Color(0xffd3f2) }, skyC: { value: new THREE.Color(0x3f8cff) }, sd: { value: sunDir } },
+    vertexShader: `uniform float t; varying vec2 vu; varying float vh; varying float vd; varying vec3 vw; varying vec2 vg;
+      void main(){ vec3 p = position;
+        float a1 = p.x*0.16+t*1.3, a2 = p.y*0.19+t*1.05, a3 = (p.x+p.y)*0.07+t*0.6;
+        float h = sin(a1)*0.5 + cos(a2)*0.5 + sin(a3)*0.4; p.z += h*0.5; vh = h; vu = p.xy;
+        vg = vec2(0.16*0.5*cos(a1) + 0.07*0.4*cos(a3), -0.19*0.5*sin(a2) + 0.07*0.4*cos(a3)) * 0.5;
+        vw = (modelMatrix * vec4(p,1.0)).xyz; vec4 mv = modelViewMatrix * vec4(p,1.0); vd = -mv.z; gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: `uniform vec3 col; uniform vec3 fogC; uniform vec3 skyC; uniform vec3 sd; uniform float t; varying vec2 vu; varying float vh; varying float vd; varying vec3 vw; varying vec2 vg;
+      void main(){
+        vec2 rg = vec2(cos(vu.x*1.3+t*2.0)*0.05 + cos((vu.x-vu.y)*2.1-t*2.6)*0.035, sin(vu.y*1.1-t*1.7)*0.05 + sin((vu.x+vu.y)*1.7+t*2.2)*0.035);
+        vec3 n = normalize(vec3(-(vg.x+rg.x), 1.0, (vg.y+rg.y)));
+        vec3 v = normalize(cameraPosition - vw);
+        float fres = pow(1.0 - max(dot(n, v), 0.0), 3.0);
+        float s = smoothstep(0.62, 0.98, sin(vu.x*0.45+t*0.7)*0.5+0.5 + cos(vu.y*0.38-t*0.55)*0.32);
         float sp = smoothstep(0.93, 1.0, sin(vu.x*1.7+t*2.1)*sin(vu.y*1.5-t*1.7));
-        vec3 c = col * (0.78 + vh*0.16) + vec3(1.0,0.86,0.96)*s*0.4 + vec3(1.0)*sp*0.55;
+        vec3 c = col * (0.74 + vh*0.16) + vec3(1.0,0.9,0.96)*s*0.32;
+        c = mix(c, mix(skyC, vec3(1.0), 0.35), fres * 0.6);
+        float glint = pow(max(dot(reflect(-v, n), sd), 0.0), 220.0);
+        c += vec3(1.0, 0.92, 0.75) * (glint * 1.8 + sp * 0.45);
         c = mix(c, fogC, smoothstep(120.0, 420.0, vd)); gl_FragColor = vec4(c, 1.0); }` }));
   const slime = new THREE.Mesh(K(new THREE.PlaneGeometry(900, 900, 90, 90)), slimeMat); slime.rotation.x = -Math.PI / 2; scene.add(slime);
   const cloudGeo = K(new THREE.SphereGeometry(1, 14, 10)), cloudMat = K(new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x6a5a70 }));
@@ -133,9 +157,42 @@ export function createView(ctx) {
     for (let k = 0; k < n; k++) { const m = new THREE.Mesh(cloudGeo, cloudMat); m.position.set(k * 3.2 - n * 1.6 + crand(), crand() * 1.8 - (k === 0 || k === n - 1 ? 0.8 : 0), crand() * 2.2); m.scale.setScalar(2.4 + crand() * 2.8 - (k === 0 || k === n - 1 ? 1 : 0)); m.scale.y *= 0.8; g.add(m); }
     const a = crand() * TAU, r = 170 + crand() * 230; g.position.set(Math.sin(a) * r, 30 + crand() * 70, Math.cos(a) * r + 60); g.userData.v = 0.4 + crand() * 0.8; g.scale.setScalar(1 + crand()); clouds.add(g);
   }
+  // ---- weather: a box of drifting motes that follows the camera (snow, embers, pollen, sparkles); one draw call
+  const WN = 1400, wPos = new Float32Array(WN * 3), wSeed = new Float32Array(WN);
+  const wr = mulberry(91); for (let i = 0; i < WN; i++) { wPos[i * 3] = wr(); wPos[i * 3 + 1] = wr(); wPos[i * 3 + 2] = wr(); wSeed[i] = wr() * 100; }
+  const wGeo = K(new THREE.BufferGeometry()); wGeo.setAttribute('position', new THREE.BufferAttribute(wPos, 3)); wGeo.setAttribute('seed', new THREE.BufferAttribute(wSeed, 1));
+  wGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
+  const wMat = K(new THREE.ShaderMaterial({ transparent: true, depthWrite: false, fog: false,
+    uniforms: { t: { value: 0 }, cam: { value: new THREE.Vector3() }, box: { value: new THREE.Vector3(70, 34, 70) }, vel: { value: new THREE.Vector3(0, -2, 0) }, sway: { value: 0.8 }, size: { value: 0.2 }, c1: { value: new THREE.Color(0xffffff) }, c2: { value: new THREE.Color(0xffffff) }, tw: { value: 0 }, pr: { value: 1 } },
+    vertexShader: `uniform float t; uniform vec3 cam; uniform vec3 box; uniform vec3 vel; uniform float sway; uniform float size; uniform float tw; uniform float pr; attribute float seed; varying float va; varying float vk;
+      void main(){ vec3 p = position * box + vel * t + vec3(sin(t*0.9+seed)*sway, sin(t*1.3+seed*1.7)*sway*0.4, cos(t*0.7+seed*0.6)*sway);
+        p = mod(p - cam + box*0.5, box) - box*0.5 + cam;
+        vec4 mv = modelViewMatrix * vec4(p, 1.0); gl_Position = projectionMatrix * mv;
+        vec3 q = abs(p - cam) / (box*0.5); float edge = 1.0 - smoothstep(0.7, 1.0, max(q.x, max(q.y, q.z)));
+        float flick = mix(1.0, 0.35 + 0.65*abs(sin(t*3.0 + seed*5.0)), tw);
+        va = edge * flick * smoothstep(0.5, 3.0, -mv.z); vk = fract(seed*0.37);
+        gl_PointSize = size * pr * 520.0 / max(-mv.z, 0.5); }`,
+    fragmentShader: `uniform vec3 c1; uniform vec3 c2; varying float va; varying float vk;
+      void main(){ vec2 d = gl_PointCoord - 0.5; float r = dot(d, d); if (r > 0.25) discard;
+        float a = smoothstep(0.25, 0.02, r) * va; gl_FragColor = vec4(mix(c1, c2, vk) * (1.0 + 0.6*smoothstep(0.06, 0.0, r)), a); }` }));
+  const weather = new THREE.Points(wGeo, wMat); weather.frustumCulled = false; weather.renderOrder = 5; scene.add(weather);
+  const WEATHER = {
+    ice: { vel: [0.6, -2.6, 0.3], sway: 1.1, size: 0.24, c1: 0xffffff, c2: 0xdff4ff, tw: 0, add: false, n: 1 },
+    lava: { vel: [0.2, 2.2, 0.4], sway: 0.6, size: 0.2, c1: 0xffb347, c2: 0xff5a1a, tw: 1, add: true, n: 0.7 },
+    meadow: { vel: [0.5, 0.15, 0.3], sway: 1.4, size: 0.14, c1: 0xfff6c2, c2: 0xffffff, tw: 1, add: true, n: 0.45 },
+    temple: { vel: [0.3, -0.25, 0.2], sway: 1.2, size: 0.14, c1: 0xffe7a8, c2: 0xb8ffb0, tw: 1, add: true, n: 0.45 },
+    stadium: { vel: [0.2, -0.5, 0.1], sway: 1.0, size: 0.13, c1: 0xffd23f, c2: 0xff8fd0, tw: 1, add: true, n: 0.35 },
+  };
+  function setWeather(kind) {
+    const w = WEATHER[kind] || WEATHER.stadium, q = ctx.quality();
+    wMat.uniforms.vel.value.set(...w.vel); wMat.uniforms.sway.value = w.sway; wMat.uniforms.size.value = w.size; wMat.uniforms.tw.value = w.tw;
+    wMat.uniforms.c1.value.setHex(w.c1); wMat.uniforms.c2.value.setHex(w.c2); wMat.blending = w.add ? THREE.AdditiveBlending : THREE.NormalBlending; wMat.needsUpdate = true;
+    const full = q.effects ? 1 : q.shadows ? 0.55 : 0.25; wGeo.setDrawRange(0, Math.floor(WN * w.n * full));
+  }
   const set = new THREE.Group(); scene.add(set);       // studio set (per stage)
 
   // ---- stage
+  let fovKick = 0; const gapWalls = [];
   let stage = null, root = null, theme = THEMES.sweep, blastIdx = 0, envKind = null;
   const occ = [], ray = new THREE.Raycaster(), rayFrom = new THREE.Vector3(), rayDir = new THREE.Vector3(), OCC = new Set(['column', 'summit', 'bwall', 'wall', 'rushwall', 'pillar']);
   let occDist = 99;
@@ -342,11 +399,25 @@ export function createView(ctx) {
         break;
       }
       case 'swingblock': m = outline(new THREE.Mesh(rbox(s.hx * 2, s.hy * 2, s.hz * 2, 0.35), SM(plastic(0xff7ac8, { map: T.polka.clone() }))), 0.07, [s.hx * 2, s.hy * 2, s.hz * 2]); m.material.map.needsUpdate = true; m.material.map.repeat.set(s.hx, s.hy); break;
+      case 'slidewall': case 'icewall': {
+        const ice = s.look === 'icewall', mat = SM(plastic(ice ? 0xbfeaff : th.accent, ice ? { roughness: 0.12, envMapIntensity: 1.2 } : { map: T.polka.clone() }));
+        if (mat.map) { mat.map.needsUpdate = true; mat.map.repeat.set(s.hx * 0.8, s.hy); }
+        m = outline(new THREE.Mesh(rbox(s.hx * 2, s.hy * 2, s.hz * 2, 0.22), mat), 0.07, [s.hx * 2, s.hy * 2, s.hz * 2]);
+        const trim = new THREE.Mesh(rbox(s.hx * 2 + 0.04, 0.3, s.hz * 2 + 0.04, 0.1), M.hazard); trim.position.y = s.hy - 0.18; m.add(trim);
+        break;
+      }
+      case 'housing': {
+        m = outline(new THREE.Mesh(rbox(s.hx * 2, s.hy * 2, s.hz * 2, 0.3), SM(plastic(0x3b3358, { roughness: 0.5 }))), 0.07, [s.hx * 2, s.hy * 2, s.hz * 2]);
+        const band = new THREE.Mesh(rbox(s.hx * 2 + 0.06, 0.45, s.hz * 2 + 0.06, 0.12), M.hazard); band.position.y = s.hy - 0.35; m.add(band);
+        const lamp = new THREE.Mesh(geo('ball', () => new THREE.SphereGeometry(0.55, 14, 10)), M.bulb); lamp.scale.setScalar(0.6); lamp.position.set(-Math.sign(s.x) * (s.hx - 0.4), s.hy + 0.25, 0); m.add(lamp);
+        break;
+      }
       case 'dashfloor': m = cake(s, 0x9ad8ff, 0x3a6cf0, T.check, 4); break;
       case 'dashblock': { const cols = [0xff5a5f, 0xffcc00, 0x4cd964, 0x3ea6ff, 0xb57bff, 0xff8c42]; const c = cols[(s.wave || 0) % cols.length]; m = outline(new THREE.Mesh(rbox(s.hx * 2, s.hy * 2, s.hz * 2, 0.18), SM(plastic(c, { map: T.tiles }))), 0.06, [s.hx * 2, s.hy * 2, s.hz * 2]); break; }
       case 'btile': { m = new THREE.Mesh(geo(`bt${s.r}`, () => new THREE.CylinderGeometry(s.r * 0.97, s.r * 0.86, s.hy * 2, 6)), SM(plastic(0x7a6a8a, { roughness: 0.6 }))); m.rotation.y = Math.PI / 6; const top = new THREE.Mesh(geo(`btt${s.r}`, () => new THREE.CylinderGeometry(s.r * 0.86, s.r * 0.9, 0.12, 6)), SM(plastic(0xffd27a, { roughness: 0.4 }))); top.position.y = s.hy; m.add(top); break; }
       default: m = cake(s, th.top, th.side);
     }
+    if (s.cpArch != null) arch(m, s, 'CHECKPOINT', 0x2ee6d6, s.cpArch, true);
     if (['floor', 'bridge', 'beamwalk', 'start', 'cp', 'finish', 'step', 'terrace', 'summit2', 'temple', 'basalt', 'dashfloor', 'ice'].includes(s.look)) pillarUnder(m, s, th.side);
     m.traverse((o) => { if (o.isMesh && o.material !== ink) { o.castShadow = true; o.receiveShadow = true; } });
     m.userData.s = s;
@@ -370,7 +441,7 @@ export function createView(ctx) {
     stage = st; theme = THEMES[st.id] || THEMES.sweep;
     skyMat.uniforms.top.value.setHex(theme.sky[0]); skyMat.uniforms.bot.value.setHex(theme.sky[1]);
     scene.fog = new THREE.Fog(theme.sky[1], 140, 520);
-    slimeMat.uniforms.col.value.setHex(theme.slime); slimeMat.uniforms.fogC.value.setHex(theme.sky[1]);
+    slimeMat.uniforms.col.value.setHex(theme.slime); slimeMat.uniforms.fogC.value.setHex(theme.sky[1]); slimeMat.uniforms.skyC.value.setHex(theme.sky[0]);
     slime.position.y = st.killY + 3.5;
     root = new THREE.Group(); scene.add(root);
     for (const s of st.solids) {
@@ -378,6 +449,7 @@ export function createView(ctx) {
       if (!m.userData.kind) { m.position.set(s.x, s.y, s.z); m.rotation.y = s.ry; }
       root.add(m);
       if (OCC.has(s.look) && !s.anim) occ.push(m);
+      if (s.gapWall || s.look === 'housing') gapWalls.push(m);
       if (s.anim || s.until) dyn.push(m);
     }
     if (st.crown) {
@@ -424,6 +496,7 @@ export function createView(ctx) {
   // ---- studio set: stands full of fans, bunting, light towers with sweeping spots, balloons, pinwheels, big sign
   function buildSet(st) {
     envKind = ENV[st.id] || null;
+    setWeather(envKind || 'stadium');
     if (envKind) { buildEnv(envKind, st); return; }
     const rr = mulberry(st.id.length * 99 + 3), q = lowQ();
     const len = st.len || 0, cz = len / 2, race = !!st.len;
@@ -562,7 +635,7 @@ export function createView(ctx) {
     for (const t of tiles) for (const m of t.mats) m.dispose();
     if (crowd) { crowd.dispose(); crowd = null; }
     if (crownObj) { crownObj.traverse((o) => { if (o.geometry && o.geometry.type !== 'CylinderGeometry' && o.geometry.type !== 'TorusGeometry') return; o.geometry?.dispose(); }); }
-    spikeObjs.length = 0; lavaObjs.length = 0; bombObjs.length = 0; swings.length = 0; fanObjs.length = 0; balls.length = 0; occ.length = 0; arches.length = 0; dyn.length = 0; tiles.length = 0; doors.length = 0; belts.length = 0; blinks.length = 0; pads.length = 0; spots.length = 0; spinners.length = 0; balloons.length = 0; crownObj = null;
+    spikeObjs.length = 0; lavaObjs.length = 0; bombObjs.length = 0; swings.length = 0; fanObjs.length = 0; balls.length = 0; occ.length = 0; arches.length = 0; gapWalls.length = 0; dyn.length = 0; tiles.length = 0; doors.length = 0; belts.length = 0; blinks.length = 0; pads.length = 0; spots.length = 0; spinners.length = 0; balloons.length = 0; crownObj = null;
   }
 
   // ---- players
@@ -678,6 +751,7 @@ export function createView(ctx) {
     for (const b of belts) b.mat.map.offset.y = (b.mat.map.offset.y + dt * b.v) % 1;
     if (crownObj) { crownObj.rotation.y = sec * 1.4; crownObj.position.y = stage.crown.y + Math.sin(sec * 2.2) * 0.15; crownObj.visible = !S.crownTaken; }
     slimeMat.uniforms.t.value = sec;
+    wMat.uniforms.t.value = sec; wMat.uniforms.cam.value.copy(camera.position); wMat.uniforms.pr.value = renderer.getPixelRatio();
     for (const c of clouds.children) { c.position.x += c.userData.v * dt; if (c.position.x > 420) c.position.x = -420; }
     for (const s of spots) { const a = Math.sin(sec * s.sp + s.ph); s.cone.rotation.set(Math.PI + 0.55 + Math.cos(sec * s.sp * 0.7 + s.ph) * 0.25, 0, a * 0.6); s.cone.lookAt(s.tx + a * 14, -30, s.tz + Math.cos(sec * s.sp + s.ph) * 14); s.cone.rotateX(-Math.PI / 2); }
     for (const p of spinners) p.wheel.rotation.z += dt * p.sp * (1 + (S.hype || 0) * 2);
@@ -706,7 +780,13 @@ export function createView(ctx) {
       const sq = Math.max(0.65, Math.min(1.4, b.sq));
       rig.scale.set(1 / Math.sqrt(sq), sq, 1 / Math.sqrt(sq));
       rig.rotation.x = 0; rig.rotation.z = 0; rig.position.z = 0;
-      if (v.dive || v.slide) { rig.rotation.x = 1.35; rig.position.y = 0.45; rig.position.z = -0.35; }
+      if (v.dive && !b.wasDive) { emit(12, v.x, v.y + 0.6, v.z, { color: 0xffffff, speed: 3.2, up: 0.2, upr: 0.5, g: 0, drag: 3, life: 0.45, size: 1.1, spin: 0 }); if (S.me === id) fovKick = 8; }
+      b.wasDive = v.dive;
+      if ((v.dive || (v.slide && v.grounded && hs > 3)) && Math.random() < dt * 45) {
+        const bx = v.x - Math.sin(v.face) * 0.7, bz = v.z - Math.cos(v.face) * 0.7;
+        emit(1, bx + (Math.random() - 0.5) * 0.5, v.y + (v.dive ? 0.6 : 0.15), bz, { color: v.dive ? 0xffffff : 0xf2e6d8, speed: 0.6, up: 0.3, upr: 0.3, g: v.dive ? 0 : 2, drag: 2, life: 0.5, size: v.dive ? 0.9 : 1.1, spin: 0 });
+      }
+      if (v.dive || v.slide) { rig.rotation.x = 1.35 + (v.dive ? Math.max(-0.25, Math.min(0.25, -(v.vy || 0) * 0.04)) : 0.1); rig.position.y = 0.45; rig.position.z = -0.35; }
       else if (v.down) { b.spin += dt * (v.grounded ? 3 : 11); rig.rotation.x = v.grounded ? 1.45 : b.spin; rig.rotation.z = v.grounded ? 0.3 : Math.sin(b.spin * 0.7) * 0.8; rig.position.y = v.grounded ? 0.4 : 0.8; }
       else if (v.hang) { rig.rotation.x = -0.25; rig.position.y = Math.sin(sec * 8) * 0.03; }
       else if (!v.grounded) { rig.rotation.x = Math.max(-0.35, Math.min(0.35, -(v.vy || 0) * 0.03)); b.spin = 0; }
@@ -740,7 +820,6 @@ export function createView(ctx) {
       }
       for (; k < bombObjs.length; k++) bombObjs[k].g.visible = bombObjs[k].ring.visible = false;
     }
-    if (envKind === 'ice' && Math.random() < dt * 40) emit(1, cam.x + (Math.random() - 0.5) * 40, cam.y + 14, cam.z + Math.random() * 30 - 5, { color: 0xffffff, speed: 0.6, up: -1, upr: 0, g: 0.6, drag: 0.98, life: 5, size: 0.7, spin: 2, flutter: 2 });
     if (envKind === 'lava' && Math.random() < dt * 25) emit(1, cam.x + (Math.random() - 0.5) * 30, stage.killY + 3.6, cam.z + Math.random() * 30 - 5, { colors: [0xffa63a, 0xff5a1a, 0xffe07a], speed: 0.8, up: 2, upr: 2, g: -1.5, drag: 0.97, life: 3, size: 0.5, spin: 3 });
     stepParticles(dt, sec);
     // camera
@@ -774,8 +853,10 @@ export function createView(ctx) {
       camera.position.set(rayFrom.x + rayDir.x * dd + sx, rayFrom.y + rayDir.y * dd + sy, rayFrom.z + rayDir.z * dd);
       camera.lookAt(cam.x + Math.sin(cam.yaw) * 2.5, cam.y + 1.3, cam.z + Math.cos(cam.yaw) * 2.5);
     }
+    for (const m of gapWalls) { const z = m.userData.s.z; m.visible = !(camera.position.z > z - 2.6 && camera.position.z < z + 1.3 && camera.position.y < m.userData.s.y + m.userData.s.hy + 2.5); }
     for (const a of arches) a.g.visible = Math.abs(camera.position.z - a.z) > (cam.mode === 'intro' ? 1.5 : 7);
     sun.position.set(cam.x + 18, cam.y + 34, cam.z - 12); sun.target.position.set(cam.x, cam.y, cam.z + 4);
+    fovKick *= Math.exp(-dt * 3.5); { const f = 60 + fovKick; if (Math.abs(camera.fov - f) > 0.05) { camera.fov = f; camera.updateProjectionMatrix(); } }
     sky.position.copy(camera.position);
     if (composer) composer.render(); else renderer.render(scene, camera);
   }
@@ -791,7 +872,7 @@ export function createView(ctx) {
     dispose() {
       clearStage();
       for (const b of beans.values()) { ctx.avatar.dispose(b.a); b.blob.removeFromParent(); b.tether.removeFromParent(); b.ring.removeFromParent(); }
-      if (composer) { composer.dispose(); bloom.dispose(); composer = bloom = null; }
+      if (composer) { composer.dispose(); bloom.dispose(); grade?.dispose?.(); composer = bloom = grade = null; }
       if (envTex) { envTex.dispose(); envTex = null; }
       scene.environment = null;
       ctx.three.dispose(scene, keep);

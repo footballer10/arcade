@@ -24,6 +24,14 @@ function finish(B, x, top, z) {
   B.len = z + 12;
 }
 const plat = (B, x, top, z, hx, hz, look = 'floor', o = {}) => B.add(slab(x, top, z, hx, hz, { look, ...o }));
+// an extra checkpoint on a platform that is already there (no new geometry, bot route unchanged): an arch over it
+// where you trigger it, respawns just past the arch
+function mark(B, s, z, hz = 0.6) {
+  const top = s.y + s.hy;
+  s.cpArch = z - 2.2 - s.z;
+  B.cps.push({ x: s.x, y: top, z, hx: s.hx, hz });
+  return s;
+}
 // a straight walkway between two points (any direction)
 function walk(B, x0, z0, x1, z1, top, hw, look = 'beamwalk', o = {}) {
   const dx = x1 - x0, dz = z1 - z0, len = Math.hypot(dx, dz);
@@ -94,6 +102,18 @@ function wallRush(B, z, top, hw, spd = 5.5) {
   B.node({ x: gx, y: top, z: z - 5, r: 1 });
   B.node({ x: gx, y: top, z: z + 5, r: 1.2 });
 }
+// a full-width wall with one gap that slides from side to side: the panels slide into housings at the track edges,
+// it's too tall to jump, so you have to line up with the gap as it passes
+function slideWall(B, z, top, hw, o = {}) {
+  const g = o.gap ?? 1.05, a = hw - 1.4, L = (a + hw) / 2 + 0.4, w = o.w ?? B.rng.range(0.9, 1.25), ph = o.ph ?? B.rng.range(0, TAU);
+  const anim = () => ({ k: 'slide', v: [a, 0, 0], w, ph });
+  const P = { look: o.look || 'slidewall', noHang: true, noStand: true, hit: 0.5, kmax: 6.5, gapWall: true };
+  const left = B.add(box(-g - L, top + 1.15, z, L, 1.15, 0.6, { ...P, anim: anim() }));
+  B.add(box(g + L, top + 1.15, z, L, 1.15, 0.6, { ...P, anim: anim() }));
+  const far = a + g + 2 * L + 0.3;
+  for (const sd of [-1, 1]) B.add(box(sd * (hw + 0.2 + (far - hw - 0.2) / 2), top + 1.35, z, (far - hw - 0.2) / 2, 1.35, 0.95, { look: 'housing', noHang: true }));
+  B.node({ slideGap: left.idx, off: g + L, hw, y: top, z });
+}
 function lava(B, x0, x1, z0, z1, floor, p) { B.lavas.push({ x0, x1, z0, z1, y0: floor - 0.7, amp: 1.9, p, ph: B.rng.range(0, 1), floor }); return B.lavas.length - 1; }
 const lane = (B, zs, y, w = 0.3, r = 0.9) => { for (const z of zs) B.node({ x: 0, y, z, w, r }); };
 const r2 = (B, a, b) => B.rng.range(a, b);
@@ -106,7 +126,7 @@ export const MAPS = {
     plat(B, 0, 0, 13, 2.8, 7, 'temple');
     for (let k = 0; k < 4; k++) spikes(B, 0, 0, 8.6 + k * 3.2, 2.8, 0.55, 2.0, 0.45, k * 0.24);
     lane(B, [7, 9.8, 13, 16.2, 19.4], 0, 0.2);
-    plat(B, 0, 0, 22.5, 3, 2.5, 'temple');
+    mark(B, plat(B, 0, 0, 22.5, 3, 2.5, 'temple'), 23.4, 0.8);
     for (let i = 0; i < 5; i++) {
       const zz = 27.8 + i * 4.3, x = (i % 2 ? -1 : 1) * 1.3;
       const s = plat(B, x, 0, zz, 1.6, 1.45, 'temple');
@@ -122,7 +142,7 @@ export const MAPS = {
     piston(B, 1, 5.15, 0, 64.5, 2.4, r2(B, 0.45, 0.6));
     B.node({ alts: [-3.3, 3.3], y: 0, z: 55.6, r: 1 });
     for (const zz of [58, 61.5, 65, 68.5, 72, 74.6]) B.node({ lane: true, y: 0, z: zz, r: 0.8 });
-    plat(B, 0, 0, 77, 6, 3, 'temple');
+    mark(B, plat(B, 0, 0, 77, 6, 3, 'temple'), 78.4, 1);
     plat(B, 0, 0, 90, 6, 10, 'temple');
     balls(B, [-3.6, 0, 3.6], 0, 104, 76, 8.5, 1.15);
     lane(B, [82, 86, 90, 94, 98], 0, 3, 1.4);
@@ -134,7 +154,7 @@ export const MAPS = {
       if (k === 3) sweeper(B, 0, top, z0 + 3.4, 4.4, r2(B, 1.7, 2.1), { post: true });
       B.node({ x: 0, y: top, z: z0 + 2.2, w: 3, r: 1.5 });
     }
-    plat(B, 0, 5.6, 131, 7.2, 6, 'temple');
+    mark(B, plat(B, 0, 5.6, 131, 7.2, 6, 'temple'), 126.6, 1.2);
     B.node({ x: 0, y: 5.6, z: 126, w: 3 });
     doorRow(B, 129, 5.6, 2);
     finish(B, 0, 5.6, 137);
@@ -150,7 +170,7 @@ export const MAPS = {
     const L1 = lava(B, -5, 5, 8.4, 30.8, -1.2, r2(B, 3.6, 4.2));
     B.node({ x: 0, y: 0, z: 7.2, w: 2 });
     for (const [x, zz] of [[2.6, 13.5], [-2.6, 20.5], [2.2, 27]]) { const rk = plat(B, x, 0.2, zz, 1.15, 1.05, 'rock'); B.node({ sid: rk.idx, y: 0.2, center: true, rock: L1 }); }
-    plat(B, 0, 0, 32, 5, 1.2, 'basalt');
+    mark(B, plat(B, 0, 0, 32, 5, 1.2, 'basalt'), 32.7, 0.3);
     B.node({ x: 0, y: 0, z: 32, w: 3, rock: L1, exitLava: true });
     plat(B, 0, 0, 44.5, 1.7, 11.3, 'basalt');
     sweeper(B, 0, 0, 39, 3.4, r2(B, 2.1, 2.5)); sweeper(B, 0, 0, 49, 3.4, -r2(B, 2.3, 2.7));
@@ -158,7 +178,7 @@ export const MAPS = {
     cp(B, 0, 0, 58.5, 3, 2.7);
     B.node({ x: 0, y: 0, z: 60.5, w: 0.8 });
     for (let i = 0; i < 5; i++) { const m = mover(B, 0, 0, 64.0 + i * 5.0, 1.7, 1.6, [r2(B, 2.6, 3.2), 0, 0], r2(B, 1.0, 1.25), 'rock'); B.node({ sid: m.idx, leap: true, y: 0 }); }
-    plat(B, 0, 0, 90.5, 3, 2, 'basalt');
+    mark(B, plat(B, 0, 0, 90.5, 3, 2, 'basalt'), 91.2, 0.6);
     B.node({ x: 0, y: 0, z: 91, w: 1.5, leap: true });
     plat(B, 0, -1.2, 105.5, 5, 13, 'basalt');
     const L2 = lava(B, -5, 5, 93, 116, -1.2, r2(B, 3.3, 3.8));
@@ -191,12 +211,13 @@ export const MAPS = {
       const d = spinDisc(B, x, 0, zz, 3.2, (i % 2 ? -1 : 1) * r2(B, 0.7, 0.9), 'disc');
       B.node({ x, y: 0, z: zz, sid: d.idx, leap: true, r: 1.6, center: true });
     });
-    plat(B, 0, 0, 84, 3.5, 2, 'floor');
+    mark(B, plat(B, 0, 0, 84, 3.5, 2, 'snow'), 84.8, 0.6);
     B.node({ x: 0, y: 0, z: 84, w: 1.5, leap: true });
     plat(B, 0, 0, 97, 4.5, 11, 'snow');
-    for (const zz of [90, 98, 105]) pusher(B, 0, 0, zz, 4.2, r2(B, 1.5, 1.9), 1.5);
-    cannon(B, 1, 4, 0, 94, r2(B, 10, 11)); cannon(B, -1, 4, 0, 101.5, r2(B, 10, 11));
-    lane(B, [88, 92, 96, 99.5, 103, 107], 0, 2, 1.3);
+    lane(B, [88], 0, 2, 1.3);
+    for (const zz of [90.5, 97.5, 104.5]) slideWall(B, zz, 0, 4.5, { look: 'icewall' });
+    cannon(B, 1, 4.5, 0, 93.2, r2(B, 9, 10)); cannon(B, -1, 4.5, 0, 100.4, r2(B, 9, 10));
+    lane(B, [107], 0, 2, 1.3);
     cp(B, 0, 0, 110.5, 4, 2.5);
     for (let k = 1; k <= 3; k++) { const top = 1.4 * k, z0 = 113 + (k - 1) * 6; B.add(box(0, top / 2 - 0.5, z0 + 3, 5, top / 2 + 0.5, 3, { look: 'terrace', step: k, ice: true })); B.node({ x: 0, y: top, z: z0 + 1.8, w: 3, r: 1.5 }); B.node({ x: 0, y: top, z: z0 + 5, w: 3, r: 1.5 }); }
     plat(B, 0, 4.2, 135, 5, 4, 'ice', { ice: true });
@@ -217,7 +238,7 @@ export const MAPS = {
       B.add(cyl(x, 0.6, zz, 0.45, 0.6, { look: 'post', noStand: true, anim: { k: 'spin', w: 0 } }));
       B.node({ x, y: 0, z: zz, sid: d.idx, leap: true, r: 1.6, center: true });
     });
-    plat(B, 0, 0, 58.2, 4.2, 2.0, 'floor');
+    mark(B, plat(B, 0, 0, 58.2, 4.2, 2.0, 'floor'), 58.9, 0.6);
     B.node({ x: 0, y: 0, z: 58.4, w: 2.5, leap: true });
     belt(B, 0, 0, 73, 5.2, 13, -2.0);
     balls(B, [-3.4, 0, 3.4], 0, 90, 61.5, 8.5, 1.0);
@@ -245,7 +266,7 @@ export const MAPS = {
     start(B);
     B.node({ x: 0, y: 0, z: 5.4, w: 1 });
     [[1.8, 9], [-1.8, 15.6], [1.8, 22.2], [-1.8, 28.8]].forEach(([x, zz]) => { const p = pad(B, x, 0, zz, 2.1, 14.6); B.node({ padAlts: [p.idx], y: 0, z: zz, r: 1.2 }); });
-    plat(B, 0, 0, 37.4, 3.2, 3.9, 'floor');
+    mark(B, plat(B, 0, 0, 37.4, 3.2, 3.9, 'floor'), 39.6, 0.8);
     B.node({ x: 0, y: 0, z: 38.8, w: 1.5, leap: true });
     plat(B, 0, 0, 52.5, 1.5, 11.3, 'bridge');
     wind(B, -5, 5, 42, 49, 0, r2(B, 4.6, 5.4)); wind(B, -5, 5, 49.5, 56.5, 0, -r2(B, 4.6, 5.4)); wind(B, -5, 5, 57, 63.5, 0, r2(B, 4.6, 5.4));
@@ -257,7 +278,7 @@ export const MAPS = {
       for (const x of [-1.8, 1.8]) row.push(blinker(B, x, 0, zz, 1.5, 1.5, 3.0, 0.64, k * 0.21 + (x > 0 ? 0.45 : 0)).idx);
       B.node({ sidAlts: row, leap: true, y: 0 });
     }
-    plat(B, 0, 0, 94.5, 3, 2.5, 'floor');
+    mark(B, plat(B, 0, 0, 94.5, 3, 2.5, 'floor'), 95.6, 0.6);
     B.node({ x: 0, y: 0, z: 94.5, w: 1.5, leap: true });
     [[1.2, 100.5], [-1.2, 106.3], [1.2, 112.1], [-1.2, 117.9]].forEach(([x, zz], i) => {
       const d = B.add(cyl(x, -0.5, zz, 2.1, 0.5, { look: 'clock' }));
@@ -286,7 +307,7 @@ export const MAPS = {
       if (i === 1) sweeper(B, x, 0, zz, 1.4, (i % 2 ? -1 : 1) * r2(B, 0.6, 0.8), { ox: 1.5, h: 1.75 });
       B.node({ x, y: 0, z: zz, sid: d.idx, leap: true, r: 1.5, center: true });
     });
-    plat(B, 0, 0, 34, 7.25, 4.1, 'floor');
+    mark(B, plat(B, 0, 0, 34, 7.25, 4.1, 'floor'), 36.4, 0.6);
     B.node({ x: 0, y: 0, z: 32, w: 3, leap: true });
     plat(B, 0, 0, 49, 7.25, 11, 'floor');
     gateRow(B, 40, 0); hammer(B, 0, 0, 44.5, { dir: [1, 0], w: r2(B, 1.8, 2.2), amp: 0.9 }); gateRow(B, 49, 0); hammer(B, 0, 0, 53.5, { dir: [1, 0], w: r2(B, 1.8, 2.2), amp: 0.9 }); gateRow(B, 58, 0);
@@ -294,7 +315,7 @@ export const MAPS = {
     plat(B, 0, 0, 77, 1.35, 12, 'bridge');
     for (const zz of [69, 74.5, 80, 85.5]) hammer(B, 0, 0, zz, { w: r2(B, 2.2, 2.7), amp: 0.75 });
     lane(B, [66.5, 71.8, 77.2, 82.8, 88.2], 0, 0.1, 0.8);
-    plat(B, 0, 0, 104, 3.6, 15, 'floor');
+    mark(B, plat(B, 0, 0, 104, 3.6, 15, 'floor'), 91.2, 0.5);
     for (const s of [-1, 1]) B.add(box(s * 3.9, 0.6, 104, 0.3, 0.6, 15, { look: 'rail', noHang: true }));
     turnstile(B, -1.6, 0, 95, r2(B, 1.2, 1.6)); turnstile(B, 1.6, 0, 101, -r2(B, 1.2, 1.6)); turnstile(B, -1.6, 0, 107, r2(B, 1.2, 1.6)); turnstile(B, 1.6, 0, 113, -r2(B, 1.2, 1.6));
     lane(B, [92, 98, 104, 110, 116, 118.5], 0, 1.2, 1.3);
@@ -327,9 +348,11 @@ export const MAPS = {
       if (i % 2 === 0) hammer(B, mx, 0, mz, { dir: [Math.cos(a), -Math.sin(a)], w: r2(B, 2.0, 2.4), amp: 0.6 });
       B.node({ x: pts[i + 1][0], y: 0, z: pts[i + 1][1], r: 0.9, exact: true });
     }
-    for (const [x, hw, v] of [[-4.6, 2.4, 0], [0, 2.2, -3.8], [4.6, 2.4, 0]]) B.add(slab(x, 0, 104, hw, 14, v ? { belt: [0, v], look: 'belt' } : { look: 'floor' }));
-    [95, 101.5, 108, 114].forEach((dz, i) => B.add(box(0, 1.1, dz, 2.3, 1.1, 1.3, { anim: { k: 'slide', v: [4.6 * (i % 2 ? 1 : -1), 0, 0], w: r2(B, 1.15, 1.5), ph: r2(B, 0, TAU) }, hit: 0.8, kmax: 10, look: 'swingblock', noHang: true })));
-    lane(B, [92, 95.5, 98.5, 102, 105, 108.5, 111.5, 115, 117.5], 0, 4.5, 1.4);
+    for (const [x, hw, v] of [[-4.6, 2.4, 0], [0, 2.2, -3.8], [4.6, 2.4, 0]]) B.add(slab(x, 0, 105, hw, 13, v ? { belt: [0, v], look: 'belt' } : { look: 'floor' }));
+    mark(B, plat(B, 0, 0, 90.5, 3.4, 1.5, 'floor'), 91.4, 0.3);
+    lane(B, [93], 0, 3, 1.4);
+    for (const dz of [96, 102.5, 109, 115.5]) slideWall(B, dz, 0, 7);
+    lane(B, [117.5], 0, 3, 1.4);
     cp(B, 0, 0, 120.5, 3.5, 2.5);
     B.node({ x: 0, y: 0, z: 122.2, w: 0.8 });
     for (let i = 0; i < 5; i++) { const m = mover(B, 0, 0, 125.6 + i * 5.1, 1.7, 1.5, [r2(B, 3.4, 4.4), 0, 0], r2(B, 1.1, 1.4), 'rock'); B.node({ sid: m.idx, leap: true, y: 0 }); }
