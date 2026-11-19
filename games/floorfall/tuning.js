@@ -9,6 +9,8 @@ tunable('floorfall', [
     ACC:     { value: 62,   label: 'Ground acceleration', min: 15, max: 150 },
     AIR_ACC: { value: 20,   label: 'Air control', min: 0, max: 80 },
     JUMP:    { value: 8.4,  label: 'Jump power', min: 4, max: 14 },
+    DJUMP:   { value: 7.4,  label: 'Double jump power', hint: 'Space again in the air', min: 0, max: 14 },
+    DIVE_V:  { value: 19,   label: 'Dive speed', hint: 'E in the air', min: 6, max: 30 },
     G:       { value: 25,   label: 'Gravity', min: 10, max: 50 },
     COYOTE:  { value: 0.2, label: 'Coyote time (s)', hint: 'jump still works this long after a tile drops', min: 0, max: 0.35 },
   } },
