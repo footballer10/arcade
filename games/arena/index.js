@@ -384,6 +384,7 @@ export async function start(ctx) {
     if (!mine || mine.char === key) return;
     mine.char = key;   // optimistic; the host confirms (or the Shuffle mutator may override next round)
     net.toHost({ t: 'pickChar', c: key });
+    for (const b of boardEl.querySelectorAll('.charbtn')) b.classList.toggle('sel', b.dataset.c === key);
   }
   ctx.listen(boardEl, 'click', (e) => { const b = e.target.closest('.charbtn'); if (b) pickChar(b.dataset.c); });
   function charRow(v) {
@@ -401,11 +402,21 @@ export async function start(ctx) {
       return `<tr class="${win ? 'win' : ''}"><td><span class="ph-dot" style="background:${cssColor(p.color)}"></span></td><td>${esc(p.name)}${p.id === myId ? ' (you)' : ''}${p.isBot ? ' 🤖' : ''}</td><td>${CHARS[lobby.find((q) => q.id === p.id)?.char || p.char]?.name || ''}</td><td>${pips}</td><td>${p.kills}</td></tr>`;
     }).join('');
   }
+  // The board's standings/char-picker are rebuilt only when what they show actually changes (new round, new
+  // winner): rebuilding every frame would tear out and replace the .charbtn elements mid-click, which silently
+  // swallows real mouse clicks (mousedown lands on one node, mouseup on its freshly-rebuilt replacement, so no
+  // 'click' ever fires). Only the "Next round in Xs" countdown is cheap-and-safe to update every frame.
+  let boardKey = null, boardSub = null;
   function renderBoard(v) {
     const isMatch = v.phase === 'matchEnd';
-    const title = isMatch ? `🏆 ${nameOf(v.matchWinner)} WINS THE MATCH!` : v.roundWinner ? `${nameOf(v.roundWinner)} wins round ${v.round}` : `Round ${v.round}: draw`;
-    const html = `<h2 style="color:var(--yellow)">${esc(title)}</h2><table><tr><th></th><th>Player</th><th>Class</th><th>Rounds</th><th>KOs</th></tr>${boardRows(v, isMatch)}</table>${isMatch ? '' : charRow(v)}<div class="ph-sub">${isMatch ? 'Final results coming up…' : `Next round in ${Math.max(0, Math.ceil(v.phaseT))}s`}</div>`;
-    if (boardEl.innerHTML !== html) boardEl.innerHTML = html;
+    const key = `${v.phase}:${v.round}:${v.roundWinner}:${v.matchWinner}`;
+    if (key !== boardKey) {
+      boardKey = key;
+      const title = isMatch ? `🏆 ${nameOf(v.matchWinner)} WINS THE MATCH!` : v.roundWinner ? `${nameOf(v.roundWinner)} wins round ${v.round}` : `Round ${v.round}: draw`;
+      boardEl.innerHTML = `<h2 style="color:var(--yellow)">${esc(title)}</h2><table><tr><th></th><th>Player</th><th>Class</th><th>Rounds</th><th>KOs</th></tr>${boardRows(v, isMatch)}</table>${isMatch ? '' : charRow(v)}<div class="ph-sub"></div>`;
+      boardSub = boardEl.querySelector(':scope > .ph-sub');
+    }
+    if (boardSub) boardSub.textContent = isMatch ? 'Final results coming up…' : `Next round in ${Math.max(0, Math.ceil(v.phaseT))}s`;
   }
   ui.setScoreboard(() => { const v = lastView || latest?.s; return v ? `<table class="ph-table"><tr><th></th><th>Player</th><th>Class</th><th>Rounds</th><th>KOs</th></tr>${boardRows(v, false)}</table>` : ''; });
 
