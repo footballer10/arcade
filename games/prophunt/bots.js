@@ -10,6 +10,7 @@
 // more careful after a wrong bonk. Perception noise, patience and reaction time come from ctx.bots.level.
 import { KINDS } from './props.js';
 import { navPath, lineOfSight, roomAt, kindBox, rayBox } from './level.js';
+import { findPath } from './nav.js';
 import { R, pickTarget } from './sim.js';
 
 const TAU = Math.PI * 2;
@@ -22,15 +23,24 @@ export function walkable(L, x, z, r = 0.4) {
   return true;
 }
 
-class Walker {
+// a route around furniture (grid A*); falls back to the old room-to-room waypoints if no grid route exists
+function routeTo(L, x, z, tx, tz) { return findPath(L, x, z, tx, tz) || navPath(L, x, z, tx, tz); }
+// route to a goal; a spot we must stand on exactly (needY) gets the planned route up to its edge and then a straight final hop
+function planPath(L, px, pz, g) {
+  const r = g.needY && Math.hypot(g.x - px, g.z - pz) < 2.2 ? null : routeTo(L, px, pz, g.x, g.z);
+  if (!g.needY) return r;
+  return r && r.length ? [...r.slice(0, -1), [g.x, g.z]] : [[g.x, g.z]];
+}
+
+export class Walker {
   constructor() { this.path = []; this.goal = null; this.stuck = 0; this.side = 0; this.age = 0; this.best = Infinity; this.noGain = 0; }
   // needY: the goal is a raised spot (hider slots) the body must actually stand on
-  to(p, L, x, z, y = 0, needY = false) { this.L = L; this.goal = { x, z, y, needY }; this.reached = false; this.path = navPath(L, p.x, p.z, x, z); this.stuck = 0; this.age = 0; this.best = Infinity; this.noGain = 0; }
+  to(p, L, x, z, y = 0, needY = false) { this.L = L; this.goal = { x, z, y, needY }; this.reached = false; this.path = planPath(L, p.x, p.z, this.goal); this.stuck = 0; this.age = 0; this.best = Infinity; this.noGain = 0; }
   // returns movement intent toward the goal (null when there or when giving up)
   step(p, dt, rnd) {
     if (!this.goal) return null;
     this.age += dt;
-    while (this.path.length > 1 && Math.hypot(this.path[0][0] - p.x, this.path[0][1] - p.z) < 0.6) this.path.shift();
+    while (this.path.length > 1 && Math.hypot(this.path[0][0] - p.x, this.path[0][1] - p.z) < 0.3) this.path.shift();   // really get to each corner/doorway before turning
     const [tx, tz] = this.path[0] || [this.goal.x, this.goal.z];
     const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz);
     const last = this.path.length <= 1;
@@ -50,9 +60,9 @@ class Walker {
     this.stuck = sp < 0.5 ? this.stuck + dt : Math.max(0, this.stuck - dt * 2);
     let jump = false;
     if (this.stuck > 0.35 && d > 0.3) { jump = true; if (this.stuck > 0.9) { this.side = this.side || (rnd() < 0.5 ? -1 : 1); mx += -dz / (d || 1) * this.side * 1.2; mz += dx / (d || 1) * this.side * 1.2; } }
-    if (this.stuck > 2.5) { this.stuck = 0; this.side = -this.side; this.path = navPath(this.L, p.x, p.z, g.x, g.z); }
+    if (this.stuck > 1.4) { this.stuck = 0; this.side = -this.side; this.path = planPath(this.L, p.x, p.z, g); }   // re-plan from where we really are
     // steer around furniture: if the straight line is blocked, take the nearest clear heading (keeping to one side)
-    if (!g.needY && !(last && d < 1.2)) {
+    if (!g.needY && !(last && d < 1.2) && this.stuck > 0.6) {     // the planned route already avoids furniture; steer locally only when truly stuck
       const L = this.L, clear = (ax, az) => walkable(L, p.x + ax * 0.55, p.z + az * 0.55, 0.36) && walkable(L, p.x + ax * 1.1, p.z + az * 1.1, 0.36);
       const l0 = Math.hypot(mx, mz) || 1; let ux = mx / l0, uz = mz / l0;
       if (!clear(ux, uz)) {
@@ -73,7 +83,7 @@ class Walker {
 export function makeBrain(id, sim, level, Brain) {
   const B = new Brain(level);
   const rnd = Math.random;
-  const st = { mode: 'start', walker: new Walker(), slot: null, kind: -1, rot: 0, panicT: 0, nextTaunt: 2 + rnd() * 9, bold: rnd(), look: 0, seen: new Map(), visited: new Set(), cycles: 0, target: null, aimT: 0, rechecked: false, thr: 1.5, checked: new Set(), sniffHint: null, sniffT: -99, inspect: [], curScore: 0, approach: null, chaseT: 0, pause: 0, sweep: 1, glanceT: 0, glance: null, coolT: 0, lastHp: 100, cue: 0 };
+  const st = { mode: 'start', walker: new Walker(), slot: null, kind: -1, rot: 0, panicT: 0, nextTaunt: 2 + rnd() * 9, bold: rnd(), look: 0, seen: new Map(), visited: new Set(), cycles: 0, target: null, aimT: 0, rechecked: false, thr: 1.5, checked: new Set(), sniffHint: null, sniffT: -99, inspect: [], fled: 0, curScore: 0, approach: null, chaseT: 0, pause: 0, sweep: 1, glanceT: 0, glance: null, coolT: 0, lastHp: 100, cue: 0, cueH: null, cueUsed: new Map() };
   const lv = level;
   const noise = { easy: 1.05, normal: 0.8, hard: 0.5 }[lv.key] ?? 0.8;
   const sharp = 0.35 + 0.65 * lv.skill;   // how well tells are noticed
@@ -183,7 +193,8 @@ export function makeBrain(id, sim, level, Brain) {
       if (nearS && near < 2.3 && me.locked) {
         const facing = Math.cos(angDiff(Math.atan2(me.x - nearS.x, me.z - nearS.z), nearS.yaw)) > 0.85;
         st.panicT += dt;
-        if (facing && st.panicT > 1.2 && rnd() < dt * (0.25 + (1 - lv.skill) * 0.6)) {
+        if (facing && st.panicT > 1.2 && st.fled < 1 && rnd() < dt * (0.03 + (1 - lv.skill) * 0.12)) {   // props are slow: bolting is a last resort, once per round
+          st.fled++;
           it.acts.push({ a: 'lock', v: false });
           brain.claim = null; if (chooseSpot(true)) st.mode = 'flee';
         }
@@ -227,9 +238,9 @@ export function makeBrain(id, sim, level, Brain) {
       else if (!q.locked && c.d < 5) s += 1.4 * lv.skill;          // wobbling
     } else if (dupNear(L, c.dc.k, c.dc.x, c.dc.y, c.dc.z, c.dc.i)) s += 0.9 * sharp * vis;
     // a taunt heard nearby makes everything around that spot worth a look (the radius is fuzzier for weaker bots)
-    let cue = 0;
-    for (const h of sim.heard || []) if (sim.t - h.t < 20) { const err = 3.4 - lv.skill * 2.2, dd = Math.hypot(h.x - c.x, h.z - c.z); if (dd < err) cue = Math.max(cue, 1.55 * (1 - (sim.t - h.t) / 24) * (1 - 0.4 * dd / err)); }
-    st.cue = cue;
+    let cue = 0, cueH = null;
+    for (const h of sim.heard || []) if (sim.t - h.t < 20 && (st.cueUsed.get(h.t) || 0) < 4) { /* after ~4 checks around one taunt, a person moves on */ const err = 5.2 - lv.skill * 1.9, dd = Math.hypot(h.x - c.x, h.z - c.z); if (dd < err) { const v = (0.8 + 0.75 * lv.skill) * (1 - (sim.t - h.t) / 24) * (1 - 0.6 * dd / err); /* good players use what they hear better */ if (v > cue) { cue = v; cueH = h.t; } } }
+    st.cue = cue; st.cueH = cueH;
     return s + cue;
   }
   function seeker(dt) {
@@ -251,6 +262,7 @@ export function makeBrain(id, sim, level, Brain) {
       // approach threshold: starts careful, relaxes as time runs out and after sweeping the whole map, tightens after getting hurt
       let thr = 1.35 + (lv.key === 'easy' ? 0.4 : 0) + (1 - hpFrac) * 1.4 - elapsed * 0.8 - st.cycles * 0.2 - (sim.pt < 30 ? 0.5 : 0) + (lv.key === 'hard' ? 0.15 : 0);
       if (hpFrac <= R.WRONG / R.HP + 0.01) thr += 3;
+      else if (hpFrac <= 0.4) thr += 0.5;      // hurting: only follow strong leads
       st.thr = thr;
       let best = null, bs = -Infinity, bv = -Infinity;
       for (const c of candidates(me, eye)) { const sc = suspicion(c); const v = sc - c.d * 0.06; if (v > bv) { bv = v; bs = sc; best = c; } }   // among equals check the nearest first
@@ -281,7 +293,7 @@ export function makeBrain(id, sim, level, Brain) {
             st.walker.to(me, L, r.x, r.z);
             const near = L.slots.filter((sl) => sl.room === r.i && Math.hypot(sl.x - r.x, sl.z - r.z) > 1.5);
             st.inspect = [];
-            for (let i = 0; i < 2 + Math.floor(rnd() * 2) && near.length; i++) {
+            for (let i = 0; i < 3 + Math.floor(rnd() * 3) && near.length; i++) {
               const sl = near.splice(Math.floor(rnd() * near.length), 1)[0];
               // stand ~1.3 m in front of the spot, toward the room center
               const vx = r.x - sl.x, vz = r.z - sl.z, l = Math.hypot(vx, vz) || 1, px = sl.x + vx / l * 1.3, pz = sl.z + vz / l * 1.3;
@@ -309,7 +321,7 @@ export function makeBrain(id, sim, level, Brain) {
             if (!walkable(L, px, pz) || !lineOfSight(L, [px, 1.45, pz], [tx, ty, tz])) continue; const dd = Math.hypot(px - me.x, pz - me.z); if (dd < bd) { bd = dd; bestP = [px, pz]; } }
           const ap = bestP || [tx, tz]; st.approach = [ap[0], ap[1], tx, tz]; st.walker.to(me, L, ap[0], ap[1]);
         }
-        const m = st.walker.step(me, dt, rnd); if (m) { it.mx = m.mx; it.mz = m.mz; it.jump = m.jump; it.sprint = t.q?.moving > 0 || st.chaseT > 2; }
+        const m = st.walker.step(me, dt, rnd); if (m) { it.mx = m.mx; it.mz = m.mz; it.jump = m.jump; it.sprint = t.q?.moving > 0 || (sim.pt < 25 && st.chaseT > 2); }   // sprint only after a moving prop, or when time is nearly up
         // can't get there: let it go for now (a person would give up and look elsewhere)
         if (st.chaseT > 9) { st.checked.add(t.key); st.target = null; st.approach = null; st.walker.goal = null; }
       } else {
@@ -327,6 +339,7 @@ export function makeBrain(id, sim, level, Brain) {
           const dir = [Math.sin(yw) * Math.cos(pt), Math.sin(pt), Math.cos(yw) * Math.cos(pt)];
           const pk = pickTarget(L, [...sim.players.values()], eye, dir, R.REACH, id);
           it.acts.push({ a: 'tag', o: eye, d: dir, tg: pk.tg });
+          if (st.cue > 0.7 && st.cueH != null) st.cueUsed.set(st.cueH, (st.cueUsed.get(st.cueH) || 0) + 1);   // one more check spent on that taunt
           if (pk.tg && pk.tg !== t.key && pk.tg.startsWith('d:')) st.checked.add(pk.tg);    // bonked the wrong thing: now we know it's real
           if (pk.tg === t.key || st.aimT > 3) { st.checked.add(t.key); st.target = null; }
         }
@@ -336,7 +349,7 @@ export function makeBrain(id, sim, level, Brain) {
     const m = st.walker.step(me, dt, rnd);
     st.look += dt;
     if (m) {
-      st.pause = 0.5 + rnd() * 0.9; st.sweep = rnd() < 0.5 ? -1 : 1;
+      st.pause = 1.2 + rnd() * 1.8; st.sweep = rnd() < 0.5 ? -1 : 1;
       it.mx = m.mx; it.mz = m.mz; it.jump = m.jump;
       // glance at things on the way (head turns toward a random nearby object every so often)
       st.glanceT -= dt;

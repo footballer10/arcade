@@ -416,10 +416,10 @@ export function createView(ctx) {
       const key = 'bub' + icon;
       if (!TEX[key]) { TEX[key] = spriteTex((g, S) => bubbleDraw(g, S, icon), 128); own.add(TEX[key]); }
       spawn(key, x, y + (o.h ?? 1.5) + 0.65, z, { vy: 0.3, life: o.big ? 2.4 : 1.8, size: 0.3, size1: o.big ? 1.6 : 1.2, rot: 0, pop: true, depthTest: false });
-      for (let i = 0; i < (o.big ? 4 : 3); i++) {
+      for (let i = 0; i < (o.big || o.area ? 4 : 3); i++) {
         let r = rings.find((q) => !q.mesh.visible);
         if (!r) { if (rings.length > 18) break; const m = new THREE.Mesh(ringGeo, M(new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }))); m.rotation.x = -Math.PI / 2; m.renderOrder = 3; scene.add(m); r = { mesh: m, t: 0, delay: 0, big: false }; rings.push(r); }
-        r.mesh.material.color.setHex(i === 0 ? 0xffffff : color); r.mesh.position.set(x, y + 0.05 + i * 0.01, z); r.t = -i * 0.22; r.big = !!o.big; r.mesh.visible = true; r.mesh.scale.setScalar(0.01);
+        r.mesh.material.color.setHex(i === 0 ? 0xffffff : color); r.mesh.position.set(x, y + 0.05 + i * 0.01, z); r.t = -i * 0.22; r.big = !!o.big; r.area = !!o.area; r.mesh.visible = true; r.mesh.scale.setScalar(0.01);
       }
     },
     tauntHat(id) { const B = bodies.get(id); if (B) B.hatT = 1.3; },
@@ -566,9 +566,9 @@ export function createView(ctx) {
     for (const r of rings) {
       if (!r.mesh.visible) continue; r.t += dt;
       if (r.t < 0) { r.mesh.scale.setScalar(0.01); continue; }
-      const D = r.big ? 1.5 : 1.1, f = r.t / D;
+      const D = r.area ? 2.0 : r.big ? 1.5 : 1.1, f = r.t / D;
       if (f >= 1) { r.mesh.visible = false; continue; }
-      r.mesh.scale.setScalar(0.3 + f * (r.big ? 8 : 6)); r.mesh.material.opacity = (1 - f) * 0.85;
+      r.mesh.scale.setScalar(0.3 + f * (r.area ? 11 : r.big ? 8 : 6)); r.mesh.material.opacity = (1 - f) * (r.area ? 0.55 : 0.85);
     }
     fovKick = Math.max(0, fovKick - dt * 2.5); flash = Math.max(0, flash - dt * 3);
     for (let i = flyers.length - 1; i >= 0; i--) { const f2 = flyers[i]; f2.t += dt; f2.vy -= 14 * dt; f2.g.position.x += f2.vx * dt; f2.g.position.y += f2.vy * dt; f2.g.position.z += f2.vz * dt; f2.g.rotation.x += f2.spin * dt; f2.g.rotation.z += f2.spin * 0.7 * dt; f2.g.scale.setScalar(Math.max(0.01, 1 - Math.max(0, f2.t - 0.8) * 2)); if (f2.t > 1.3) { f2.g.removeFromParent(); flyers.splice(i, 1); if (Math.random() < 1) fx.poof(f2.g.position.x, f2.g.position.y - 0.3, f2.g.position.z, 0xffffff, 6); } }

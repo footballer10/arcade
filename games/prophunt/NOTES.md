@@ -140,3 +140,19 @@ play the host's own player. `__prophunt.stats` counts snapshots, finds and taunt
   shimmer) and widens to the whole building during the intro fly-over.
 - **Atmosphere (High):** sunbeams through the windows, a warm point light that follows the camera's room, sharper
   512 px floor textures with stronger anisotropy, one-sided ceiling lamp plates (no more white discs seen from above).
+
+## Update 5: real pathfinding, calmer bots, vaguer taunts
+- **Pathfinding (`nav.js`):** bots used to walk straight lines between room centres and only steer locally, so a table
+  between them and their goal left them standing against it. Each level's walls and furniture are now rasterized into
+  a 0.4 m grid (with body clearance), bots plan an A* route around obstacles (string-pulled to a few corners), only
+  turn at a doorway/corner once they are really there, and re-plan from where they actually are when stuck. Hider bots
+  walk the planned route to the edge of a raised spot, then hop on. In a physics test of 480 random trips across all
+  three maps every bot arrives; seeker standing-still time fell from ~516 s to ~54 s over the same games.
+- **Less running around:** seekers linger (1-3 s looking around at each spot, 3-5 spots per room), sprint only after a
+  moving prop or in the last 25 s, and hider bots only bolt once per round, rarely (props are slow now). Seekers are
+  moving 56% of the time (was 73%) and hiders ~0%.
+- **Taunts reveal an area, not a spot:** everyone except the taunter sees the ring, bubble, notes, pointer and hears the
+  sound from a point 2-5 m away from the real one (the same point for all viewers); the hat only pops from your own
+  disguise. The seeker bots hear a point up to ~3 m off and check at most ~4 objects around each taunt.
+  Balance with this (30 games per level, 360 hiders): found 34% / 45% / 49% (easy / normal / hard), ~5-6 wrong bonks per
+  seeker per round, no one faints.

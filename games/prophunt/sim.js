@@ -178,12 +178,14 @@ export class HostSim {
     }
   }
   taunt(p, forced) {
-    p.lastTaunt = this.t; p.fz = R.FORCE_EVERY; (this.heard ||= []).push({ id: p.id, x: p.x, y: p.y, z: p.z, t: this.t }); if (this.heard.length > 12) this.heard.shift(); this.stats[p.id].taunts++;
+    // what the seekers (and their bots) HEAR is only the general area: a random point up to ~3 m from the real spot
+    const fa = Math.random() * Math.PI * 2, fr = 3.2 * Math.sqrt(Math.random());
+    p.lastTaunt = this.t; p.fz = R.FORCE_EVERY; (this.heard ||= []).push({ id: p.id, x: p.x + Math.cos(fa) * fr, y: p.y, z: p.z + Math.sin(fa) * fr, t: this.t }); if (this.heard.length > 12) this.heard.shift(); this.stats[p.id].taunts++;
     let near = Infinity; for (const q of this.players.values()) if (q.alive && q.role === 'S') near = Math.min(near, Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z));
     const daring = !forced && near <= R.DARING_R && this.phase === 'hunt';
     const pts = forced || this.phase !== 'hunt' ? 0 : R.TAUNT + (daring ? R.DARING : 0);
     this.add(p.id, pts);
-    this.cfg.ev('taunt', { id: p.id, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), pts: pts * this.mult, daring, forced });
+    this.cfg.ev('taunt', { id: p.id, n: this.stats[p.id].taunts, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), pts: pts * this.mult, daring, forced });
   }
   tag(p, a) {
     if (p.role !== 'S' || !p.alive || this.phase !== 'hunt') return;
