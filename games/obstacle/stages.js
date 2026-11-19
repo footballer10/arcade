@@ -2,42 +2,30 @@
 // Race stages are chains of obstacle modules joined by checkpoint pads (courses run along +z). Bots follow
 // the route nodes each module leaves behind. Survival stages and finals are hand-shaped arenas.
 import { solid } from './world.js';
+import { MAPS, buildMap } from './maps.js';
 
 export const STAGES = {
-  whirl: { name: 'Whirl Way', kind: 'race', icon: '🌀', desc: 'Spinning sweepers, swinging hammers and a gauntlet of surprises. Jump the low bars, dive under the high ones.', time: 150, mods: ['sweepers', 'hammers'] },
-  hop: { name: 'Gap Hop', kind: 'race', icon: '🦘', desc: 'Moving, blinking and spinning platforms over the slime. Time your jumps, dive to stretch them.', time: 150, mods: ['gaps', 'blinkers'] },
-  doors: { name: 'Door Dash', kind: 'race', icon: '🚪', desc: 'Fake doors, moving walls with holes and a mix of traps. Bonk!', time: 150, mods: ['doors', 'wallrush'] },
-  climb: { name: 'Conveyor Chaos', kind: 'race', icon: '🏭', desc: 'Pick the fast belt lane, dodge the punchers, then ride the lifts.', time: 150, mods: ['conveyor', 'rising'] },
-  rotor: { name: 'Rotor Rumble', kind: 'race', icon: '🎡', desc: 'Everything spins: turnstiles, spinning discs and cross-sweepers. Keep your balance!', time: 150, mods: ['turnstiles', 'discs'] },
-  bounce: { name: 'Bounce Castle', kind: 'race', icon: '🏰', desc: 'Bounce pads over castle walls, then wobbly zig-zag beams. Up, over and across!', time: 150, mods: ['bouncers', 'zigzag'] },
-  logs: { name: 'Log Jam', kind: 'race', icon: '🪵', desc: 'Hop the rolling logs, cross the stepping-stone islands and dodge the hammers.', time: 150, fixed: ['logroll', 'islands', 'hammers', 'logroll', 'zigzag'] },
-  gauntlet: { name: 'Grand Gauntlet', kind: 'race', icon: '⚔️', desc: 'Sweepers, a wall rush, lifts, turnstiles and bounce walls back to back. No mercy!', time: 170, fixed: ['sweepers', 'wallrush', 'rising', 'turnstiles', 'bouncers'] },
-  chute: { name: 'Fruit Chute', kind: 'race', icon: '🍉', desc: 'Giant balls roll down the chute at you! Dodge them, ride the belts and keep moving.', time: 170, fixed: ['ballrun', 'conveyor', 'pushers', 'ballrun', 'turnstiles', 'ballrun'] },
-  bigfans: { name: 'Big Fans', kind: 'race', icon: '🌬️', desc: 'Huge fans blast gusts across narrow bridges. Lean into the wind or get blown off!', time: 170, fixed: ['fans', 'gaps', 'fans', 'islands', 'fans', 'zigzag'] },
-  frost: { name: 'Freezy Peak', kind: 'race', icon: '🧊', desc: 'Slippery ice slaloms. You can\'t stop on a dime, so plan your turns.', time: 170, fixed: ['iceslide', 'hammers', 'iceslide', 'bouncers', 'iceslide', 'wallrush'] },
-  sky: { name: 'Sky High Run', kind: 'race', icon: '🚀', desc: 'Trampolines, lifts and vanishing platforms way up in the sky. Bounce, steer and don\'t look down!', time: 170, fixed: ['trampolines', 'rising', 'trampolines', 'blinkers', 'trampolines'] },
-  gate: { name: 'Gate Crash', kind: 'race', icon: '🚧', desc: 'Swinging gates open and slam shut on a timer. Pick the right gate and time your run!', time: 170, fixed: ['gatecrash', 'pushers', 'gatecrash', 'logroll', 'gatecrash'] },
+  ruins: { name: 'Temple of Doom', kind: 'race', icon: '🗿', desc: 'Spike causeways, axe-swept stepping stones, a split path, a boulder run and temple stairs to a wall of fake doors.', time: 180 },
+  volcano: { name: 'Volcano Escape', kind: 'race', icon: '🌋', desc: 'Lava floods the pits, logs spin over a basalt bridge and rocks drift across a lava sea. Climb out of the crater!', time: 180 },
+  frostbite: { name: 'Frostbite Peak', kind: 'race', icon: '🏔️', desc: 'Snowball cannons on sheer ice, zig-zag beams in a blizzard, spinning ice discs, and snowballs rolling down the peak.', time: 180 },
+  factory: { name: 'Candy Factory', kind: 'race', icon: '🍭', desc: 'Backwards conveyors and punchers, spinning gears, a candy chute, crushing walls and flashing floor tiles.', time: 180 },
+  skyislands: { name: 'Sky Islands', kind: 'race', icon: '☁️', desc: 'Trampolines over the clouds, a windy sky bridge, vanishing clouds, and hammers between floating islands.', time: 180 },
+  clockwork: { name: 'Clockwork Tower', kind: 'race', icon: '⏰', desc: 'Clock hands sweep the islands, gates slam on a timer, pendulums guard a narrow alley, and bars drop up and down.', time: 180 },
+  jungle: { name: 'Jungle River', kind: 'race', icon: '🌴', desc: 'Rolling logs, river stones, rope bridges with swinging logs, treadmill platforms and drifting rafts.', time: 180 },
   tiptoe: { name: 'Tip Toe', kind: 'race', icon: '🤫', desc: 'Only some tiles are safe, and fake ones drop as soon as you step on them. Remember the path!', time: 150 },
-  temple: { name: 'Lost Temple', kind: 'race', icon: '🗿', desc: 'Spike traps pop up in waves and axes swing over the gaps. Watch the rhythm, then go!', time: 170, fixed: ['spiketrail', 'axes', 'spiketrail', 'hammers', 'spikeplats'] },
-  lavarush: { name: 'Lava Rush', kind: 'race', icon: '🌋', desc: 'Lava floods the floor and drains again. Hop between the high rocks, then sprint when it drops!', time: 170, fixed: ['lavapools', 'sweepers', 'lavapools', 'gaps', 'lavapools'] },
-  overunder: { name: 'Over & Under', kind: 'race', icon: '↕️', desc: 'Bars slide up and down. Duck under when they rise, jump over when they drop.', time: 170, fixed: ['updown', 'turnstiles', 'updown', 'pushers', 'updown'] },
-  spingo: { name: 'Spin Go Round', kind: 'race', icon: '🌪️', desc: 'Speed pads, spinning hammers, spinning pads and one giant spinner at the end.', time: 170, fixed: ['speedhammers', 'spinpads', 'gaps', 'speedhammers', 'bigspin'] },
-  icy: { name: 'Icy Heights', kind: 'race', icon: '❄️', desc: 'Snowball cannons fire across slippery ice. Time your crossing or get bowled over!', time: 170, fixed: ['cannons', 'iceslide', 'cannons', 'pushers', 'cannons'] },
-  humble: { name: 'Humble Stumble', kind: 'race', icon: '🎪', desc: 'Trampolines, giant swinging platforms over treadmills, and clock-hand beams on round islands.', time: 170, fixed: ['trampolines', 'swingers', 'clocks', 'swingers', 'trampolines'] },
   blockdash: { name: 'Block Dash', kind: 'survival', icon: '🧱', desc: 'Walls of blocks sweep across the platform. Find the gap, jump the low ones, or get shoved off the end!', time: 75 },
   bombard: { name: 'Bombardment', kind: 'survival', icon: '💣', desc: 'Bombs rain down and blast holes in the floor. Watch the red circles and keep moving!', time: 75 },
   tiles: { name: 'Tile Drop', kind: 'survival', icon: '🟪', desc: 'Tiles drop after you step on them. Three floors, then the slime. Keep moving!', time: 75 },
   sweep: { name: 'Sweep Out', kind: 'survival', icon: '🧹', desc: 'Two giant arms that keep speeding up. Jump the low one, and don\'t jump into the high one!', time: 65 },
   bumpers: { name: 'Pinball Pit', kind: 'survival', icon: '🎱', desc: 'Giant bumpers sweep across the platform and a bar spins in the middle. Stay on!', time: 70 },
   dodge: { name: 'Dodge Dome', kind: 'survival', icon: '🛡️', desc: 'Walls sweep across the dome. Jump them or get swept off!', time: 70 },
-  sumo: { name: 'Sumo Slam', kind: 'final', icon: '🥋', desc: 'Shove your rivals off the shrinking ring. Dive into them and hold E to grab!', time: 110 },
   mountain: { name: 'Fall Mountain', kind: 'final', icon: '🏔️', desc: 'Race up the mountain past rolling balls, fans and trampolines, then climb to the crown!', time: 210, fixed: ['ballrun', 'fans', 'trampolines', 'turnstiles', 'summit'] },
   crown: { name: 'Crown Summit', kind: 'final', icon: '👑', desc: 'Fight through the course, climb the tower and grab the crown first!', time: 170 },
   last: { name: 'Bean Arena', kind: 'final', icon: '🏟️', desc: 'Last one standing on the spinning arena. The outer ring is falling away…', time: 100 },
 };
 // every obstacle section a race can draw from (each race = its 2 signature sections + 3 of these)
 export const POOL = ['sweepers', 'hammers', 'spinners', 'gaps', 'discs', 'rising', 'punchers', 'conveyor', 'doors2', 'bouncers', 'blinkers', 'pushers', 'wallrush', 'turnstiles', 'zigzag', 'logroll', 'islands', 'ballrun', 'fans', 'iceslide', 'trampolines', 'gatecrash', 'spiketrail', 'axes', 'lavapools', 'updown', 'speedhammers', 'spinpads', 'cannons', 'clocks', 'swingers'];
-export const RACES = ['whirl', 'hop', 'doors', 'climb', 'rotor', 'bounce', 'logs', 'gauntlet', 'chute', 'bigfans', 'frost', 'sky', 'gate', 'tiptoe', 'temple', 'lavarush', 'overunder', 'spingo', 'icy', 'humble'], SURVIVALS = ['tiles', 'sweep', 'bumpers', 'dodge', 'blockdash', 'bombard'], FINALS = ['crown', 'last', 'sumo', 'mountain'];
+export const RACES = ['ruins', 'volcano', 'frostbite', 'factory', 'skyislands', 'clockwork', 'jungle', 'tiptoe'], SURVIVALS = ['tiles', 'sweep', 'bumpers', 'dodge', 'blockdash', 'bombard'], FINALS = ['crown', 'last', 'mountain'];
 
 // ---------------------------------------------------------------- match plan + qualifying spots
 // opts: {rounds: '3'|'4', pool: 'all'|'races'|'survival', final: 'random'|'crown'|'last'}
@@ -68,12 +56,12 @@ export function quota(plan, k, n, N) {
 }
 
 // ---------------------------------------------------------------- building blocks
-const box = (x, y, z, hx, hy, hz, o = {}) => solid({ bx: x, by: y, bz: z, hx, hy, hz, ...o });
-const slab = (x, top, z, hx, hz, o = {}) => box(x, top - 0.5, z, hx, 0.5, hz, o);      // platform: top surface at `top`
-const cyl = (x, y, z, r, hy, o = {}) => solid({ shape: 'cyl', bx: x, by: y, bz: z, r, hy, ...o });
-const TAU = Math.PI * 2, HALF = 7;
+export const box = (x, y, z, hx, hy, hz, o = {}) => solid({ bx: x, by: y, bz: z, hx, hy, hz, ...o });
+export const slab = (x, top, z, hx, hz, o = {}) => box(x, top - 0.5, z, hx, 0.5, hz, o);      // platform: top surface at `top`
+export const cyl = (x, y, z, r, hy, o = {}) => solid({ shape: 'cyl', bx: x, by: y, bz: z, r, hy, ...o });
+export const TAU = Math.PI * 2, HALF = 7;
 
-function builder(rng, kind) {
+export function builder(rng, kind) {
   const B = { rng, kind, solids: [], route: [], cps: [], dynN: 0, doors: [], minY: 0, maxY: 0, winds: [], fans: [], lavas: [], blasts: [], cannons: [], cur: 0 };
   B.add = (s) => { s.pal = B.cur; s.idx = B.solids.length; B.solids.push(s); B.minY = Math.min(B.minY, s.by - s.hy); B.maxY = Math.max(B.maxY, s.by + s.hy); return s; };
   B.node = (n) => { B.route.push({ w: 0, r: 1.3, ...n }); };
@@ -82,7 +70,7 @@ function builder(rng, kind) {
 }
 
 // ---- race modules: (B, z, y) -> {z, y} (z/y where the next pad starts)
-const MODS = {
+export const MODS = {
   sweepers(B, z, y) {
     const L = 26, r = B.rng;
     B.add(slab(0, y, z + L / 2, HALF, L / 2, { look: 'floor' }));
@@ -677,17 +665,6 @@ function buildDodge(rng) {
   B.arenaR = 11.5; B.len = 0;
   return B;
 }
-function buildSumo(rng) {
-  const B = builder(rng, 'final');
-  B.add(cyl(0, -0.5, 0, 4.6, 0.5, { look: 'arena' }));
-  const outer = rng.shuffle([...Array(12).keys()]), inner = rng.shuffle([...Array(10).keys()]);
-  for (let i = 0; i < 10; i++) { const a = (i / 10) * TAU; B.add(box(Math.sin(a) * 6.5, -0.5, Math.cos(a) * 6.5, 2.2, 0.5, 1.9, { bry: a, until: 28 + inner.indexOf(i) * 3.2, look: 'ring' })); }
-  for (let i = 0; i < 12; i++) { const a = (i / 12) * TAU + 0.26; B.add(box(Math.sin(a) * 10.4, -0.5, Math.cos(a) * 10.4, 2.5, 0.5, 2.0, { bry: a, until: 12 + outer.indexOf(i) * 1.7, look: 'ring' })); }
-  B.spawns = [];
-  for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU + 0.2; B.spawns.push({ x: Math.sin(a) * 6.5, z: Math.cos(a) * 6.5, face: a + Math.PI }); }
-  B.arenaR = 12; B.len = 0;
-  return B;
-}
 
 // Tip Toe: a grid of tiles with one hidden safe path; every other tile drops almost as soon as you step on it
 function buildTiptoe(rng) {
@@ -697,7 +674,7 @@ function buildTiptoe(rng) {
   for (let i = 0; i < 8; i++) B.spawns.push({ x: -5.25 + (i % 4) * 3.5, z: -5 + Math.floor(i / 4) * 3, face: 0 });
   rng.shuffle(B.spawns);
   B.node({ x: 0, y: 0, z: 4.5, w: 3 });
-  const cols = 6, rows = 18, sx = 2.4, z0 = 7.6, xOf = (c) => (c - (cols - 1) / 2) * sx;
+  const cols = 6, rows = 24, sx = 2.4, z0 = 7.6, xOf = (c) => (c - (cols - 1) / 2) * sx;
   const path = []; let c = rng.int(1, 4);
   for (let r = 0; r < rows; r++) {
     const c2 = Math.max(0, Math.min(cols - 1, c + rng.int(-2, 2)));
@@ -786,17 +763,19 @@ export function buildStage(id, rng, mods = null) {
   else if (id === 'last') B = buildArena(rng);
   else if (id === 'bumpers') B = buildBumpers(rng);
   else if (id === 'dodge') B = buildDodge(rng);
-  else if (id === 'sumo') B = buildSumo(rng);
   else if (id === 'tiptoe') B = buildTiptoe(rng);
   else if (id === 'blockdash') B = buildBlockDash(rng);
   else if (id === 'bombard') B = buildBombard(rng);
   else if (mods) B = buildRace(rng, id, mods);
+  else if (MAPS[id]) B = buildMap(id, rng);
+  else if (id === 'crown') B = buildMap('crownclimb', rng);
+  else if (id === 'mountain') B = buildMap('fallmountain', rng);
   else if (meta.fixed) B = buildRace(rng, id, meta.fixed);
   else if (id === 'crown') B = buildRace(rng, id, [...pickMods(rng, [rng() < 0.5 ? 'sweepers' : 'hammers'], 3), 'summit']);
   else B = buildRace(rng, id, pickMods(rng, meta.mods, 4));
   const solids = B.solids;
   return {
-    id, meta, mode: (id === 'crown' || id === 'mountain') ? 'crown' : (id === 'last' || id === 'sumo') ? 'last' : meta.kind === 'race' ? 'race' : 'survive',
+    id, meta, mode: (id === 'crown' || id === 'mountain') ? 'crown' : id === 'last' ? 'last' : meta.kind === 'race' ? 'race' : 'survive',
     solids, moving: solids.filter((s) => s.anim), route: B.route, cps: B.cps, spawns: B.spawns, doors: B.doors, layers: B.layers,
     dynN: B.dynN, killY: (id === 'tiles' ? -10 : Math.min(B.minY, 0)) - 6, dash: B.dash, finishZ: B.finishZ, finishY: B.finishY, crown: B.crown, arenaR: B.arenaR, len: B.len, maxY: B.maxY, winds: B.winds, fans: B.fans, lavas: B.lavas, blasts: B.blasts, cannons: B.cannons, sections: B.sections || [], spikes: B.solids.filter((q) => q.spike && q.blink).map((q) => q.idx), hasTiles: !!B.hasTiles, tileFall: B.tileFall,
   };
@@ -807,7 +786,8 @@ export function makeWorld(st) { return { solids: st.solids, moving: st.moving, d
 export function spawnOf(st, i) { const s = st.spawns[i % st.spawns.length]; const k = Math.floor(i / st.spawns.length); return { x: s.x + k * 0.6, y: 0.05, z: s.z, face: s.face }; }
 export function respawnOf(st, cp, i) {
   if (cp <= 0 || !st.cps[cp - 1]) { const s = spawnOf(st, i); return { ...s, y: 0.6 }; }
-  const c = st.cps[cp - 1]; return { x: c.x + ((i % 5) - 2) * 1.8, y: c.y + 0.6, z: c.z - 0.5 + Math.floor(i / 5) * 1.2, face: 0 };
+  const c = st.cps[cp - 1], sp = Math.min(1.8, Math.max(0, ((c.hx ?? 7.5) - 0.7) / 2));
+  return { x: c.x + ((i % 5) - 2) * sp, y: c.y + 0.6, z: c.z - 0.5 + Math.floor(i / 5) * Math.min(1.2, (c.hz ?? 2.5) * 0.4), face: 0 };
 }
 // race progress (bigger = further) used for standings / timeouts
 export function progressOf(st, p) {

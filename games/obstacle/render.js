@@ -17,34 +17,23 @@ const TAU = Math.PI * 2;
 const GRAD = new THREE.DataTexture(new Uint8Array([120, 200, 255]), 3, 1, THREE.RedFormat); GRAD.needsUpdate = true;
 // per-stage color moods: top / side of platforms, accent, second accent, sky top / horizon, slime
 // stages that get their own scenery instead of the candy stadium
-const ENV = { icy: 'ice', frost: 'ice', bigfans: 'ice', lavarush: 'lava', temple: 'temple', logs: 'meadow', humble: 'meadow', tiptoe: 'meadow', hop: 'meadow', sky: 'meadow' };
+const ENV = { ruins: 'temple', volcano: 'lava', frostbite: 'ice', skyislands: 'meadow', jungle: 'meadow', tiptoe: 'meadow', mountain: 'meadow' };
 const THEMES = {
-  whirl: { top: 0xb79cff, side: 0x7b5cf0, accent: 0xff4d8d, acc2: 0xffd23f, bridge: 0xff8fc8, sky: [0x3a7bff, 0xffd3f2], slime: 0xff4fb3 },
-  hop: { top: 0x6fdcff, side: 0x2f9ee0, accent: 0xffd23f, acc2: 0xff6ec7, bridge: 0x7cf0c8, sky: [0x1f9bff, 0xc9f7ff], slime: 0x4fc8e0 },
-  doors: { top: 0xffc266, side: 0xf08a1a, accent: 0x3e6dff, acc2: 0xff4d5e, bridge: 0xffe07a, sky: [0x4b7bff, 0xffe1c4], slime: 0xff4fb3 },
-  climb: { top: 0x86ee9e, side: 0x34b45a, accent: 0xff5a5f, acc2: 0xffd23f, bridge: 0xb6f36b, sky: [0x2f8fff, 0xfff1b8], slime: 0xd65cff },
-  rotor: { top: 0xffa3c4, side: 0xe0558c, accent: 0x3ea6ff, acc2: 0xffd23f, bridge: 0xa6f0ff, sky: [0x3366ff, 0xffd6ec], slime: 0xff4fb3 },
-  bounce: { top: 0xa6f08c, side: 0x4fb83a, accent: 0xb57bff, acc2: 0xff8c42, bridge: 0xffe07a, sky: [0x3a8cff, 0xe0f7ff], slime: 0xff59c0 },
-  logs: { top: 0xc0f08a, side: 0x58b83a, accent: 0xff8c42, acc2: 0xffd23f, bridge: 0xffe9a8, sky: [0x2f9bff, 0xd8ffe0], slime: 0x4fc8e0 },
-  gauntlet: { top: 0xff9fa6, side: 0xd8404f, accent: 0x3e6dff, acc2: 0xffd23f, bridge: 0xffe0e3, sky: [0x5a3cff, 0xffb8c8], slime: 0xff3f7a },
   bumpers: { top: 0xffc266, side: 0xf08a1a, accent: 0xff4d5e, acc2: 0x3ea6ff, bridge: 0xffe07a, sky: [0x3a5cff, 0xffd8b0], slime: 0xc84fff },
   dodge: { top: 0x9ad8ff, side: 0x3a8fe0, accent: 0xff5ab0, acc2: 0xffd23f, bridge: 0xcfeaff, sky: [0x2a6cff, 0xcff6ff], slime: 0xff4fb3 },
-  sumo: { top: 0xffe066, side: 0xf0a800, accent: 0xff4d5e, acc2: 0xffffff, bridge: 0xff9fa6, sky: [0x3a3cff, 0xffb8a0], slime: 0xff3f5a },
-  chute: { top: 0xffd27a, side: 0xe08a1a, accent: 0x4cd964, acc2: 0xff4d6d, bridge: 0xffe9a8, sky: [0x2f9bff, 0xfff0c0], slime: 0xff6a3f },
-  bigfans: { top: 0xb6e8ff, side: 0x4fa6e0, accent: 0xffd23f, acc2: 0xffffff, bridge: 0xd8f4ff, sky: [0x3a9bff, 0xe8f8ff], slime: 0x6fc8f0 },
-  frost: { top: 0xdff6ff, side: 0x7ac8ee, accent: 0xb57bff, acc2: 0x6fdcff, bridge: 0xcfeaff, sky: [0x4a8cff, 0xeaf6ff], slime: 0x7ad8ff },
-  sky: { top: 0xffe680, side: 0xf0a800, accent: 0xff5ab0, acc2: 0x6fdcff, bridge: 0xffd0e8, sky: [0x1a6cff, 0xffd6b0], slime: 0x6fb8ff },
-  gate: { top: 0xb8c4ff, side: 0x5a6cf0, accent: 0xff4d5e, acc2: 0xffd23f, bridge: 0xdfe4ff, sky: [0x3a4cff, 0xffd0d8], slime: 0xff4fb3 },
   tiptoe: { top: 0xd0b0ff, side: 0x8a5cf0, accent: 0x2ee6d6, acc2: 0xff8fd0, bridge: 0xffd23f, sky: [0x5a4cff, 0xffc4e8], slime: 0x4fc8e0 },
   mountain: { top: 0xb0f0a0, side: 0x3ca84a, accent: 0xffcc33, acc2: 0xff5a5f, bridge: 0xfff0a8, sky: [0x2a7cff, 0xfff2c8], slime: 0xff5a3f },
-  icy: { top: 0xdff6ff, side: 0x7ac8ee, accent: 0xb57bff, acc2: 0x6fdcff, bridge: 0xcfeaff, sky: [0x5a9cff, 0xe8f6ff], slime: 0x7ad8ff },
-  lavarush: { top: 0xc8b8a8, side: 0x6a5560, accent: 0xff5a1a, acc2: 0xffd23f, bridge: 0xd8c8b8, sky: [0x6a2a4a, 0xff9a6a], slime: 0xff6a1a },
-  temple: { top: 0xe2cc98, side: 0x9a7f52, accent: 0x3fae5a, acc2: 0xff8c42, bridge: 0xd8c08a, sky: [0x3a8cff, 0xd8f0c8], slime: 0x3fae8a },
-  humble: { top: 0xffb3d9, side: 0xe05aa0, accent: 0x3ea6ff, acc2: 0xffd23f, bridge: 0xffd8ec, sky: [0x3a8cff, 0xd8f4ff], slime: 0x4fc8e0 },
   tiles: { top: 0xff8fd0, side: 0xc04fb8, accent: 0x2ee6d6, acc2: 0xffd23f, bridge: 0xffd23f, sky: [0x5163ff, 0xffc4e8], slime: 0xff3fa4 },
   sweep: { top: 0xffde5c, side: 0xf0a800, accent: 0xff4d5e, acc2: 0x3ea6ff, bridge: 0xffffff, sky: [0x2f7cff, 0xffe9a8], slime: 0xff4fb3 },
   crown: { top: 0xd4b4ff, side: 0x9466f0, accent: 0xffcc33, acc2: 0xff5ab0, bridge: 0xff9ad5, sky: [0x2a5cff, 0xffc7a8], slime: 0xff4fb3 },
   last: { top: 0x5cf0e2, side: 0x18b3a6, accent: 0xff5ab0, acc2: 0xffd23f, bridge: 0xffd23f, sky: [0x4252ff, 0xff9ed8], slime: 0xff3f9a },
+  ruins: { top: 0xe2cc98, side: 0x9a7f52, accent: 0x3fae5a, acc2: 0xff8c42, bridge: 0xd8c08a, sky: [0x3a8cff, 0xd8f0c8], slime: 0x3fae8a },
+  volcano: { top: 0xc8b8a8, side: 0x6a5560, accent: 0xff5a1a, acc2: 0xffd23f, bridge: 0xd8c8b8, sky: [0x6a2a4a, 0xff9a6a], slime: 0xff6a1a },
+  frostbite: { top: 0xeaf8ff, side: 0x7ac8ee, accent: 0xb57bff, acc2: 0x6fdcff, bridge: 0xcfeaff, sky: [0x4a8cff, 0xeaf6ff], slime: 0x7ad8ff },
+  factory: { top: 0xffb3d9, side: 0xe05aa0, accent: 0x2ee6b0, acc2: 0xffd23f, bridge: 0xffe0f0, sky: [0x5a4cff, 0xffc8e8], slime: 0xff4fb3 },
+  skyislands: { top: 0xffe680, side: 0xf0a800, accent: 0xff5ab0, acc2: 0x6fdcff, bridge: 0xffd0e8, sky: [0x1a6cff, 0xffd6b0], slime: 0x6fb8ff },
+  clockwork: { top: 0xb8c4ff, side: 0x5a6cf0, accent: 0xffb830, acc2: 0xff4d5e, bridge: 0xdfe4ff, sky: [0x2a2c8f, 0xffb88a], slime: 0xffb830 },
+  jungle: { top: 0xa6e86c, side: 0x4a9a32, accent: 0xff8c42, acc2: 0xffd23f, bridge: 0xd8b878, sky: [0x2f9bff, 0xd8ffe0], slime: 0x3fc8a0 },
 };
 const TILE_COLS = [[0xff8fd0, 0xd85bb5], [0xc6a0ff, 0x8c5ce8], [0x7fd8ff, 0x3a9ae0]];
 const CONF = [0xff5a5f, 0x3ea6ff, 0x4cd964, 0xffcc00, 0xb57bff, 0xff8c42, 0x2ee6d6, 0xff6ec7, 0xffffff];
@@ -147,7 +136,7 @@ export function createView(ctx) {
   const set = new THREE.Group(); scene.add(set);       // studio set (per stage)
 
   // ---- stage
-  let stage = null, root = null, theme = THEMES.whirl, blastIdx = 0, envKind = null;
+  let stage = null, root = null, theme = THEMES.sweep, blastIdx = 0, envKind = null;
   const occ = [], ray = new THREE.Raycaster(), rayFrom = new THREE.Vector3(), rayDir = new THREE.Vector3(), OCC = new Set(['column', 'summit', 'bwall', 'wall', 'rushwall', 'pillar']);
   let occDist = 99;
   const spikeObjs = [], lavaObjs = [], bombObjs = [], swings = [], fanObjs = [], balls = [], arches = [], dyn = [], tiles = [], doors = [], belts = [], blinks = [], pads = [], spots = [], spinners = [], balloons = [];
@@ -329,6 +318,7 @@ export function createView(ctx) {
         break;
       }
       case 'temple': m = cake(s, 0xe2cc98, 0x9a7f52, T.bricks, 2.4); break;
+      case 'snow': m = cake(s, 0xf6fcff, 0x9cc8e4, T.dots, 2.4); break;
       case 'basalt': m = cake(s, 0x6a5560, 0x3a2c38, T.tiles, 2.6); break;
       case 'rock': { m = cake(s, 0xa08a70, 0x5e4c3c, T.tiles, 1.6); break; }
       case 'spike': {
@@ -377,7 +367,7 @@ export function createView(ctx) {
 
   function buildStage(st) {
     clearStage();
-    stage = st; theme = THEMES[st.id] || THEMES.whirl;
+    stage = st; theme = THEMES[st.id] || THEMES.sweep;
     skyMat.uniforms.top.value.setHex(theme.sky[0]); skyMat.uniforms.bot.value.setHex(theme.sky[1]);
     scene.fog = new THREE.Fog(theme.sky[1], 140, 520);
     slimeMat.uniforms.col.value.setHex(theme.slime); slimeMat.uniforms.fogC.value.setHex(theme.sky[1]);

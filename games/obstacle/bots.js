@@ -3,7 +3,7 @@
 // the rest), time leaps onto moving platforms, pick doors (and remember the fake ones they bonked), hop
 // between tiles, and dive across finish lines. Difficulty (ctx.bots.level) sets reaction time, how far ahead
 // they look, how often they misjudge a hazard or a jump, and how bold they are.
-import { C, pose, active, groundAt, isDown, blinkU, lavaLevel } from './world.js';
+import { C, pose, active, groundAt, isDown, blinkU, lavaLevel, rollU } from './world.js';
 
 export function makeBot(Brain, level, rnd = Math.random) {
   return { brain: new Brain(level, rnd), level, rnd, ni: 0, offs: new Map(), lane: null, door: null, tried: new Set(), inp: { mx: 0, mz: 0, jh: false, j: 0, d: 0, g: false },
@@ -66,10 +66,12 @@ export function botThink(G, p, b, dt) {
   const ball = ballThreat(G, p);
   if (ball && ball.across && b.rnd() > b.level.mistakes * dt * 3) { if (!ball.under) { mx = mz = 0; } }
   else if (ball && b.rnd() > b.level.mistakes * dt * 3) {
-    const side = Math.abs(p.x - ball.x) > 0.2 ? Math.sign(p.x - ball.x) : (b.ballSide ||= (b.rnd() < 0.5 ? 1 : -1));
-    const room = side > 0 ? 6.6 - p.x : p.x + 6.6;
-    if (room > 1.2) { mx = side; mz = 0.15; } else if (grounded && b.jumpT <= 0 && ball.tau < 0.45) jump(b, 0.5);
-  } else b.ballSide = null;
+    // step into the nearest pocket that is clear of every ball coming down at us, then keep running up it
+    const px = ballPocket(G, p);
+    if (px == null) { if (grounded && b.jumpT <= 0 && ball.tau < 0.45) jump(b, 0.5); }
+    else if (Math.abs(px - p.x) > 0.3) { mx = Math.sign(px - p.x); mz = 0.2; }
+    else { mx = (px - p.x) * 2; mz = 0.8; }
+  }
   // spike traps: don't step onto a strip that will be up when we get there (but get off one that is about to pop)
   if (st.spikes?.length && grounded && (mx || mz)) {
     const sp = spikeThreat(G, p, mx, mz, lv);
@@ -94,6 +96,9 @@ export function botThink(G, p, b, dt) {
     if (!ig.miss) {
       if (hz.low && hz.tau <= 0.26 + lv.skill * 0.06) { if (b.jumpT <= 0) jump(b, 0.55); }
       else if (hz.high && lv.skill > 0.6 && b.rnd() < 0.5) { if (hz.tau < 0.3) { dive(b); } }
+      else if (!hz.low && hz.s.anim.k === 'piston' && G.W.solids[p.gr]?.belt) {   // on a backwards belt waiting loses ground: dodge to the far side
+        mx = (-Math.sign(hz.s.x) || 1) * 0.8; mz = 0.6;
+      }
       else if (!hz.low) {            // wait / back off, but never backwards off an edge
         const bx = -mx * 0.6, bz = -mz * 0.6;
         if (groundAt(G.W, p.x + bx * 1.4, p.z + bz * 1.4, p.y - 0.7, p.y + 0.55) >= 0) { mx = bx; mz = bz; } else { mx = mz = 0; }
@@ -135,9 +140,15 @@ function raceTarget(G, p, b) {
       // pick the gate that is open (for long enough) or opens first; wait in front of it until it is open
       const W = G.W;
       const info = (id) => { const s = W.solids[id], u = blinkU(s, W.t), P = s.blink.p; return u > s.blink.on ? { open: true, left: (1 - u) * P } : { open: false, wait: (s.blink.on - u) * P }; };
-      if (b.gate == null || b.gateNi !== b.ni || (!info(b.gate).open && b.rnd() < 0.02)) {
+      // score each gate by when we could actually be through it: travel time to it vs. its open window
+      const usable = (id) => { const s = W.solids[id], i = info(id), P = s.blink.p, win = (1 - s.blink.on) * P;
+        const reach = Math.abs(s.x - p.x) / 6.4 + Math.max(0, n.z - 0.6 - p.z) / 7;
+        if (i.open && i.left > reach + 0.25) return reach;
+        let t0 = i.open ? i.left + s.blink.on * P : i.wait; while (t0 + win < reach + 0.25) t0 += P;
+        return Math.max(reach, t0); };
+      if (b.gate == null || b.gateNi !== b.ni || b.rnd() < 0.04) {
         let best = n.gates[0], bs = -1e9;
-        for (const id of n.gates) { const i = info(id), s = W.solids[id]; const sc = (i.open ? i.left : -i.wait * 1.5) - Math.abs(s.x - p.x) * 0.12 + b.rnd() * 0.3; if (sc > bs) { bs = sc; best = id; } }
+        for (const id of n.gates) { const sc = -usable(id) + b.rnd() * 0.15 + (id === b.gate ? 0.25 : 0); if (sc > bs) { bs = sc; best = id; } }
         b.gate = best; b.gateNi = b.ni;
       }
       const s = W.solids[b.gate], i = info(b.gate);
@@ -158,16 +169,28 @@ function raceTarget(G, p, b) {
       b.rockNi = b.ni;
     }
     if (n.tip && n.sid != null) {
-      // Tip Toe: bots know the path but sometimes misjudge and step on a neighbouring (fake) tile
+      // Tip Toe: bots only know tiles someone has already stood on safely (like players watching each other).
+      // Stepping into the unknown, they guess, and better bots guess right more often.
+      const W = G.W, known = (W.tipKnown ||= new Set());
+      for (const q of G.players) if (q.gr >= 0) { const s = W.solids[q.gr]; if (s && s.tile >= 0 && s.safe) known.add(s.idx); }
       if (b.tipNi !== b.ni) {
         b.tipNi = b.ni; b.tipWrong = null;
-        if (b.rnd() < b.level.mistakes * 1.6) {
+        const guess = !known.has(n.sid) && b.rnd() > 0.3 + b.level.skill * 0.35;
+        if (guess || b.rnd() < b.level.mistakes * 0.8) {
           let best = null, bd = 9;
-          for (const s of G.W.solids) if (s.tile >= 0 && !s.safe && s.z > p.z - 1) { const d = Math.hypot(s.x - G.W.solids[n.sid].x, s.z - G.W.solids[n.sid].z); if (d < 2.6 && d < bd) { bd = d; best = s.idx; } }
+          for (const s of G.W.solids) if (s.tile >= 0 && !s.safe && G.W.dyn[s.tile] === 0 && s.z > p.z - 1) { const d = Math.hypot(s.x - G.W.solids[n.sid].x, s.z - G.W.solids[n.sid].z); if (d < 2.6 && d < bd) { bd = d; best = s.idx; } }
           b.tipWrong = best;
         }
       }
-      if (b.tipWrong != null) { const s = G.W.solids[b.tipWrong]; if (G.W.dyn[s.tile] === 2) b.tipWrong = null; else return { tx: s.x, tz: s.z, tsolid: s.idx }; }
+      if (b.tipWrong != null) {
+        const s = G.W.solids[b.tipWrong];
+        // the tile shakes under us: a moment of surprise before reacting, often too long to get off in time
+        if (p.gr === s.idx && W.dyn[s.tile] === 1 && b.tipFreeze == null) b.tipFreeze = W.t + 0.15 + b.level.reaction * 1.4;
+        if (b.tipFreeze != null && W.t < b.tipFreeze) return { tx: p.x, tz: p.z, tsolid: -1 };
+        if (W.dyn[s.tile] >= 1 && p.gr !== s.idx) { b.tipWrong = null; b.tipFreeze = null; }
+        else if (W.dyn[s.tile] === 2) { b.tipWrong = null; b.tipFreeze = null; }
+        else if (b.tipFreeze == null) return { tx: s.x, tz: s.z, tsolid: s.idx };
+      }
     }
     if (n.padAlts) {
       if (b.pad == null || !n.padAlts.includes(b.pad)) b.pad = n.padAlts[Math.floor(b.rnd() * n.padAlts.length)];
@@ -354,6 +377,25 @@ function ballThreat(G, p) {
     }
   }
   return null;
+}
+
+// x of the closest spot (with floor under it) that none of the balls rolling at us will pass through
+function ballPocket(G, p) {
+  const lanes = [];
+  for (const s of G.W.moving) {
+    if (!s.anim || s.anim.k !== 'roll' || Math.abs(s.anim.v[0]) > Math.abs(s.anim.v[2])) continue;
+    const u = rollU(s.anim, G.W.t); if (u < 0.02 || u > 0.985) continue;
+    const dz = s.z - p.z; if (dz < -s.r - 0.8 || dz > 13 || Math.abs(s.y - s.hy - p.y) > 1.5) continue;
+    lanes.push({ x: s.x, w: s.r + 0.75 });
+  }
+  let best = null, bd = 1e9;
+  for (let k = -16; k <= 16; k++) {
+    const x = p.x + k * 0.25, d = Math.abs(k * 0.25);
+    if (d >= bd || lanes.some((l) => Math.abs(x - l.x) < l.w)) continue;
+    if (groundAt(G.W, x, p.z + 0.3, p.y - 0.7, p.y + 0.55) < 0 || groundAt(G.W, x + Math.sign(x - p.x) * 0.5, p.z + 0.3, p.y - 0.7, p.y + 0.55) < 0) continue;
+    best = x; bd = d;
+  }
+  return best;
 }
 
 // spike strip ahead that will be up when we reach it -> 'wait'; standing on one that is about to pop -> 'go'
