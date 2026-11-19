@@ -8,9 +8,14 @@ connected while the host switches between 3D games. Hosted on GitHub Pages at
 Start from `games/_template` (Coin Grab). That template is **hidden from players**: it only appears in the lobby with `?dev=1` (used by developers and the tests). One game per session.
 
 ## Hard rules
-- 100% free: static files on GitHub Pages; Three.js `0.160.0` and PeerJS `1.5.4` from jsDelivr via the import map in `index.html`; the public PeerJS server. No build step, no npm to play, no paid services, no API keys, no accounts.
+- 100% free: static files on GitHub Pages; Three.js `0.160.0` and PeerJS `1.5.4` from jsDelivr via the import map in `index.html`; the public PeerJS server; free public MQTT brokers (broker.emqx.io, broker.hivemq.com, test.mosquitto.org, mqtt.eclipseprojects.io) as the connection fallback. No build step, no npm to play, no paid services, no accounts for players. The one exception (approved by the owner): a free Metered TURN account in `core/turn-config.js` (front-end-safe credential key only, never the Secret Key).
 - **Relative paths only** (the site lives under `/arcade/`). Import other core files as `../../core/x.js` from a game.
-- Never reload the page or touch the party connection from a game. Games talk only through `ctx`.
+- Never reload the page or touch the party connection from a game. Games talk only through `ctx`. Keep network traffic modest (≈20 Hz snapshots, compact data): some players are on the slower relay (~200 ms round trip, jittery).
+  Games must stay fun at that: predict your own player locally, never wait on the host for your own movement, and draw
+  others with `core/interp.js` (`SnapBuffer`, or `AdaptiveDelay` for an existing buffer) placed on the HOST's clock.
+  Never interpolate by arrival time or with a fixed "100 ms in the past": relay packets arrive bunched and late, and
+  both stutter. Correct your own player against where you were one round trip ago, not where you are now.
+  Test with `?netsim=100,30,250,4` and `node lag.mjs <id>`. `games/_template` shows the pattern.
 - Don't edit another game's folder while working on yours. Changes to `/core` must stay backward compatible with every game in `games/registry.js`, and must be re-tested with `tests/` (all games).
 
 ## Architecture
@@ -21,8 +26,20 @@ core/hub.js         party loop: home → lobby → (host pick | vote | shuffle) 
 core/net.js         PartyNet: party connection behind a transport interface; host-authoritative star; 4-letter
                     room codes + ?room=CODE links; heartbeats + host clock sync; host migration; handover;
                     rejoin after refresh / Wi-Fi drop; per-round game channels (makeChannel → ctx.net)
-core/transport-peer.js   PeerJS/WebRTC transport (reliable JSON 'ctrl' + unreliable binary 'fast' channel)
+core/transport-dual.js   the online transport every party uses: direct WebRTC and the relay tried at the same time
+                         (direct preferred); a failed join offers "Copy details" with both reasons + a server check
+core/transport-peer.js   PeerJS/WebRTC transport (reliable JSON 'ctrl' + unreliable binary 'fast' channel; public STUN +
+                         TURN logins fetched from the Metered account in core/turn-config.js)
+core/transport-rtc.js    WebRTC whose setup goes through the relay (for networks that block the PeerJS server, e.g. school)
+core/transport-relay.js  backup relay: party messages through free public MQTT brokers over wss (core/mqtt.js), for
+                         networks / managed laptops that block WebRTC. Lobby tags those players "relay"
 core/transport-local.js  BroadcastChannel transport: tabs of one browser, no internet (?net=local)
+                         A player on the relay keeps retrying the direct link and moves over mid-game when it works.
+                         Settings → "Copy connection report" shows path, ping spread, freezes and why direct failed.
+core/keepalive.js   1 s clock from a worker: heartbeats, server pings and reconnects keep running in background tabs
+                    (the host re-registers its party code and reconnects relay servers by itself; lobby shows reachability)
+core/netsim.js      ?netsim=ONEWAY,JITTER,STALL,EVERY lag simulator (e.g. 100,30,250,4 ≈ the school relay); tests/lag.mjs
+core/interp.js      SnapBuffer / AdaptiveDelay: smooth drawing of others from late, bunched snapshots (use in every game)
 core/runtime.js     builds ctx for a game, runs its frame/tick loops, and force-cleans everything on stop
 core/party state    lives in hub.js (`S`): players {id,name,color,hat,ready,trophies,wins,isBot,connected}, phase, game, results
 core/input.js       the control map (below)          core/ui.js + ui.css   theme + HUD components
@@ -30,7 +47,9 @@ core/audio.js       one AudioContext, master/music/sfx buses   core/settings.js 
 core/avatar.js      shared player character + hats    core/rng.js   seeded RNG    core/bots.js   bot slots + difficulty
 core/palette.js     8 party colors (player.color is an index)  core/three-utils.js   renderer + dispose helpers
 games/registry.js   list of game manifests (PLAYABLE = what players see); games are loaded with import() only when a round starts
-games/<id>/         one folder per game: manifest.js, index.js (start), thumb.svg, game modules
+games/<id>/         one folder per game: manifest.js, index.js (start), tuning.js (feel constants), thumb.svg, game modules
+core/tune.js        tunable(): registers a game's tuning.js values   core/portal.js   developer tuning portal (localhost only)
+tools/portal.py     local server for the portal (127.0.0.1 only; can save games/<id>/tuning.js)
 ```
 Host-authoritative: the host runs the game simulation and every bot; clients send inputs and predict. If the host
 leaves, the first remaining human (join order) becomes host and the game gets `'hostchange'` — rebuild your
@@ -73,6 +92,12 @@ Don't add your own in-game controls panels at the start; the loading screen deli
 
 **Relay trap:** `toAll(msg)` also delivers `msg` to the host's own `onMessage` (from = host). Never relay a message under the same type you are handling (e.g. client `{t:'emote'}` → host relays `{t:'emoted'}`), or the host re-broadcasts its own copy forever and the game locks up.
 
+**Tuning:** every game has `games/<id>/tuning.js` listing its feel constants (speeds, jump, gravity, cooldowns,
+knockback, timings) via `tunable()`; the values there are the defaults. `index.js` imports it first, and the game reads
+those values when it uses them (not copies made at load), so the developer portal can change them live. See `docs/PORTAL.md`.
+**To change a feel constant, change it in `tuning.js`** (and keep the same number in the game's own file, e.g. `world.js`):
+tuning.js overrides the code at runtime, so a change made only in the code file is silently undone. `node portal.mjs` fails on any mismatch.
+
 `standings()` (optional) returns current placements; used if the host ends the game early (otherwise no trophies).
 Trophies: 1st 5, 2nd 3, 3rd 2, everyone else 1 (ties share the higher place).
 
@@ -96,7 +121,8 @@ E + Space; Downhill has no boost key). Add extra keys only when the game truly n
 
 ## Visual style rules
 - Bright cartoon look: saturated colors, toon/flat shading, chunky shapes, dark ink outlines where possible, sunny skies.
-- One font (`var(--font)`, Lilita One), one palette (`core/ui.css` variables + `core/palette.js`), rounded panels with 3–4 px ink borders.
+- One font (`var(--font)`, Lilita One, bundled in `core/fonts/`, no Google Fonts), one palette (`core/ui.css` variables + `core/palette.js`), rounded panels with 3–4 px ink borders.
+  Shared building blocks in `core/ui.css`: `.ph-panel` (+ `.purple` / `.dark`), `.ph-head` header ribbon, `.ph-well` inset area, `.ph-btn` (+ `big`/`green`/`ghost`/`danger`/`purple`/`pink`/`small`), `.ph-x` close button, `.ph-switch` toggle, `.count-pill`.
 - Players keep their party color everywhere; show the player's avatar (`ctx.avatar.build`) or at least their hat (`ctx.avatar.hat`).
 - Respect `ctx.quality()`: low = no shadows, pixel ratio 1, no post-processing.
 
@@ -107,11 +133,13 @@ E + Space; Downhill has no boost key). Add extra keys only when the game truly n
 
 ## How to test
 `cd tests && npm install && node run-all.mjs` (details in `tests/README.md`). Tests serve the repo, run a local
-PeerJS server, launch Chromium with 2–3 browser contexts (real WebRTC), and route the CDN to local copies.
+PeerJS server and a local MQTT broker (relay), launch Chromium with 2–3 browser contexts (real WebRTC), and route the CDN to local copies.
 - `node e2e.mjs <gameId>` — create, join by link + code, ready, play to results, back to lobby, refresh-rejoin, no console errors
 - `node memory.mjs <ids…>` — 10 load/unload cycles; renderers/canvases/HUD return to zero, heap stays flat
 - `node migration.mjs <gameId>` — host closes their tab mid-game; party and game survive
 - `node party.mjs` — vote, shuffle + podium, mid-game join, host handover, kick · `node local.mjs` — BroadcastChannel tabs
 - Add a driver for your game in `tests/drivers.mjs` so the tests can play it to the end.
 - Locally by hand: `python3 -m http.server 8000` in the repo root, open `http://localhost:8000/?net=local` in two tabs.
-- Dev URL flags: `?dev=1` (show the template in the lobby), `?net=local` (tabs, no internet), `?peer=host:port` (own PeerJS server), `?netlog=1` (net log), `?testfps=N` (tests only).
+- Tuning portal: `python3 tools/portal.py` opens `http://localhost:8000/?portal=1` (play any game, sliders for its
+  `tuning.js`, save new defaults). Only works on localhost. Details in [`docs/PORTAL.md`](docs/PORTAL.md). `node portal.mjs` tests it.
+- Dev URL flags: `?dev=1` (show the template in the lobby), `?relay=url` (own MQTT broker; `off` = no relay), `?forcerelay=1` (skip the direct link, tests), `?net=local` (tabs, no internet), `?peer=host:port` (own PeerJS server), `?netlog=1` (net log), `?testfps=N` (tests only), `?portal=1` (tuning portal, localhost only), `?netsim=100,30,250,4` (simulate relay lag), `?forcerelay=join` (start on the relay, upgrade allowed), `?blockdirect=1` (direct link never connects, tests).

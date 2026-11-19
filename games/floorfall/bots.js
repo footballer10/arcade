@@ -7,11 +7,20 @@
 import { C, tileAt, tileQR, NEIGH } from './world.js';
 
 const DIRS = 16;
-const AIR = 2 * C.JUMP / C.G;                 // time in the air for a full jump
+// How sharp each difficulty is. reflex = chance per tick (60 Hz) that a bot notices the floor vanishing ahead of it;
+// steps = how many tiles ahead it plans; plan = weight of its "room to keep running" planning; hop = chance it
+// hop-runs when floor is scarce; air = chance it steers its fall / jumps towards floor; blind = chance it jumps
+// without checking the landing; idle = chance per think of dithering for half a second (burning its own tile).
+const HANDICAP = {
+  easy:   { reflex: 0.045, steps: 2, plan: 0,   hop: 0,    air: 0.25, blind: 0.45, idle: 0.14, dash: 0.1 },
+  normal: { reflex: 0.16,  steps: 3, plan: 0.4, hop: 0.2,  air: 0.6,  blind: 0.2,  idle: 0.06, dash: 0.3 },
+  hard:   { reflex: 0.4,   steps: 4, plan: 0.8, hop: 0.55, air: 0.9,  blind: 0.06, idle: 0.02, dash: 0.6 },
+};
+const AIR = () => 2 * C.JUMP / C.G;           // time in the air for a full jump (read live: tunable)
 // Where would a jump started now land if I steer with heading a at strength m? (same integration as stepPlayer)
 function jumpLand(p, a, m) {
   let x = p.x, z = p.z, vx = p.vx, vz = p.vz; const dt = 1 / 30, tx = Math.sin(a) * C.SPEED * m, tz = Math.cos(a) * C.SPEED * m;
-  for (let tt = 0; tt < AIR; tt += dt) {
+  for (let tt = 0; tt < AIR(); tt += dt) {
     const ex = tx - vx, ez = tz - vz, el = Math.hypot(ex, ez), acc = C.AIR_ACC * dt;
     if (el <= acc) { vx = tx; vz = tz; } else { vx += (ex / el) * acc; vz += (ez / el) * acc; }
     x += vx * dt; z += vz * dt;
@@ -23,16 +32,16 @@ function landSafe(L, p, a, t, B) {
   const tries = [[a, 1], [a, 0.6], [a, 0.25], [a + 0.4, 1], [a - 0.4, 1], [a + 0.4, 0.5], [a - 0.4, 0.5]];
   for (const [aa, m] of tries) {
     const [x, z] = jumpLand(p, aa, m), i = tileAt(L, x, z);
-    if (i < 0 || L.at[i] <= t + AIR + 0.25) continue;
-    let ok = 0; for (const [ox, oz] of [[0.9, 0], [-0.9, 0], [0, 0.9], [0, -0.9]]) if (tileVal(L, x + ox, z + oz, t, AIR + 0.3)) ok++;
+    if (i < 0 || L.at[i] <= t + AIR() + 0.25) continue;
+    let ok = 0; for (const [ox, oz] of [[0.9, 0], [-0.9, 0], [0, 0.9], [0, -0.9]]) if (tileVal(L, x + ox, z + oz, t, AIR() + 0.3)) ok++;
     if (ok < 2) continue;
-    if (B) B.air = { a: aa, m, t: AIR + 0.1, at: t };
+    if (B) B.air = { a: aa, m, t: AIR() + 0.1, at: t };
     return true;
   }
   return false;
 }
 export function makeBot(Brain, level, rnd = Math.random) {
-  return { brain: new Brain(level, rnd), level, rnd, inp: { mx: 0, mz: 0, j: 0, d: 0 }, dir: rnd() * Math.PI * 2, jumpFor: 0, careful: true, hop: false, sparse: 1, air: null, hold: 0, target: null, wander: 0 };
+  return { brain: new Brain(level, rnd), level, rnd, inp: { mx: 0, mz: 0, j: 0, d: 0 }, dir: rnd() * Math.PI * 2, jumpFor: 0, careful: true, hop: false, airAware: true, noticed: 0, sparse: 1, air: null, hold: 0, target: null, wander: 0 };
 }
 
 // lookup: tile state at (x,z) on layer L: 2 solid, 1 cracking (but will hold `eta` more seconds), 0 hole
@@ -63,9 +72,9 @@ function room(L, start, block, cap) {
 
 export function botThink(B, p, w, dt) {
   const { lv, t, players } = w;
-  const inp = B.inp, lvl = B.level, rnd = B.rnd;
+  const inp = B.inp, lvl = B.level, rnd = B.rnd, H = HANDICAP[lvl.key] || HANDICAP.normal;
   if (!p.alive) { inp.mx = inp.mz = 0; return; }
-  B.wander -= dt; B.jumpFor -= dt;
+  B.wander -= dt; B.jumpFor -= dt; B.noticed = Math.max(0, (B.noticed || 0) - dt);
   const L = lv.layers[p.l];
   // reflexes (every tick): don't run into a hole unless I meant to jump it; jump when the floor ahead ends
   if (p.g) {
@@ -74,8 +83,8 @@ export function botThink(B, p, w, dt) {
     // is running this way safe for the next ~0.25 s (plus the drift it takes to turn)?
     const safeWay = (a, reach) => { for (const d of reach) if (!tileVal(L, p.x + Math.sin(a) * d, p.z + Math.cos(a) * d, t, d / Math.max(2.5, sp) + 0.08)) return false; return true; };
     const NEAR = [0.35, 0.7, 1.05], FAR = [0.35, 0.7, 1.05, 1.5, 2];
-    if (!safeWay(hd, NEAR) || !safeWay(B.dir, NEAR)) {
-      if (B.jumpFor > 0 && Math.cos(hd - B.dir) > 0.7 && (landSafe(L, p, B.dir, t, B) || (lvl.key === 'easy' && rnd() < 0.15))) { inp.j++; B.jumpFor = 0; }
+    if ((!safeWay(hd, NEAR) || !safeWay(B.dir, NEAR)) && (B.noticed > 0 || (B.noticed = rnd() < H.reflex ? 0.25 : 0) > 0)) {
+      if (B.jumpFor > 0 && Math.cos(hd - B.dir) > 0.7 && (rnd() < H.blind || landSafe(L, p, B.dir, t, B))) { inp.j++; B.jumpFor = 0; }
       else if (B.careful || rnd() < 0.12) {          // a careless bot reacts late (often too late)
         // steer to a safe heading: close to where I'm going, but prefer turning back towards the middle
         const home = Math.atan2(-p.x, -p.z);
@@ -104,7 +113,7 @@ export function botThink(B, p, w, dt) {
     }
   }
   if (p.g && B.air && t - B.air.at > 0.12) B.air = null;
-  if (!p.g && p.vy < 0 && B.careful) {
+  if (!p.g && p.vy < 0 && B.careful && B.airAware) {
     // falling: steer towards floor on the layer I'm about to land on
     let Lb = null; for (let h = lv.L - 1; h >= 0; h--) if (lv.layers[h].y < p.y - 0.05) { Lb = lv.layers[h]; break; }
     if (Lb) {
@@ -133,7 +142,7 @@ export function botThink(B, p, w, dt) {
   for (let k = 0; k < DIRS; k++) {
     const a = (k / DIRS) * Math.PI * 2, sx = Math.sin(a), sz = Math.cos(a);
     let s = 0, gap = false, jump = false;
-    for (let st = 1; st <= 4; st++) {
+    for (let st = 1; st <= H.steps; st++) {
       const d = st * 0.95, eta = d / C.SPEED;
       const v = tileVal(L, p.x + sx * d, p.z + sz * d, t, eta);
       const wgt = st === 1 ? 2.2 : st === 2 ? 1.5 : st === 3 ? 1 : 0.6;
@@ -154,7 +163,7 @@ export function botThink(B, p, w, dt) {
     // room: is there enough floor that way to keep running? (dead ends are deadly on the last layer)
     const here0 = tileAt(L, p.x, p.z), cap = p.l === 0 ? 40 : 24;
     const rm = room(L, tileAt(L, p.x + sx * 1.8, p.z + sz * 1.8), here0, cap);
-    s += (rm / cap) * (p.l === 0 ? 4 : 2.2) - (rm < 6 ? (p.l === 0 ? 3 : 1) : 0);
+    s += H.plan * ((rm / cap) * (p.l === 0 ? 4 : 2.2) - (rm < 6 ? (p.l === 0 ? 3 : 1) : 0));
     // keep heading (no jitter), drift away from the rim towards the layer middle
     const dc = Math.cos(a - B.dir); s += dc * 0.7;
     const r = Math.hypot(p.x, p.z);
@@ -174,7 +183,9 @@ export function botThink(B, p, w, dt) {
   B.careful = rnd() >= lvl.mistakes * 0.5;
   // when floor gets scarce, good bots hop to burn fewer tiles
   if (rnd() < 0.15) { let c = 0; for (let i = 0; i < L.n; i += 3) if (L.at[i] > t) c++; B.sparse = (c * 3) / L.n; }
-  B.hop = (p.l === 0 || B.sparse < 0.35) && B.sparse < 0.75 && rnd() < lvl.skill * 0.9;
+  B.hop = (p.l === 0 || B.sparse < 0.35) && B.sparse < 0.75 && rnd() < H.hop;
+  B.airAware = rnd() < H.air;
+  if (rnd() < H.idle) { B.hold = 0.35 + rnd() * 0.3; inp.mx = inp.mz = 0; return; }       // dither (and burn my own tile)
   B.jumpFor = bestJump ? 0.6 : 0;
   inp.mx = Math.sin(B.dir); inp.mz = Math.cos(B.dir);
   // dash: into a nearby rival, or across a gap
@@ -182,7 +193,7 @@ export function botThink(B, p, w, dt) {
     const ta = tgt ? Math.atan2(tgt.x - p.x, tgt.z - p.z) : 0;
     // only shove when it can't backfire: floor under my landing spot, and not in the opening seconds
     const safe = tgt && t > 2.5 && tileVal(L, p.x + Math.sin(ta) * 1.6, p.z + Math.cos(ta) * 1.6, t, 0.35) > 0;
-    if (safe && td < 2.4 && rnd() < lvl.skill * 0.35) { inp.mx = Math.sin(ta); inp.mz = Math.cos(ta); B.dir = ta; inp.d++; }
+    if (safe && td < 2.4 && rnd() < H.dash * 0.5) { inp.mx = Math.sin(ta); inp.mz = Math.cos(ta); B.dir = ta; inp.d++; }
   }
   // standing on a cracking tile with nowhere good to go: hop to stall
   const here = tileAt(L, p.x, p.z);

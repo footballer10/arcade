@@ -18,7 +18,7 @@ export const manifest = {
   thumbnail: 'games/lava/thumb.svg',
   controlsHelp: [
     ['WASD / Arrows', 'Run (camera-relative)'], ['Space', 'Jump (hold = higher)'], ['Shift', 'Dash (works once in the air)'],
-    ['Left click / E', 'Shove'], ['Mouse', 'Look (click to lock the mouse) · wheel = zoom'],
+    ['Left click / E', 'Shove'], ['Mouse', 'Click to look around freely (wheel = zoom) — or just use WASD, the camera follows you'],
     ['Glowing rock', 'Hot! It crumbles if you stay on it'], ['Bubbling lava', 'New rock is about to rise there: keep climbing!'],
     ['When you\'re out', 'Click = lob a lava bomb (you\'re a volcano spirit) · Space = switch view'],
   ],

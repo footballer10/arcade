@@ -3,7 +3,8 @@
 // in: {id, seed, idx, opt:{theme, mod, pickups}}   out: {id, seed, par}
 import * as C from './course.js';
 onmessage = (e) => {
-  const { id, seed: base, idx, opt } = e.data;
+  const { id, seed: base, idx, opt, phys } = e.data;
+  if (phys) Object.assign(C.PHYS, phys);   // the developer portal's tuned ball physics
   let best = null;
   for (let k = 0; k < 4; k++) {
     const seed = (base + idx * 1013 + k * 7919) >>> 0;

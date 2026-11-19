@@ -2,7 +2,8 @@
 // Lobby → choose game (host picks / vote / shuffle) → pre-round picks → loading → shared countdown → play
 // → results (+trophies) → lobby. Games are loaded with import() and unloaded when done; the page never reloads.
 import * as THREE from 'three';
-import { PartyNet, randomCode } from './net.js';
+import { PartyNet, randomCode, prewarm } from './net.js';
+import { iceCheck } from './transport-peer.js';
 import { settings, store } from './settings.js';
 import { audio, startMusic, stopMusic } from './audio.js';
 import { input, CONTROL_MAP } from './input.js';
@@ -12,6 +13,7 @@ import { PALETTE, css } from './palette.js';
 import { makeBot, BOT_LEVELS } from './bots.js';
 import { randomSeed } from './rng.js';
 import { GameRuntime, liveStats } from './runtime.js';
+import { DEV_HOST } from './tune.js';
 import { GAMES, GAME_MAP, loadGame } from '../games/registry.js';
 
 const params = new URLSearchParams(location.search);
@@ -33,6 +35,7 @@ try { // "Duplicate tab" copies sessionStorage: make sure no other open tab uses
 
 // ---------------------------------------------------------------- state
 let net = null;          // PartyNet for the current party
+let lastFail = '';       // what went wrong in the last failed join (Copy details)
 let S = null;            // party state (host: authoritative; clients: mirror of the host's)
 let runtime = null, mountingRound = null, pings = {};
 const chat = [];
@@ -231,13 +234,13 @@ function setUrl(code, kind) {
   const q = new URLSearchParams();
   if (code) q.set('room', code);
   if (kind === 'local') q.set('net', 'local');
-  for (const k of ['peer', 'dev', 'testfps', 'netlog']) if (params.get(k) !== null) q.set(k, params.get(k));
+  for (const k of ['peer', 'relay', 'forcerelay', 'dev', 'testfps', 'netlog', 'portal']) if (params.get(k) !== null) q.set(k, params.get(k));
   history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : ''));
 }
 function shareLink() {
   const q = new URLSearchParams({ room: S.code });
   if (net.kind === 'local') q.set('net', 'local');
-  for (const k of ['peer', 'dev']) if (params.get(k) !== null) q.set(k, params.get(k));
+  for (const k of ['peer', 'relay', 'dev']) if (params.get(k) !== null) q.set(k, params.get(k));
   return location.origin + location.pathname + '?' + q;
 }
 
@@ -269,14 +272,18 @@ async function joinParty(code, quiet = false) {
   const kind = netKind();
   net = newNet(kind);
   const stage = (st) => { if (!quiet) homeMsg(st === 'server' ? 'Connecting to the game server…' : `Connecting to party ${code}… (can take up to 20 s on some networks)`); };
+  $('failReport').classList.add('hidden');
   try { await net.join(code, { ...profile(), rejoin: !!ss.get(SESSION_KEY) }, stage); } catch (e) {
+    lastFail = [`Join failed: party ${code} at ${new Date().toISOString()}`, `error: ${e.type || ''} ${e.reason || e.message || ''}`,
+      `direct link: ${net.t?.peerOk === false ? 'server UNREACHABLE' : e.directErr || (e.ice ? `${e.type} · ${e.ice}` : '-')}`,
+      `relay: ${net.t?.relayOk === false ? 'no relay server reachable' : e.relayErr || '-'} · servers: ${net.t?.relayInfo?.() || '-'}`, `browser: ${navigator.userAgent}`].join('\n');
     net.leave(); net = null; busy(false);
     const msg = e.reason
       || (e.type === 'peer-unavailable' ? `No party with code ${code}. Check the code, and make sure the host still has the game open.`
-      : e.type === 'timeout' || e.type === 'closed' ? `Found party ${code} but couldn't connect to it. One of your networks is probably blocking peer-to-peer games (common on school / work Wi-Fi). Try again, or try a different network such as a phone hotspot.`
+      : e.type === 'timeout' || e.type === 'closed' || e.type === 'ice-failed' ? `Found party ${code} but couldn't connect to it: neither the direct link nor the backup relay got through. Try again in a moment. If it keeps happening, press Copy details and send it to whoever looks after the arcade.`
       : e.type === 'network' || e.type === 'server-error' || e.type === 'socket-error' ? 'Could not reach the game server. Check your internet connection and try again.'
       : 'Could not join: ' + (e.message || e.type));
-    if (!quiet) homeMsg(msg);
+    if (!quiet) { homeMsg(msg); if (!e.reason) $('failReport').classList.remove('hidden'); }
     return e.reason ? 'rejected' : false;
   }
   busy(false); homeMsg('');
@@ -294,6 +301,7 @@ function leaveParty(msg = '') {
   for (const id of ['pause', 'settings', 'controls', 'profile', 'scoreboard']) $(id).classList.add('hidden');
   input.setEnabled(true);
   show('home'); $('joinBox').classList.add('hidden'); homeMsg(msg);
+  setTimeout(() => { if (!net) prewarm(netKind()); }, 1000);
 }
 
 // ---------------------------------------------------------------- host: admission & roster
@@ -323,15 +331,15 @@ function admit(id, hello) {
   }
   return { ok: true };
 }
-function onPeerJoin(id, hello) {
+function onPeerJoin(id, hello, via = 'direct') {
   const p = find(id);
   if (p) {
     const was = p.connected;
-    p.connected = true; p.addr = hello.addr; delete p.leftAt;
+    p.connected = true; p.addr = hello.addr; p.via = via; delete p.leftAt;
     if (!was) { sys(`${p.name} reconnected`); runtime?.emit('rejoin', id); }
   } else {
-    addHuman(id, hello);
-    sys(`${cleanName(hello.name)} joined the party`); audio.play('join');
+    addHuman(id, hello); find(id).via = via;
+    sys(`${cleanName(hello.name)} joined the party${via === 'relay' ? ' (via relay)' : ''}`); audio.play('join');
   }
   commit();
 }
@@ -679,24 +687,39 @@ setInterval(() => {
 }, 50);
 
 // ---------------------------------------------------------------- lobby rendering
+// Connection status under the party code: the host sees whether friends can reach the party right now.
+function netBadgeSync() {
+  if (!net || !S) return;
+  let t;
+  if (net.kind === 'local') t = '⚠ Offline party: the game server could not be reached, so friends can\'t join (bots only)';
+  else if (isHost()) {
+    const r = net.t.reachable?.() || { direct: true, relay: 0 };
+    t = r.direct || r.relay ? `🌐 Friends can join · direct ${r.direct ? '✔' : '✖'} · relay ${r.relay ? '✔' : '✖'}`
+      : '⚠ Friends can\'t reach this party right now: reconnecting to the servers…';
+  } else t = net.via === 'relay' ? '🐢 On the backup relay (slower) · retrying direct' : '🌐 Connected directly to the host';
+  if ($('netBadge').textContent !== t) $('netBadge').textContent = t;
+}
+setInterval(() => { if (screen === 'lobby') netBadgeSync(); }, 2000);
 function renderLobby() {
   const host = isHost(), m = me();
   $('roomCode').textContent = S.code;
-  $('netBadge').textContent = net.kind === 'local' ? '⚠ Offline party: the game server could not be reached, so friends can\'t join (bots only)' : '🌐 Online: friends join with the code or link';
+  netBadgeSync();
   $('playerList').innerHTML = S.players.map((p) => {
     const tags = [];
     if (p.id === S.hostId) tags.push('<span class="ph-tag gold">HOST</span>');
     if (p.isBot) tags.push('<span class="ph-tag">BOT</span>');
-    const ping = !p.isBot && pings[p.id] ? `<span class="ph-tag">${pings[p.id]}ms</span>` : '';
+    const relay = p.via === 'relay' && p.connected;
+    const ping = !p.isBot && (pings[p.id] || relay) ? `<span class="ph-tag" ${relay ? 'title="Connected through the backup relay (this network blocks direct links). Works fine, just a little slower."' : ''}>${pings[p.id] ? pings[p.id] + 'ms' : ''}${relay ? (pings[p.id] ? ' · ' : '') + 'relay' : ''}</span>` : '';
     const acts = host && p.id !== pid ? (p.isBot ? `<button class="ph-btn small danger" data-kick="${p.id}" title="Remove bot">✕</button>`
       : `<button class="ph-btn small" data-host="${p.id}" title="Make host">👑</button><button class="ph-btn small danger" data-kick="${p.id}" title="Kick">✕</button>`) : '';
-    return `<li class="${p.connected ? '' : 'off'} ${p.id === pid ? 'me' : ''}" title="${p.id === pid ? 'You' : ''}"><span class="ph-dot" style="background:${css(p.color)}"></span><span class="nm">${esc(p.name)}</span>${tags.join('')}${ping}
-      <span class="trophy">🏆${p.trophies}</span><span class="ready">${p.isBot || p.ready ? '✔' : '…'}</span><span class="acts">${acts}</span></li>`;
-  }).join('') + `<li style="justify-content:center;opacity:.6">${S.players.length}/${MAX_PARTY} players${S.players.some((p) => !p.connected) ? ' · greyed = reconnecting' : ''}</li>`;
+    const rdy = p.isBot || p.ready;
+    return `<li class="${p.connected ? '' : 'off'} ${p.id === pid ? 'me' : ''}" style="--pc:${css(p.color)}" title="${p.id === pid ? 'You' : ''}"><span class="ph-dot" style="background:${css(p.color)}"></span><span class="nm">${esc(p.name)}</span><span class="tags">${tags.join('')}${ping}</span>
+      <span class="trophy">🏆 ${p.trophies}</span><span class="ready ${rdy ? 'on' : ''}">${rdy ? 'READY' : 'not ready'}</span><span class="acts">${acts}</span></li>`;
+  }).join('') + `<li class="count-row">${S.players.length}/${MAX_PARTY} players${S.players.some((p) => !p.connected) ? ' · faded = reconnecting' : ''}</li>`;
   $('botLevel').value = S.botLevel;
   $('addBot').disabled = S.players.length >= MAX_PARTY;
   $('remBot').disabled = !S.players.some((p) => p.isBot);
-  $('readyBtn').textContent = m?.ready ? 'Ready ✔ (click to cancel)' : 'Ready!';
+  $('readyBtn').textContent = m?.ready ? '✔ Ready! (click to cancel)' : 'Ready up!';
   $('readyBtn').classList.toggle('green', !!m?.ready);
   document.querySelectorAll('.mode').forEach((b) => { b.classList.toggle('on', b.dataset.mode === S.mode); b.disabled = !host; });
   $('shuffleLen').value = String(S.shuffleLen); $('shuffleLen').classList.toggle('hidden', !host || S.mode !== 'shuffle');
@@ -723,8 +746,9 @@ function renderLobby() {
 }
 function renderLeaderboard(target) {
   const rows = [...S.players].sort((a, b) => b.trophies - a.trophies || b.wins - a.wins);
-  target.innerHTML = rows.map((p, i) => `<div class="lb-row ${i === 0 && p.trophies > 0 ? 'first' : ''}"><span>${i === 0 && p.trophies > 0 ? '👑' : i + 1 + '.'}</span><span class="ph-dot" style="background:${css(p.color)}"></span><span class="n">${esc(p.name)}</span><span>🏆 ${p.trophies}</span></div>`).join('')
-    + `<div class="muted" style="font-size:.8rem;margin-top:4px">${S.history.length} game${S.history.length === 1 ? '' : 's'} played · 1st 5🏆 · 2nd 3 · 3rd 2 · others 1</div>`;
+  const any = rows.some((p) => p.trophies > 0);
+  target.innerHTML = rows.map((p, i) => `<div class="lb-row ${any && i < 3 ? 'top' + (i + 1) : ''} ${p.id === pid ? 'me' : ''}"><span class="pl">${any && i < 3 && p.trophies > 0 ? MEDAL[i] : i + 1}</span><span class="ph-dot" style="background:${css(p.color)}"></span><span class="n">${esc(p.name)}</span><span class="tr">🏆 ${p.trophies}</span></div>`).join('')
+    + `<div class="lb-note">${S.history.length} game${S.history.length === 1 ? '' : 's'} played · 1st +5 · 2nd +3 · 3rd +2 · others +1</div>`;
 }
 $('playerList').onclick = (e) => {
   const k = e.target.closest('[data-kick]'), h = e.target.closest('[data-host]');
@@ -806,7 +830,7 @@ function renderResults() {
   let html = '', i = 0;
   for (const grp of r.groups) for (const id of grp) {
     const pl = r.places[id], p = nm(id);
-    html += `<div class="res-row ${pl === 1 ? 'p1' : ''}" style="animation-delay:${i++ * 0.08}s"><span class="place">${MEDAL[pl - 1] || ordinal(pl)}</span><span class="ph-dot" style="background:${css(p.color)}"></span>
+    html += `<div class="res-row p${Math.min(pl, 4)} ${id === pid ? 'me' : ''}" style="animation-delay:${i++ * 0.08}s;--pc:${css(p.color)}"><span class="place">${MEDAL[pl - 1] || ordinal(pl)}</span><span class="ph-dot" style="background:${css(p.color)}"></span>
       <span class="nm">${esc(p.name)}${id === pid ? ' (you)' : ''}${p.isBot ? ' 🤖' : ''}</span><span class="stat">${esc(r.stats[id] || '')}</span><span class="gain">${r.awards[id] ? '+' + r.awards[id] + ' 🏆' : ''}</span></div>`;
   }
   if ($('resBody').dataset.k !== S.v + '') { $('resBody').innerHTML = html || '<div class="ph-sub">No placements.</div>'; $('resBody').dataset.k = S.v; }
@@ -911,9 +935,35 @@ async function boot() {
   }
 }
 boot();
+setTimeout(() => { if (!net) prewarm(netKind()); }, 300);   // get the servers connected before Create / Join is clicked
 
+// Both reports end with a quick check of which free STUN/TURN servers work from this computer (~4 s).
+async function withIceCheck(text) { try { return text + '\nconnection servers from this computer:\n  ' + (await iceCheck()).join('\n  '); } catch (e) { return text + '\n(server check failed: ' + e.message + ')'; } }
+$('failReport').onclick = async () => {
+  $('failReport').disabled = true; $('failReport').textContent = '⏳ Checking connection…';
+  const text = await withIceCheck(lastFail || 'No failed join recorded.');
+  $('failReport').disabled = false; $('failReport').textContent = '📋 Copy details';
+  try { await navigator.clipboard.writeText(text); toast('Details copied', 'good'); } catch { prompt('Copy this:', text); }
+};
+$('connReport').onclick = async () => {
+  $('connReport').disabled = true;
+  const text = await withIceCheck(net ? net.report() : (lastFail || 'Not in a party yet: join or create one, then copy the report.'));
+  $('connReport').disabled = false;
+  try { await navigator.clipboard.writeText(text); toast('Connection report copied', 'good'); } catch { prompt('Copy this report:', text); }
+};
+$('chatOpen').onclick = () => { if (S) openChat(); };
+// Home: a strip of every game in the arcade
+$('homeGames').innerHTML = GAMES.filter((g) => !g.hidden).map((g) => `<div class="hg" title="${esc(g.name)}: ${esc(g.tagline)}"><img src="${g.thumbnail}" alt=""><span>${esc(g.name)}</span></div>`).join('');
 // Handy for debugging and for the automated tests.
 window.__hub = {
   get state() { return S; }, get pid() { return pid; }, get net() { return net; }, get runtime() { return runtime; }, get screen() { return screen; },
-  act, liveStats, leaveParty,
+  act, liveStats, leaveParty, netReport: () => net?.report(),
 };
+
+// Developer tuning portal: only on this computer (localhost) and only with ?portal=1. See docs/PORTAL.md.
+if (DEV_HOST && params.has('portal')) {
+  import('./portal.js').then((m) => m.initPortal({
+    act, GAME_MAP, get state() { return S; }, get pid() { return pid; },
+    solo: () => $('soloBtn').onclick(),
+  })).catch((e) => console.error('portal failed to load', e));
+}

@@ -6,10 +6,10 @@ export const BALL_R = 0.15;
 export const BIG_R = 0.3;
 export const CUP_R = 0.27;
 export const WALL_TH = 0.25;
-export const MAX_SPEED = 14;
 export const MAX_STROKES = 8;
 export const G = 9.8;
-const ROLL = 0.9, DAMP = 0.35, STOP = 0.12, CUP_SPEED = 4.6;
+// Ball feel (tunable: see tuning.js).
+export const PHYS = { MAX_SPEED: 14, ROLL: 0.9, DAMP: 0.35, STOP: 0.12, CUP_SPEED: 4.6 };
 const BANK_H = 0.55, KICK_H = 0.5, KICK_END = 1.5, GAP_END = 3.25;
 
 export const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]]; // N E S W
@@ -119,7 +119,7 @@ export function generateHole(seed, idx, opt = {}) {
   const m = MODS[mod];
   const hole = {
     seed, idx, theme, themeIdx: THEME_KEYS.indexOf(theme), mod, tiles, map: new Map(),
-    walls: [], obbs: [], bumpers: [], movers: [], waters: [], pits: [], tees: [], pickups: [], tunnels: [], zones: [], portals: [], cup: null, par: 3,
+    walls: [], obbs: [], arcs: [], bumpers: [], movers: [], waters: [], pits: [], tees: [], pickups: [], tunnels: [], zones: [], portals: [], cup: null, par: 3,
     P: { g: m.g ?? 1, fric: m.fric ?? 1, cupR: m.cupR ?? CUP_R, wallRest: m.wallRest ?? 0.7, power: m.power ?? 1, baseR: m.baseR ?? BALL_R },
   };
   tiles.forEach(t => hole.map.set(key(t.gx, t.gz), t));
@@ -208,10 +208,11 @@ export function generateHole(seed, idx, opt = {}) {
       const [icx, icz] = t.ic;
       const a0 = Math.atan2(t.cz - icz, t.cx - icx) - Math.PI / 4;
       const segs = 9, rad = T + WALL_TH / 2;
+      hole.arcs.push({ t, ic: t.ic, a0, y0: y - 0.25 }); // the renderer draws this wall as one smooth curve
       for (let j = 0; j < segs; j++) {
         const a = a0 + (j + 0.5) / segs * Math.PI / 2;
         const hb = heightAtTile(t, icx + Math.cos(a) * (T - 0.2), icz + Math.sin(a) * (T - 0.2));
-        hole.obbs.push({ x: icx + Math.cos(a) * rad, z: icz + Math.sin(a) * rad, hx: WALL_TH / 2, hz: rad * Math.PI / 4 / segs + 0.07, a, y0: y - 0.25, y1: hb + 0.38 });
+        hole.obbs.push({ x: icx + Math.cos(a) * rad, z: icz + Math.sin(a) * rad, hx: WALL_TH / 2, hz: rad * Math.PI / 4 / segs + 0.07, a, y0: y - 0.25, y1: hb + 0.38, arc: true });
       }
     } else if (t.type === 'cup') {
       const a = 0.6 + R() * 0.9, l = (R() * 2 - 1) * 1.3;
@@ -335,7 +336,7 @@ export function makeBall(id, x, z, y = 0, hole = null) {
 }
 export const isResting = b => b.vx === 0 && b.vz === 0 && !b.air;
 export function applyEffects(b, hole) { b.r = b.big > 0 ? BIG_R : hole.P.baseR; b.m = b.sticky > 0 ? 40 : b.big > 0 ? 3 : 1; }
-export const shotSpeed = (hole, p) => p * MAX_SPEED * hole.P.power;
+export const shotSpeed = (hole, p) => p * PHYS.MAX_SPEED * hole.P.power;
 
 function fx(b, kind, v) { if (v > (b.fxv || 0) || !b.fx) { b.fx = kind; b.fxv = v; } }
 
@@ -394,8 +395,8 @@ export function stepBall(hole, b, t, dt) {
     }
     b.bst = boosting;
     // static friction holds the ball on gentle slopes; otherwise gravity pulls it downhill
-    const holds = GR * gm < ROLL * fr * 0.9;
-    if (gm > 0 && !(holds && sp < STOP) && !(sticky && sp < 0.5)) {
+    const holds = GR * gm < PHYS.ROLL * fr * 0.9;
+    if (gm > 0 && !(holds && sp < PHYS.STOP) && !(sticky && sp < 0.5)) {
       const k = GR / Math.sqrt(1 + gm * gm);
       b.vx -= k * gx * dt; b.vz -= k * gz * dt;
     }
@@ -405,16 +406,16 @@ export function stepBall(hole, b, t, dt) {
     }
     sp = Math.hypot(b.vx, b.vz);
     if (sp > 0) {
-      const dec = (ROLL * fr + DAMP * Math.min(fr, 2) * sp) * dt; const ns = Math.max(0, sp - dec);
+      const dec = (PHYS.ROLL * fr + PHYS.DAMP * Math.min(fr, 2) * sp) * dt; const ns = Math.max(0, sp - dec);
       b.vx *= ns / sp; b.vz *= ns / sp; sp = ns;
     }
-    if (holds && sp < STOP && !boosting) { b.vx = 0; b.vz = 0; sp = 0; }
+    if (holds && sp < PHYS.STOP && !boosting) { b.vx = 0; b.vz = 0; sp = 0; }
     // vertical speed follows the slope under the *current* velocity (so bounces off walls can't launch the ball)
     b.vy = Math.max(-8, Math.min(8, gx * b.vx + gz * b.vz));
   } else {
     b.air = true; b.vy -= GR * dt;
   }
-  if (sp > MAX_SPEED * 1.5) { const f = MAX_SPEED * 1.5 / sp; b.vx *= f; b.vz *= f; sp *= f; }
+  if (sp > PHYS.MAX_SPEED * 1.5) { const f = PHYS.MAX_SPEED * 1.5 / sp; b.vx *= f; b.vz *= f; sp *= f; }
   const ox = b.x, oz = b.z;
   b.x += b.vx * dt; b.z += b.vz * dt;
   // cliff faces: can't move into floor that's well above the ball
@@ -480,7 +481,7 @@ export function stepBall(hole, b, t, dt) {
   if (Math.abs(b.y - cup.y) < 0.2) {
     const cdx = cup.x - b.x, cdz = cup.z - b.z, cd = Math.hypot(cdx, cdz);
     if (cd < P.cupR + BALL_R * 0.6 && cd > 1e-6) { b.vx += cdx / cd * 7 * dt; b.vz += cdz / cd * 7 * dt; }
-    if (cd < P.cupR && sp < CUP_SPEED * (b.magnet > 0 ? 1.6 : 1) * (P.cupR / CUP_R)) { b.sunk = true; b.vx = b.vy = b.vz = 0; b.x = cup.x; b.z = cup.z; return 'sunk'; }
+    if (cd < P.cupR && sp < PHYS.CUP_SPEED * (b.magnet > 0 ? 1.6 : 1) * (P.cupR / CUP_R)) { b.sunk = true; b.vx = b.vy = b.vz = 0; b.x = cup.x; b.z = cup.z; return 'sunk'; }
   }
   for (const w of hole.waters) {
     if (Math.abs(b.x - w.x) < w.hx && Math.abs(b.z - w.z) < w.hz && b.y < w.y + 0.1) return 'water';

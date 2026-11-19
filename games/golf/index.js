@@ -5,6 +5,7 @@
 //                host→all  {t:'hole'} {t:'s'} {t:'ev'} {t:'emoted'} {t:'holeEnd'} {t:'matchEnd'}
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import './tuning.js';
 import * as C from './course.js';
 import * as SFX from './sfx.js';
 import * as G from './gfx.js';
@@ -12,6 +13,7 @@ export { manifest } from './manifest.js';
 
 const EMOTES = ['😂', '😡', '👏 Nice!', '😱 Oops!'];
 const PLACE_PTS = [10, 7, 5, 4, 3, 2, 1, 1];
+const BALL_VIS = 1.25;   // balls are drawn a little larger than their physics radius so they read from the play camera
 const STEP = 1 / 240, HOLE_END_SECS = 6, INTRO_SECS = 3.0, PODIUM_SECS = 4.5;
 const ITEM_RESPAWN = { normal: 12, chaos: 4 };
 const BOT_SKILL = { easy: [0.2, 0.45], normal: [0.55, 0.9], hard: [0.92, 1] };
@@ -22,6 +24,7 @@ const CSS = `
 .golf-intro{position:absolute;left:50%;top:26%;transform:translate(-50%,-50%);text-align:center;color:#fff;text-shadow:var(--stroke),0 6px 0 var(--ink);animation:golfIntro 3s forwards;white-space:nowrap;pointer-events:none}
 .golf-intro .h{font-size:4.5rem;line-height:1}.golf-intro .s{font-size:1.5rem}.golf-intro .m{font-size:1.7rem;color:var(--yellow);margin-top:6px}
 @keyframes golfIntro{0%{opacity:0;transform:translate(-50%,-50%) scale(.7)}12%{opacity:1;transform:translate(-50%,-50%) scale(1)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-60%) scale(1)}}
+.golf-vig{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 58%,rgba(20,14,50,.3) 100%)}
 .golf-emotes{position:absolute;left:14px;bottom:20px;display:flex;gap:6px}
 .golf-emotes button{font-size:1.2rem;padding:4px 9px}`;
 
@@ -102,6 +105,7 @@ export async function start(ctx) {
   scene.add(aimGroup, pullLine);
 
   // play-area panels: hole intro, between-hole scorecard, emote buttons
+  ctx.container.appendChild(ui.el('div', 'golf-vig'));
   const intro = ui.el('div', 'golf-intro hidden', '<div class="h"></div><div class="s"></div><div class="m"></div>'); ctx.container.appendChild(intro);
   const card = ui.el('div', 'ph-panel'); Object.assign(card.style, { position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', zIndex: 5, display: 'none', maxWidth: '94vw' });
   ctx.container.appendChild(card);
@@ -165,7 +169,7 @@ export async function start(ctx) {
   function prepare(idx) {
     if (!prepCache.has(idx)) {
       const opt = holeOpt(idx);
-      const p = worker ? new Promise((res) => { const id = ++reqId; waiting.set(id, res); worker.postMessage({ id, seed: S.seed, idx, opt }); }) : Promise.resolve(prepSync(idx, opt));
+      const p = worker ? new Promise((res) => { const id = ++reqId; waiting.set(id, res); worker.postMessage({ id, seed: S.seed, idx, opt, phys: { ...C.PHYS } }); }) : Promise.resolve(prepSync(idx, opt));
       prepCache.set(idx, p.then(({ seed, par }) => { const hole = C.generateHole(seed, idx, opt); hole.par = par; return { seed, hole, par, opt }; }));
     }
     return prepCache.get(idx);
@@ -446,12 +450,11 @@ export async function start(ctx) {
   // Floor of one tile as a height-mapped grid (ramps, banks, hills, kickers, gaps). UVs follow the lane.
   function tileFloor(hole, t) {
     const N = 24, T = C.T, e = 1e-3, pos = [], uv = [], ok = [], idx = [];
-    const d = t.d, px = -d[1], pz = d[0];
     for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
       const x = t.cx - T / 2 + T * i / N, z = t.cz - T / 2 + T * j / N;
       const h = C.heightAt(hole, Math.min(t.cx + T / 2 - e, Math.max(t.cx - T / 2 + e, x)), Math.min(t.cz + T / 2 - e, Math.max(t.cz - T / 2 + e, z)));
       pos.push(x, h ?? 0, z); ok.push(h !== null);
-      uv.push(((x - t.cx) * px + (z - t.cz) * pz) / 2.5 + 0.5, ((x - t.cx) * d[0] + (z - t.cz) * d[1]) / 2.5);
+      uv.push((x + z) / 3.5, (x - z) / 3.5); // world-space diagonal stripes: unbroken across every corner
     }
     const v = (i, j) => j * (N + 1) + i;
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
@@ -481,7 +484,7 @@ export async function start(ctx) {
     for (const t of hole.tiles) {
       course.add(tileFloor(hole, t));
       const low = Math.min(t.h0, t.h1) - (t.type === 'jump' ? 1.1 : t.cupKind === 'bowl' ? 0.27 : 0.02);
-      if (low - gy > 0.01) add(G.box(T, low - gy, T, t.type === 'jump' ? M.pit : M.stone, { uvScale: 1.6 }), t.cx, (low + gy) / 2, t.cz).castShadow = false;
+      if (low - gy > 0.01) add(G.box(T, low - gy, T, t.type === 'jump' ? M.pit : M.stone, { uvScale: 1.6 }), t.cx, (low + gy) / 2, t.cz).userData.noInk = true;
       if (t.type === 'jump') {
         for (const s of [-1, 1]) add(G.box(t.d[0] ? T : 0.1, t.h0 - gy, t.d[0] ? 0.1 : T, M.stone, { uvScale: 1.6 }), t.cx - t.d[1] * s * (T / 2 - 0.05), (t.h0 + gy) / 2, t.cz + t.d[0] * s * (T / 2 - 0.05));
         const [fx, fz] = at(t, -T / 2 + 1.5, 0);
@@ -491,16 +494,9 @@ export async function start(ctx) {
         add(G.box(t.d[0] ? 0.06 : T, 1.1, t.d[0] ? T : 0.06, M.pit), lx, t.h0 - 0.56, lz);
       }
       if (t.type === 'bank') {
-        // raised stone planter fills the corner behind the curved rail
-        const N = 14, pos = [], idx = [], ok = [];
-        for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) { const x = t.cx - T / 2 + T * i / N, z = t.cz - T / 2 + T * j / N; pos.push(x, t.h0 + 0.5, z); ok.push(Math.hypot(x - t.ic[0], z - t.ic[1]) > T - 0.3); }
-        const v = (i, j) => j * (N + 1) + i;
-        for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const a = v(i, j), b = v(i + 1, j), c = v(i, j + 1), d = v(i + 1, j + 1); if (ok[a] && ok[b] && ok[c] && ok[d]) idx.push(a, c, b, b, c, d); }
-        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-        g.setAttribute('uv', new THREE.Float32BufferAttribute(pos.filter((_, k) => k % 3 !== 1).map(v => v / 1.6), 2)); g.setIndex(idx); g.computeVertexNormals();
-        const pm = new THREE.Mesh(g, M.stone); pm.receiveShadow = true; course.add(pm);
+        const arc = hole.arcs.find((a) => a.t === t); if (arc) course.add(G.bankWall(hole, arc));
         const ox = t.cx + (t.din[0] - t.d[0]) * (T / 2 - 0.75), oz = t.cz + (t.din[1] - t.d[1]) * (T / 2 - 0.75);
-        const bush = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 1), new THREE.MeshStandardMaterial({ color: th.bush, flatShading: true, roughness: 0.9 }));
+        const bush = new THREE.Mesh(new THREE.SphereGeometry(0.55, 14, 10), G.toon({ color: th.bush })); bush.userData.inkMe = true;
         bush.castShadow = true; add(bush, ox, t.h0 + 0.85, oz).scale.set(1.1, 0.9, 1.1);
       }
       if (t.type === 'tee') {
@@ -535,7 +531,7 @@ export async function start(ctx) {
       add(w.kind === 'tunnel' ? G.box(ww, hh, dd, M.stone, { uvScale: 1.2 }) : G.box(ww, hh, dd, w.kind === 'inner' ? M.paint : M.wood, { round: 0.05 }), w.x, (w.y0 + w.y1) / 2, w.z);
       if (w.kind === 'inner') add(G.box(ww + 0.02, 0.05, dd + 0.02, M.red, { round: 0.02 }), w.x, w.y1, w.z);
     }
-    for (const o of hole.obbs) add(G.box(o.hx * 2, o.y1 - o.y0, o.hz * 2, M.wood, { round: 0.05 }), o.x, (o.y0 + o.y1) / 2, o.z).rotation.y = -o.a;
+    for (const o of hole.obbs) if (!o.arc) add(G.box(o.hx * 2, o.y1 - o.y0, o.hz * 2, M.wood, { round: 0.05 }), o.x, (o.y0 + o.y1) / 2, o.z).rotation.y = -o.a;
     for (const { t, y } of hole.tunnels) {
       add(G.box(t.d[0] ? 3.6 : 2.7, 0.06, t.d[0] ? 2.7 : 3.6, M.glass), t.cx, y + 0.95, t.cz).castShadow = false;
       for (const s of [-1, 1]) {
@@ -548,7 +544,7 @@ export async function start(ctx) {
       const rim = 0.09;
       for (const [rx, rz, rw, rd] of [[w.x, w.z - w.hz - rim / 2, w.hx * 2 + rim * 2, rim], [w.x, w.z + w.hz + rim / 2, w.hx * 2 + rim * 2, rim], [w.x - w.hx - rim / 2, w.z, rim, w.hz * 2], [w.x + w.hx + rim / 2, w.z, rim, w.hz * 2]]) {
         const rt = C.tileAt(hole, rx, rz); if (!rt || Math.abs(rx - rt.cx) > T / 2 - 0.15 || Math.abs(rz - rt.cz) > T / 2 - 0.15) continue;
-        add(G.box(rw, 0.06, rd, M.stone, { uvScale: 0.6 }), rx, w.y + 0.03, rz).castShadow = false;
+        const rim = add(G.box(rw, 0.06, rd, M.stone, { uvScale: 0.6 }), rx, w.y + 0.03, rz); rim.castShadow = false; rim.userData.noInk = true;
       }
     }
     for (const zn of hole.zones) {
@@ -601,10 +597,14 @@ export async function start(ctx) {
     turnRing = new THREE.Mesh(new THREE.RingGeometry(0.26, 0.36, 40), new THREE.MeshBasicMaterial({ color: '#ffd84a', transparent: true, opacity: 0.9, depthWrite: false }));
     turnRing.rotation.x = -Math.PI / 2; turnRing.visible = false; course.add(turnRing);
       for (const p of S.players) {
-      const ball = new THREE.Mesh(ballGeo, G.ballMaterial(p.color)); ball.castShadow = true;
+      const ball = new THREE.Mesh(ballGeo, G.ballMaterial(p.color)); ball.castShadow = true; ball.userData.inkMe = true;
+      const blob = new THREE.Mesh(G.blobGeo, M.blob); blob.renderOrder = 1;
       const label = G.makeLabel(p.id === S.myId ? 'You' : p.name, p.color);
-      course.add(ball, label); ballMeshes.set(p.id, { ball, label, trail: new G.Trail(course, p.color), sink: 0, wasSunk: false });
+      course.add(ball, label, blob); ballMeshes.set(p.id, { ball, label, blob, trail: new G.Trail(course, p.color), sink: 0, wasSunk: false });
     }
+    const rs = G.railShadows(hole); if (rs) course.add(rs);
+    course.add(G.cupRings(hole));
+    G.inkCourse(course);
     course.add(G.buildScenery(hole, gy, th));
     const dir = G.applyTheme(th, themeCtx); weather.set(th.weather);
     const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2, ext = Math.max(maxX - minX, maxZ - minZ) / 2 + 3;
@@ -636,21 +636,23 @@ export async function start(ctx) {
     const steps = [[0, 0.75, M.gold], [-0.72, 0.55, M.silver], [0.72, 0.42, M.bronze]];
     steps.forEach(([off, h, mat], i) => {
       if (!ps[i]) return;
-      const b = G.box(0.7, h + 0.3, 0.7, mat, { round: 0.04 }); b.position.set(cx + px * off, y0 + (h + 0.3) / 2, cz + pz * off); course.add(b);
+      const b = G.box(0.7, h + 0.3, 0.7, mat, { round: 0.04 }); b.position.set(cx + px * off, y0 + (h + 0.3) / 2, cz + pz * off); G.outline(b); course.add(b);
       pos.set(ps[i].id, new THREE.Vector3(cx + px * off, t.h0 + h, cz + pz * off));
     });
     ps.slice(3).forEach((p, i) => { const o = (i - (ps.length - 4) / 2) * 0.5; pos.set(p.id, new THREE.Vector3(cx + px * o + t.d[0] * 1.0, t.h0, cz + pz * o + t.d[1] * 1.0)); });
     S.podium = { pos, c: new THREE.Vector3(cx, t.h0 + 0.6, cz), t0: performance.now(), win: ps[0]?.id };
   }
 
-  function startIntro() {
+  // arm=false only parks the camera on the flyover's first shot (hole 1, before the hub countdown ends)
+  function startIntro(arm = true) {
     const b = myBall() || [...balls().values()][0]; if (!b || !S.hole) return;
     const xs = S.hole.tiles.map(t => t.cx), zs = S.hole.tiles.map(t => t.cz);
     const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cz = (Math.min(...zs) + Math.max(...zs)) / 2, span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs)) + 8;
     const cup = S.hole.cup;
     S.introFrom = { pos: new THREE.Vector3(cx + 3, cup.y + span * 0.75 + 5, cz + span * 0.55), tgt: new THREE.Vector3((cx + cup.x) / 2, cup.y, (cz + cup.z) / 2) };
-    S.introUntil = Infinity; S.introArm = true; // the clock starts on the first rendered frame (after shaders compile)
     camera.position.copy(S.introFrom.pos); controls.target.copy(S.introFrom.tgt);
+    if (!arm) return;
+    S.introUntil = Infinity; S.introArm = true; // the clock starts on the first rendered frame (after shaders compile)
   }
   function homeCam(b) {
     const t0 = S.hole.tiles[0];
@@ -697,7 +699,9 @@ export async function start(ctx) {
     S.pick = S.hole.pickups.map(() => 1); S.mines = []; S.pred = { strokes: -1, until: 0 }; S.spec = null; S.podium = null;
     buildCourse(S.hole); liveAt = 0; showCard(false);
     // flyover intro: starts when the round is live (after the hub countdown for hole 1)
-    if (S.phase === 'playing' && (m.intro ?? 1) > 0.5) startIntro(); else resetCamera();
+    if (S.phase === 'playing' && (m.intro ?? 1) > 0.5) startIntro();
+    else if (!ctx.started) startIntro(false);
+    else resetCamera();
     SFX.play('pickup', 0.5);
   }
   net.onMessage((m, from) => {
@@ -785,10 +789,13 @@ export async function start(ctx) {
   ctx.input.on('press', (a) => {
     if (a === 'use') useMyItem();
     else if (a === 'jump' && S.phase === 'playing') resetCamera();
-    else if (a === 'left') cycleSpec(-1);
-    else if (a === 'right') cycleSpec(1);
   });
-  ctx.input.on('key', (code, down) => { if (down && /^Digit[1-4]$/.test(code)) emote(+code.slice(5) - 1); });
+  ctx.input.on('key', (code, down) => {
+    if (!down) return;
+    if (/^Digit[1-4]$/.test(code)) emote(+code.slice(5) - 1);
+    else if (code === 'ArrowLeft') cycleSpec(-1);
+    else if (code === 'ArrowRight') cycleSpec(1);
+  });
   ctx.input.on('release', () => { if (!ctx.input.enabled) aimCancel(); });
 
   // ---------------------------------------------------------------- host migration, late joiners, leavers
@@ -825,6 +832,7 @@ export async function start(ctx) {
   // ---------------------------------------------------------------- loops
   ctx.tick((dt) => { try { hostTick(dt); } catch (e) { console.error(e); } });
   let lastSec = 0, liveAt = 0, fpsFrames = 0, fpsAt = performance.now(), slowSecs = 0, autoDone = false;
+  const camSph = new THREE.Spherical(), camOff = new THREE.Vector3();
   const sm = (x) => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
   const preview = { b: null };
   ctx.frame((dt, now) => {
@@ -850,26 +858,32 @@ export async function start(ctx) {
       mineMeshes.forEach((g, i) => { const m = S.mines[i]; g.visible = !!m; if (m) g.position.set(m[0], m[1], m[2]); });
       const bs = balls(), cup = S.hole.cup, pod = S.phase === 'matchEnd' ? S.podium : null;
       for (const [id, bm] of ballMeshes) {
-        const { ball, label, trail } = bm;
-        const b = bs.get(id); if (!b) { ball.visible = label.visible = false; continue; }
+        const { ball, label, trail, blob } = bm;
+        const b = bs.get(id); if (!b) { ball.visible = label.visible = blob.visible = false; continue; }
         const gone = S.players.find((p) => p.id === id)?.gone;
         const sc = b.r / C.BALL_R;
         if (pod) {
           const p = pod.pos.get(id); ball.visible = label.visible = !!p && !gone; trail.mesh.visible = false;
-          if (p) { const hop = id === pod.win ? Math.abs(Math.sin(tsec * 5)) * 0.35 : 0; ball.scale.setScalar(1); ball.position.set(p.x, p.y + C.BALL_R + hop, p.z); label.position.set(p.x, p.y + C.BALL_R + 0.5 + hop, p.z); ball.material.opacity = 1; }
+          blob.visible = !!p && !gone;
+          if (p) { const hop = id === pod.win ? Math.abs(Math.sin(tsec * 5)) * 0.35 : 0; ball.scale.setScalar(BALL_VIS); ball.position.set(p.x, p.y + C.BALL_R * BALL_VIS + hop, p.z); label.position.set(p.x, p.y + C.BALL_R * BALL_VIS + 0.5 + hop, p.z); ball.material.opacity = 1; blob.position.set(p.x, p.y + 0.01, p.z); blob.scale.setScalar(C.BALL_R * 1.5 * BALL_VIS); }
           continue;
         }
         if (b.sunk && !bm.wasSunk) bm.sink = 0.4;
         bm.wasSunk = b.sunk;
         if (bm.sink > 0) {
           bm.sink -= dt; const k = Math.max(0, bm.sink / 0.4);
-          ball.visible = true; label.visible = false; ball.scale.setScalar(sc * (0.6 + 0.4 * k)); ball.position.set(cup.x, cup.y + b.r * k - 0.25 * (1 - k), cup.z);
+          ball.visible = true; label.visible = blob.visible = false; ball.scale.setScalar(sc * BALL_VIS * (0.6 + 0.4 * k)); ball.position.set(cup.x, cup.y + b.r * BALL_VIS * k - 0.25 * (1 - k), cup.z);
         } else {
           const vis = !b.sunk && !gone;
           ball.visible = vis; label.visible = vis;
-          ball.scale.setScalar(sc); ball.position.set(b.x, b.y + b.r, b.z); label.position.set(b.x, b.y + b.r * 2 + 0.25, b.z);
+          ball.scale.setScalar(sc * BALL_VIS); ball.position.set(b.x, b.y + b.r * BALL_VIS, b.z); label.position.set(b.x, b.y + b.r * 2 * BALL_VIS + 0.25, b.z);
           ball.rotation.x += b.vz * dt / b.r; ball.rotation.z -= b.vx * dt / b.r;
+          const fy = vis ? C.heightAt(S.hole, b.x, b.z) : null;
+          blob.visible = fy !== null && b.y - fy < 3;
+          if (blob.visible) { const k = Math.max(0.35, 1 - (b.y - fy) * 0.4); blob.position.set(b.x, fy + 0.035, b.z); blob.scale.setScalar(b.r * 1.5 * BALL_VIS * k); }
         }
+        bm.ink ??= ball.children.find((c) => c.userData.ink);
+        if (bm.ink) bm.ink.visible = !(b.ghost > 0);
         ball.material.emissive.set(b.frozen > 0 ? '#3aa8ff' : b.sticky > 0 ? '#2f7a00' : b.magnet > 0 ? '#a01818' : '#000000');
         ball.material.opacity = b.ghost > 0 ? 0.4 : 1;
         trail.update(b.x, b.y, b.z, b.r, Math.hypot(b.vx, b.vz), !b.sunk && !gone);
@@ -894,11 +908,21 @@ export async function start(ctx) {
       } else if (inIntro && S.introFrom && cb) {
         const k = sm(1 - (S.introUntil - now) / (INTRO_SECS * 1000)), h = homeCam(cb);
         camera.position.lerpVectors(S.introFrom.pos, h.pos, k); controls.target.lerpVectors(S.introFrom.tgt, h.tgt, k);
-      } else if (cb) {
+      } else if (cb && ctx.started) {
         const sunk = cb === mb && mb.sunk;
         const tgt = new THREE.Vector3(sunk ? cup.x : cb.x, (sunk ? cup.y : cb.y) + cb.r, sunk ? cup.z : cb.z);
         const d = tgt.sub(controls.target).multiplyScalar(Math.min(1, dt * 6));
         controls.target.add(d); camera.position.add(d);
+        // keyboard camera: A/D orbit, W/S tilt (arrows too while you are still playing; they switch spectated player once you're done)
+        const playing = mb && !mb.sunk && !mb.out, K = (c) => ctx.input.key(c);
+        const rot = ((K('KeyA') || (playing && K('ArrowLeft'))) ? 1 : 0) - ((K('KeyD') || (playing && K('ArrowRight'))) ? 1 : 0);
+        const tilt = ((K('KeyS') || (playing && K('ArrowDown'))) ? 1 : 0) - ((K('KeyW') || (playing && K('ArrowUp'))) ? 1 : 0);
+        if (rot || tilt) {
+          camSph.setFromVector3(camOff.copy(camera.position).sub(controls.target));
+          camSph.theta += rot * dt * 1.9 * ctx.settings.get('sens');
+          camSph.phi = Math.max(0.2, Math.min(controls.maxPolarAngle, camSph.phi + tilt * dt * 1.1 * ctx.settings.get('sens')));
+          camera.position.copy(controls.target).add(camOff.setFromSpherical(camSph));
+        }
       }
       if (turnRing) {
         const ready = mb && canShoot();
@@ -955,7 +979,7 @@ export async function start(ctx) {
     }
   }
 
-  window.__golf = { S, C, applyShot, useItem, balls, canShoot, shoot };
+  window.__golf = { S, C, applyShot, useItem, balls, canShoot, shoot, camera, controls };
   return {
     standings,
     stop() {

@@ -6,11 +6,13 @@
 // rebuild bodies from the head paths they see, predict their own snake (input replay + smoothed correction) and
 // get orb spawns / eats / deaths as reliable batched messages.
 export { manifest } from './manifest.js';
+import './tuning.js';
 import { C, Trail, stepHead, radiusOf, lengthOf, ringAt, arenaCfg, spawnOf, initialOrbs, orbGoal, wrapA, standingsOf, encodeSnap, decodeSnap, encodeInput, decodeInput, makeRocks, inRock } from './sim.js';
 import { HostSim } from './host.js';
 import { makeBot, botThink } from './bots.js';
 import { createView } from './render.js';
 import { createSound } from './audio.js';
+import { AdaptiveDelay } from '../../core/interp.js';
 
 const CSS = `
 .snk-tag,.snk-feed,.snk-map,.snk-hint,.snk-arrow{z-index:2}
@@ -210,6 +212,7 @@ export async function start(ctx) {
 
   // ---------------------------------------------------------------- client networking
   let pred = null, disp = null, err = { x: 0, y: 0, a: 0 }, pending = [], seq = 1, sendAcc = 0, clockOff = null, lastSnap = 0;
+  const interpDelay = new AdaptiveDelay({ min: C.INTERP, start: C.INTERP, interval: 1 / C.SNAP_HZ });   // grows on a jittery link (relay)
   if (!ctx.spectator) { const v = V.snakes.get(ctx.myId); pred = { x: v.x, y: v.y, a: v.a, v: 0, mass: v.mass }; disp = { x: v.x, y: v.y, a: v.a }; }
   net.onRaw((ab, from) => {
     if (net.isHost) {
@@ -219,6 +222,7 @@ export async function start(ctx) {
     const snap = decodeSnap(ab); if (!snap) return;
     const nowS = performance.now() / 1000, off = snap.t - nowS;
     clockOff = clockOff == null || off > clockOff ? off : clockOff + (off - clockOff) * 0.04;
+    interpDelay.observe(nowS + clockOff - snap.t);   // how late this snapshot is vs the fastest ones (jitter)
     V.t = Math.max(V.t, snap.t); V.R = snap.R; lastSnap = performance.now();
     for (const e of snap.list) {
       const v = V.snakes.get(byIdx(e.idx)); if (!v) continue;
@@ -340,9 +344,9 @@ export async function start(ctx) {
         v.trail.push(disp.x, disp.y); v.trail.trim(lengthOf(v.mass));
       }
     }
-    // --- everyone else (clients interpolate ~110 ms in the past)
+    // --- everyone else (clients interpolate ~110 ms in the past; more on a jittery link)
     if (!host) {
-      const rt = (clockOff == null ? 0 : now / 1000 + clockOff) - C.INTERP;
+      const rt = (clockOff == null ? 0 : now / 1000 + clockOff) - interpDelay.value;
       for (const v of V.snakes.values()) {
         if (v.id === ctx.myId && pred) continue;
         if (!v.alive || !v.buf.length) continue;

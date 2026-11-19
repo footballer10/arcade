@@ -111,7 +111,7 @@ export function createView(ctx) {
   G.hex.translate(0, -0.5, 0); G.slab.translate(0, -0.5, 0); G.disc.translate(0, -0.5, 0); G.cap.translate(0, -0.06, 0);
   const M = {
     basalt: toon(0x3d3a4e), outline: new THREE.MeshBasicMaterial({ color: INK, side: THREE.BackSide }),
-    mover: toon(0xc98a4a), moverRim: toon(0xffd23f, { emissive: 0x553300 }), chain: new THREE.MeshBasicMaterial({ color: 0x2a1a22 }),
+    mover: toon(0xd9a24f, { emissive: 0x2a1200 }), moverRim: toon(0xffd23f, { emissive: 0x3a2400 }), chain: new THREE.MeshBasicMaterial({ color: 0x2a1a22 }),
     glass: new THREE.MeshToonMaterial({ color: 0x8a5cff, gradientMap: GRAD, emissive: 0x2a0c66, transparent: true, opacity: 0.88 }),
     pumice: toon(0xd8c3a5),
   };
@@ -146,10 +146,19 @@ export function createView(ctx) {
         g.add(body, ol, cap); pm.cap = cap; pm.capMat = capMat; pm.body = body; pm.ol = ol;
       } else if (p.kind === 'mover') {
         const body = new THREE.Mesh(G.slab, M.mover); body.scale.set(p.r, p.thick, p.r); body.castShadow = q.shadows; body.receiveShadow = true;
-        const ol = new THREE.Mesh(G.slab, M.outline); ol.scale.set(p.r * 1.08, p.thick * 1.15, p.r * 1.08); ol.position.y = 0.04;
-        const rimM = new THREE.Mesh(G.disc, M.moverRim); rimM.scale.set(p.r * 1.02, 0.1, p.r * 1.02); rimM.position.y = 0.0;
+        const ol = new THREE.Mesh(G.slab, M.outline); ol.scale.set(p.r * 1.08, p.thick * 1.08, p.r * 1.08); ol.position.y = 0.03;
+        // inset landing-pad marking (not a separate disc floating above the slab)
+        const rimM = new THREE.Mesh(G.disc, M.moverRim); rimM.scale.set(p.r * 0.72, 0.05, p.r * 0.72); rimM.position.y = -0.01;
         g.add(body, ol, rimM);
-        if (p.m.type === 'lift') { const ch = new THREE.Mesh(G.disc, M.chain); ch.scale.set(0.08, 30, 0.08); ch.position.y = 30; g.add(ch); }
+        if (p.m.type === 'lift') {
+          // a chain hanging from a fixed anchor up in the rock to the lift (independent of the lift's own
+          // transform, so its length actually changes as the platform rises and falls instead of riding along).
+          pm.chainTop = p.m.y1 + 6;
+          const anchor = new THREE.Mesh(G.disc, M.chain); anchor.scale.set(0.5, 0.3, 0.5); anchor.position.set(p.x, pm.chainTop + 0.3, p.z);
+          const len0 = Math.max(0.05, pm.chainTop - p.m.y0);
+          const chain = new THREE.Mesh(G.disc, M.chain); chain.scale.set(0.07, len0, 0.07); chain.position.set(p.x, pm.chainTop, p.z);
+          levelGroup.add(anchor, chain); pm.chain = chain;
+        }
         pm.body = body;
       } else if (p.kind === 'glass') {
         const mat = M.glass.clone(); pm.own.push(mat);
@@ -294,6 +303,7 @@ export function createView(ctx) {
           if (heat > 0.35 && Math.random() < heat * dt * 6) spawn(p.x + (Math.random() - 0.5) * p.r, sl.top + 0.1, p.z + (Math.random() - 0.5) * p.r, 0, 1.5 + Math.random(), 0, 0.9, 0.35, FIRE, 1);
         } else if (p.kind === 'mover') {
           pm.g.position.set(sl.x, sl.top, sl.z);
+          if (pm.chain) { const len = Math.max(0.05, pm.chainTop - sl.top); pm.chain.position.set(sl.x, pm.chainTop, sl.z); pm.chain.scale.set(0.07, len, 0.07); }
         } else if (p.kind === 'glass') {
           pm.g.visible = sl.solid && sl.top > s.lava - 1; pm.g.position.y = sl.top;
           const blink = sl.warn ? (Math.sin(t * 22) > 0 ? 1 : 0.35) : 1;

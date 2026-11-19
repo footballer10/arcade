@@ -9,12 +9,14 @@
 // The host adopts a client's state when it is close to its own and otherwise forces a correction (auth
 // counter). Bumps, grabs, tiles, qualifying and eliminations are decided by the host.
 export { manifest } from './manifest.js';
+import './tuning.js';
 import { C, EV, setPoses, stepPlayer, separate, knock, newPlayer, syncCounters, encodeSnap, decodeSnap, groundAt, isDown } from './world.js';
 import { STAGES, planMatch, buildStage, makeWorld, spawnOf, respawnOf, quota, progressOf } from './stages.js';
 import { HostSim, standingsOf, INTRO_T } from './host.js';
 import { makeBot, botThink, resetBot } from './bots.js';
 import { createView } from './render.js';
 import { createSound } from './audio.js';
+import { SnapBuffer } from '../../core/interp.js';
 
 const SNAP_HZ = 20, SEND_HZ = 30, STEP = 1 / 60;
 const CSS = `
@@ -102,7 +104,7 @@ export async function start(ctx) {
   }
   function qText(k, n) {
     const id = plan[k], meta = STAGES[id], q = quota(plan, k, n, N);
-    if (meta.kind === 'final') return id === 'crown' ? 'FINAL · first to the crown wins' : 'FINAL · last bean standing wins';
+    if (meta.kind === 'final') return (id === 'crown' || id === 'mountain') ? 'FINAL · first to the crown wins' : 'FINAL · last bean standing wins';
     if (q >= n) return n === 1 ? 'Solo show · finish to qualify' : 'Everyone can qualify!';
     return meta.kind === 'race' ? `First ${q} of ${n} qualify` : `${q} of ${n} survive · or outlast the clock`;
   }
@@ -128,7 +130,7 @@ export async function start(ctx) {
     const fx = Math.sin(yaw), fz = Math.cos(yaw), rx = -Math.cos(yaw), rz = Math.sin(yaw);
     let mx = rx * ax.x + fx * -ax.y, mz = rz * ax.x + fz * -ax.y;
     const l = Math.hypot(mx, mz); if (l > 1) { mx /= l; mz /= l; }
-    myInput.mx = mx; myInput.mz = mz; myInput.jh = input.down('jump'); myInput.j = input.presses('jump'); myInput.d = input.presses('boost'); myInput.g = input.down('use');
+    myInput.mx = mx; myInput.mz = mz; myInput.jh = input.down('jump'); myInput.j = input.presses('jump'); myInput.g = input.down('use');
   }
   function cycleSpectate() {
     const live = info.roundIn.filter((id) => statusOf(id) === 'in' && id !== ctx.myId);
@@ -311,6 +313,10 @@ export async function start(ctx) {
       const big = v.tx != null && Math.hypot(r.x - v.tx, r.z - v.tz) > 4;
       v.px = big ? r.x : (v.x ?? r.x); v.py = big ? r.y : (v.y ?? r.y); v.pz = big ? r.z : (v.z ?? r.z); v.pface = v.face ?? r.face;
       v.tx = r.x; v.ty = r.y; v.tz = r.z; v.tface = r.face; v.at = now; v.span = Math.max(30, now - (v.lastAt || now - 50)); v.lastAt = now;
+      // relay-proof smoothing during play: drawn a little in the past from a timestamped buffer (core/interp.js)
+      if (!v.buf) v.buf = new SnapBuffer({ angles: ['face'] });
+      if (big || phase !== 'play') v.buf.clear();
+      if (phase === 'play') v.buf.push(s.t, { x: r.x, y: r.y, z: r.z, face: r.face }, tC);
       Object.assign(v, { vx: r.vx, vy: r.vy, vz: r.vz, flags: fl, grounded: !!(fl & 2), dive: !!(fl & 4), down: !!(fl & 8), hang: !!(fl & 16), slide: !!(fl & 128), grabIdx: r.grabIdx });
     }
   });
@@ -390,6 +396,8 @@ export async function start(ctx) {
       // others: interpolate between the last two snapshots
       for (const [id, v] of view) {
         if (id === ctx.myId && me || v.tx == null) continue;
+        const b = phase === 'play' && v.buf?.sample(tC);
+        if (b) { v.x = b.x; v.y = b.y; v.z = b.z; v.face = b.face; continue; }
         const f = Math.min(1.25, (now - v.at) / v.span);
         v.x = v.px + (v.tx - v.px) * f; v.y = v.py + (v.ty - v.py) * f; v.z = v.pz + (v.tz - v.pz) * f;
         let da = v.tface - v.pface; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2; v.face = v.pface + da * Math.min(1, f);
@@ -428,6 +436,11 @@ export async function start(ctx) {
     const cam = gfx.cam;
     if (f) { const k = Math.min(1, dt * 9); cam.x += (f.x - cam.x) * k; cam.z += (f.z - cam.z) * k; cam.y += ((f.grounded || f.hang ? f.y : Math.min(cam.y + 3, f.y)) - cam.y) * Math.min(1, dt * 5); }
     if (input.mouse.locked) { const d = input.takeMouseDelta(ctx.settings.get('sens') || 1); cam.yaw -= d.x * 0.0032; cam.pitch = Math.max(0.05, Math.min(1.25, cam.pitch + d.y * 0.0026)); }
+    else if (st?.crown && f && Math.hypot(f.x - st.crown.x, f.z - st.crown.z) < 11 && f.y > 0.8) {
+      // on the tower: the camera swings round behind the direction you're running, so the column is always beside you
+      const sp = Math.hypot(f.vx || 0, f.vz || 0);
+      if (sp > 2) { let da = Math.atan2(f.vx, f.vz) - cam.yaw; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2; cam.yaw += da * Math.min(1, dt * 2.4); }
+    }
     else if (st?.len && f) { let da = 0 - cam.yaw; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2; cam.yaw += da * Math.min(1, dt * 0.8); }
     // ---- audio bed
     const left = info.roundIn.filter((id) => statusOf(id) === 'in').length;
@@ -510,8 +523,7 @@ export async function start(ctx) {
     const mp = net.isHost && sim ? sim.players.get(ctx.myId) : me;
     const dim = !active;
     ui.abilities([
-      { key: 'Space', label: mp?.hang >= 0 ? 'Climb' : 'Jump', ready: !dim, dim },
-      { key: 'Shift', label: 'Dive', ready: !dim && !!mp && (mp.diveOk || mp.gr >= 0) && !mp.dive, dim },
+      { key: 'Space', label: mp?.hang >= 0 ? 'Climb' : mp && mp.gr < 0 && mp.diveOk && !mp.dive ? 'Dive!' : 'Jump', ready: !dim, dim },
       { key: 'E', label: mp?.grab ? 'Holding!' : mp?.hang >= 0 ? 'Hanging' : 'Grab', cd: mp ? Math.max(0, mp.gcd || 0) / C.GRAB_CD : 0, ready: !dim, dim },
     ]);
     const htxt = !active && phase === 'play' && !ctx.spectator ? 'Space / click: watch someone else' : (active && mp?.hang >= 0 ? 'Space: climb up · let go of E to drop' : '');

@@ -23,10 +23,15 @@ One session = one game. Read `CLAUDE.md` first (contract, control map, HUD and s
    - Robustness: handle `'hostchange'` (new host rebuilds sim from the last snapshot), `'join'` (send a full sync
      to a mid-round spectator), `'leave'` (freeze/remove that player). `ctx.spectator` players only watch.
    - `stop()`: dispose everything you created (see cleanup rules).
-5. **Test driver:** add `<id>` to `tests/drivers.mjs` (how a fake player plays your game until results).
-6. **Run the tests** (below) and fix everything until they pass. Commit with a clear message.
+5. **Tuning:** put every number that shapes how the game feels (speeds, jump, gravity, cooldowns, knockback,
+   timings) in `games/<id>/tuning.js` (the template's file shows how) and import it first in `index.js`. Read the
+   values when you use them, not into copies at load time, so the tuning portal can change them live. See [`PORTAL.md`](PORTAL.md).
+   Later changes to those numbers go in `tuning.js` (it overrides the code); `node portal.mjs` fails if the two disagree.
+6. **Test driver:** add `<id>` to `tests/drivers.mjs` (how a fake player plays your game until results).
+7. **Run the tests** (below) and fix everything until they pass. Commit with a clear message.
 
 ## Checklist (all must be true)
+- [ ] Has a `tuning.js` with its feel constants; every slider in the tuning portal (`python3 tools/portal.py`) changes the game.
 - [ ] Lives entirely in `games/<id>/`, plus one line in `games/registry.js` and a driver in `tests/drivers.mjs`.
 - [ ] `manifest.js` imports nothing; thumbnail exists; `howTo` explains the goal, how to win and the key tips in 2–4 short sentences a first-time player understands; `controlsHelp` lists every key the game uses.
 - [ ] Uses `/core` for networking (`ctx.net`), input (`ctx.input`), HUD (`ctx.ui`), audio (`ctx.audio`), settings, bots, rng. No own PeerJS, lobby, menu, results screen, settings or mute buttons.
@@ -37,9 +42,10 @@ One session = one game. Read `CLAUDE.md` first (contract, control map, HUD and s
 - [ ] Host-authoritative; works with 1 human + bots, and with 2–3 humans; bots respect `ctx.bots.level`.
 - [ ] Waits for `'go'`; calls `ctx.endGame` exactly once with valid placements; provides `standings()`.
 - [ ] Host never relays a message under the type it handles (`toAll` loops back to the host); if the game has emotes/chat-like messages, `node emotes.mjs <id>` passes.
+- [ ] Plays smoothly for a player on the relay: others drawn with `core/interp.js` on the host's clock (no arrival-time or fixed-delay interpolation), own player predicted; check `node lag.mjs <id>` and play with `?netsim=100,30,250,4`.
 - [ ] Survives host migration (`'hostchange'`) and mid-round joiners (`'join'`, `ctx.spectator`).
 - [ ] Respects graphics quality (low: no shadows / post), master/sfx volume (route sound into `ctx.audio.sfx`), mouse sensitivity if it uses mouse look.
 - [ ] `stop()` frees everything: `node memory.mjs <id>` shows 0 renderers/canvases/HUD nodes after each unload and a flat heap.
 - [ ] `node e2e.mjs <id>`, `node migration.mjs <id>` and `node memory.mjs <id>` pass with **no console errors**; `node run-all.mjs` still passes for the other games.
 - [ ] Runs at 60 FPS on a mid-range laptop at High, and stays playable at Low.
-- [ ] Relative paths only; works when served from `/arcade-prototypes/`.
+- [ ] Relative paths only; works when served from `/arcade/`.

@@ -65,7 +65,7 @@ export function makeCourse(seed, mapId = 'alpine', opts = {}) {
     const len = SEC_LEN[type];
     if (z + len > L - 130) continue;
     const s = { type, z0: z, len };
-    if (type === 'shortcut') { lastSide = -lastSide; s.B = lastSide * (75 + R() * 25); }
+    if (type === 'shortcut') { lastSide = -lastSide; s.B = lastSide * (75 + R() * 25); s.kind = ['fast', 'rough', 'gap'][Math.floor(R() * 3)]; }
     if (type === 'cliff') s.drop = map.bigKickers ? 7 + R() * 3 : 5 + R() * 3;
     sections.push(s);
     z += len + 60 + R() * 90; // filler between sections
@@ -133,24 +133,56 @@ export function makeCourse(seed, mapId = 'alpine', opts = {}) {
 
   const sign = (zz, text, bg, fg, side = 1, banner = false) => signs.push({ x: cxMain(zz) + (banner ? 0 : side * (HW + 1)), z: zz, text, bg, fg, banner });
 
+  // Ramps always point straight downhill (+z), so a ramp on a bend would fire you sideways off the run.
+  // Slide each one to the straightest nearby stretch of its path and centre it on that path at the lip.
+  const placeRamp = (r, cf, range = 60, shift = 0) => {
+    const span = r.len + (r.gap || 0) + (r.land || 0) * 0.5;
+    let best = r.z0, bs = Infinity;
+    for (let d = -range; d <= range; d += 3) {
+      const z = r.z0 + d; if (z < 120 || z + span > L - 90) continue;
+      const lip = cf(z + r.len); let dev = 0;
+      const full = r.len + (r.gap || 0) + (r.land || 0), cx = lip + shift;
+      if (ramps.some((o) => z < o.z0 + o.len + (o.gap || 0) + (o.land || 0) + 8 && o.z0 < z + full + 8 && Math.abs(o.x - cx) < (o.w + r.w) / 2 + 3)) continue;
+      for (let t = 0; t <= span; t += span / 8) dev = Math.max(dev, Math.abs(cf(z + t) - lip));
+      const slope = Math.abs(cf(z + r.len + 6) - cf(z + r.len - 6)) / 12;
+      const score = dev * 0.6 + slope * 90 + Math.abs(d) * 0.04;
+      if (score < bs) { bs = score; best = z; }
+    }
+    if (bs === Infinity) best = r.z0; // nowhere clear nearby: keep the original spot
+    r.z0 = best; r.x = cf(best + r.len) + shift; ramps.push(r); return r;
+  };
+
   // --- Section contents ----------------------------------------------------
   for (const s of sections) {
     const zs = s.z0, ze = s.z0 + s.len;
     if (s.type === 'shortcut') {
-      for (const u of [0.3, 0.7]) { const zz = zs + s.len * u; ramps.push({ type: 'kick', x: cxMain(zz), z0: zz, len: 8, w: 8, h: 3.4 }); }
-      { const zz = zs + s.len * 0.45; ramps.push({ type: 'kick', x: cxBase(zz), z0: zz, len: 8, w: 7, h: 4.0 }); }
-      for (const u of [0.2, 0.75, 0.92]) { const zz = zs + s.len * u; pads.push({ x: cxBase(zz), z: zz }); }
-      for (let zz = zs + 40; zz < ze - 20; zz += 30) flags.push({ x: cxBase(zz) - HW_SC - 0.5, z: zz }, { x: cxBase(zz) + HW_SC + 0.5, z: zz });
-      { const zz = zs + 40; signs.push({ x: cxBase(zz) + Math.sign(s.B) * 9, z: zz, text: 'SHORTCUT', bg: '#ffd400', fg: '#111' }); }
+      const kind = s.kind || 'fast', sgn = Math.sign(s.B) || 1;
+      // a discreet trailhead marker + a few sparse blazes — not a wall of flags shouting "shortcut"
+      { const zz = zs + 16; signs.push({ x: cxBase(zz) + sgn * 7, z: zz, text: 'alt trail', bg: '#5b4632', fg: '#ffe2a6', small: true }); }
+      for (const u of [0.22, 0.55, 0.85]) { const zz = zs + s.len * u; flags.push({ x: cxBase(zz) + sgn * (HW_SC + 0.7), z: zz, blaze: true }); }
+      if (kind === 'fast') { // straight, groomed, a couple of boost pads — the reward is pure speed
+        placeRamp({ type: 'kick', z0: zs + s.len * 0.5, len: 8, w: 8, h: 3.4 }, cxMain, 14);   // apex of the main-lane bulge is the only straight bit
+        placeRamp({ type: 'kick', z0: zs + s.len * 0.62, len: 8, w: 7, h: 3.6 }, cxBase);
+        for (const u of [0.35, 0.8]) { const zz = zs + s.len * u; pads.push({ x: cxBase(zz), z: zz }); }
+      } else if (kind === 'rough') { // same length, but rocks to dodge — no free speed, just a tighter line
+        placeRamp({ type: 'kick', z0: zs + s.len * 0.5, len: 8, w: 8, h: 3.4 }, cxMain, 14);
+        placeRamp({ type: 'kick', z0: zs + s.len * 0.4, len: 7, w: 7, h: 3.6 }, cxBase);
+        for (let k = 0; k < 5; k++) { const zz = zs + 30 + R() * (s.len - 60), x = cxBase(zz) + (R() - 0.5) * HW_SC * 1.6;
+          obstacles.push({ x, z: zz, r: 0.7 + R() * 0.4, h: 1.3, type: 'rock' }); }
+      } else { // gap: tight tree-lined technical line
+        placeRamp({ type: 'kick', z0: zs + s.len * 0.5, len: 7, w: 7, h: 3.2 }, cxMain, 14);
+        for (let k = 0; k < 7; k++) { const zz = zs + 20 + k * (s.len - 40) / 7;
+          obstacles.push({ x: cxBase(zz) + sgn * (HW_SC + 1.4), z: zz, r: 0.8, h: 9, s: 0.9, type: 'tree' }); }
+      }
     } else if (s.type === 'halfpipe') {
       sign(zs - 15, 'HALF-PIPE', '#20d0d0', '#082030', 0, true);
       pads.push({ x: cxMain(zs + 8), z: zs + 8 });
-      const zz = ze + 25; ramps.push({ type: 'kick', x: cxMain(zz), z0: zz, len: 10, w: 10, h: 5.5 });
+      placeRamp({ type: 'kick', z0: ze + 25, len: 10, w: 10, h: 5.5 }, cxMain);
     } else if (s.type === 'jumpline') {
       sign(zs - 15, 'JUMP LINE', '#ff3d7f', '#fff', 0, true);
       for (let k = 0; k < 3; k++) {
         const zz = zs + 10 + k * 72, big = map.bigKickers || k === 2;
-        ramps.push({ type: 'table', x: cxMain(zz), z0: zz, len: big ? 9 : 8, w: 11, h: big ? 4.6 : 3.8, gap: big ? 14 : 11, land: big ? 30 : 26 });
+        placeRamp({ type: 'table', z0: zz, len: big ? 9 : 8, w: 11, h: big ? 4.6 : 3.8, gap: big ? 14 : 11, land: big ? 30 : 26 }, cxMain, 40);
       }
       // side rail alongside the line
       const rz = zs + 30, side = R() < 0.5 ? -1 : 1;
@@ -171,7 +203,7 @@ export function makeCourse(seed, mapId = 'alpine', opts = {}) {
       sign(zs - 12, 'MOGULS', '#2f6fcf', '#fff', 1);
     } else if (s.type === 'cliff') {
       sign(zs, 'CLIFF DROP', '#111', '#ffd400', 0, true);
-      for (let x = -HW; x <= HW; x += 2) flags.push({ x: cxMain(zs + 20) + x, z: zs + 20, small: true });
+      for (let x = -HW; x <= HW; x += 4) flags.push({ x: cxMain(zs + 20) + x, z: zs + 20, small: true, hazard: true });
     } else if (s.type === 'trees') {
       sign(zs - 12, 'TREE RUN', '#2e7d4f', '#fff', -1);
       for (let k = 0; k < 18; k++) {
@@ -185,9 +217,9 @@ export function makeCourse(seed, mapId = 'alpine', opts = {}) {
   for (let i = 0; i < 16; i++) {
     const zz = 200 + (i + R() * 0.6) * ((L - 380) / 16);
     if (inSection(zz, 30) || R() > map.fillerKickers) continue;
-    const x = cxMain(zz) + (R() - 0.5) * HW * 1.1;
+    const off = (R() - 0.5) * HW * 0.7;
     const big = map.bigKickers ? R() < 0.7 : R() < 0.4;
-    ramps.push({ type: 'kick', x, z0: zz, len: big ? 10 : 8, w: big ? 9 : 8, h: big ? 5.2 : 3.8 });
+    placeRamp({ type: 'kick', z0: zz, len: big ? 10 : 8, w: big ? 9 : 8, h: big ? 5.2 : 3.8 }, cxMain, 60, off);
   }
   for (const r of ramps) {
     const total = r.len + (r.gap || 0) + (r.land || 0);
@@ -317,6 +349,21 @@ export function makeCourse(seed, mapId = 'alpine', opts = {}) {
   }
   const itemsNear = (zz) => itemBuckets.get(Math.floor(zz / BUCKET)) || [];
 
+  // item box respawn state: a box hides for a while once grabbed, instead of being an infinite refill
+  const BOX_RESPAWN = 9, BOX_POP = 0.35;
+  const itemHiddenT = new Float32Array(items.length);
+  const itemHidden = (i) => itemHiddenT[i] > 0.0001;
+  const hideItem = (i) => { itemHiddenT[i] = BOX_RESPAWN; };
+  const tickItems = (dt) => { for (let i = 0; i < itemHiddenT.length; i++) if (itemHiddenT[i] > 0) itemHiddenT[i] = Math.max(0, itemHiddenT[i] - dt); };
+  // 0..1 instance scale: pops out when grabbed, pops back in just before it's live again
+  const itemScale = (i) => {
+    const t = itemHiddenT[i]; if (t <= 0) return 1;
+    if (t > BOX_RESPAWN - BOX_POP) return Math.max(0, 1 - (BOX_RESPAWN - t) / BOX_POP);
+    if (t < BOX_POP) return 1 - t / BOX_POP;
+    return 0;
+  };
+  const hiddenIndices = () => { const out = []; for (let i = 0; i < itemHiddenT.length; i++) if (itemHiddenT[i] > 0) out.push(i); return out; };
+
   function nearestCenter(x, zz) {
     const m = cxMain(zz);
     if (scActive(zz)) { const s = cxBase(zz); if (Math.abs(x - s) < Math.abs(x - m)) return s; }
@@ -325,5 +372,6 @@ export function makeCourse(seed, mapId = 'alpine', opts = {}) {
 
   return { seed, mapId, map, L, hw: HW, rampH, sections, shortcuts, halfpipe, pipes, pitches, rollers, mogulSecs, cliffs,
     cxMain, cxBase, scActive, scAt, hpW, mogulW, corridor, groundH, baseH, ramps, pads, obstacles, forest, gates, flags, signs,
-    rails, railTop, railsNear, lifts, lights, obstaclesNear, nearestCenter, items, itemsNear };
+    rails, railTop, railsNear, lifts, lights, obstaclesNear, nearestCenter, items, itemsNear,
+    itemHidden, hideItem, tickItems, itemScale, hiddenIndices };
 }

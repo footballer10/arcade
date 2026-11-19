@@ -4,9 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Party Arcade</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap" rel="stylesheet">
+<link rel="preload" href="core/fonts/lilita-one-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="core/ui.css">
 <link rel="stylesheet" href="core/hub.css">
 <script type="importmap">
@@ -26,37 +24,35 @@
 <!-- HOME -->
 <section id="home" class="ph-screen hidden">
   <div class="home-wrap">
-    <div class="ph-title">PARTY ARCADE</div>
-    <p class="ph-sub">One party, lots of games. Stay connected between games.</p>
+    <h1 class="logo" aria-label="Party Arcade"><span class="w1"><i>P</i><i>A</i><i>R</i><i>T</i><i>Y</i></span> <span class="w2"><i>A</i><i>R</i><i>C</i><i>A</i><i>D</i><i>E</i></span></h1>
+    <p class="tagline">One party · lots of games · stay together between games</p>
     <div class="home-grid">
-      <div class="ph-panel profile">
-        <div id="homeAvatar" class="avatar-slot"></div>
-        <label class="ph-field">Name <input id="nameIn" maxlength="14" placeholder="Your name" autocomplete="off"></label>
-        <div class="pick-label">Shirt</div>
-        <div class="swatches" id="colorPick"></div>
-        <div class="pick-label">Skin</div>
-        <div class="swatches small" id="skinPick"></div>
-        <div class="pick-label">Hair color</div>
-        <div class="swatches small" id="hairColPick"></div>
-        <div class="pick-label">Hair</div>
-        <div class="hats" id="hairPick"></div>
-        <div class="pick-label">Hat</div>
-        <div class="hats" id="hatPick"></div>
+      <div class="ph-panel purple profile">
+        <div class="ph-head"><span class="ic">😎</span>You</div>
+        <div class="pedestal"><div id="homeAvatar" class="avatar-slot"></div></div>
+        <label class="ph-field name-field">Name <input id="nameIn" maxlength="14" placeholder="Your name" autocomplete="off"></label>
+        <div class="pickers">
+          <div class="pick-label">Shirt</div><div class="swatches" id="colorPick"></div>
+          <div class="pick-label">Skin</div><div class="swatches small" id="skinPick"></div>
+          <div class="pick-label">Hair color</div><div class="swatches small" id="hairColPick"></div>
+          <div class="pick-label">Hair</div><div class="hats" id="hairPick"></div>
+          <div class="pick-label">Hat</div><div class="hats" id="hatPick"></div>
+        </div>
       </div>
       <div class="ph-panel play">
+        <div class="ph-head"><span class="ic">🎮</span>Play</div>
         <div id="joinBox" class="hidden">
           <h2>Join party <span class="ph-code" id="joinCodeShow">----</span></h2>
           <button id="joinLinkBtn" class="ph-btn big wide">Join Party</button>
           <div class="or">or start your own</div>
         </div>
-        <button id="soloBtn" class="ph-btn big green wide">Play Solo vs Bots</button>
-        <button id="createBtn" class="ph-btn big wide" style="margin-top:10px">Create Party</button>
-        <div class="ph-row" style="margin-top:14px">
-          <input id="codeIn" maxlength="4" placeholder="CODE" autocomplete="off">
-          <button id="joinBtn" class="ph-btn green">Join</button>
-        </div>
+        <button id="soloBtn" class="ph-btn big green wide play-btn"><span class="pb-ic">🤖</span><span class="pb-t">Play Solo<small>Jump straight in with bots</small></span></button>
+        <button id="createBtn" class="ph-btn big wide play-btn"><span class="pb-ic">🎉</span><span class="pb-t">Create Party<small>Get a code to share with friends</small></span></button>
+        <div class="join-row"><span class="jl">Got a code?</span><input id="codeIn" maxlength="4" placeholder="CODE" autocomplete="off"><button id="joinBtn" class="ph-btn green">Join</button></div>
         <div id="homeMsg" class="ph-msg"></div>
-        <div class="ph-row" style="margin-top:6px"><button class="ph-btn ghost small" data-open="settings">⚙ Settings</button><button class="ph-btn ghost small" data-open="controls">🎮 Controls</button></div>
+        <button id="failReport" class="ph-btn small ghost hidden" title="Copies what went wrong (and which connection servers work from this computer) so it can be fixed">📋 Copy details</button>
+        <div class="home-games ph-well"><div class="hg-title">In the arcade</div><div id="homeGames" class="hg-list"></div></div>
+        <div class="ph-row foot"><button class="ph-btn ghost small" data-open="settings">⚙ Settings</button><button class="ph-btn ghost small" data-open="controls">🎮 Controls</button></div>
       </div>
     </div>
   </div>
@@ -65,48 +61,47 @@
 <!-- LOBBY -->
 <section id="lobby" class="ph-screen hidden">
   <div class="lobby-grid">
-    <div class="ph-panel l-left">
-      <div class="room-head">
-        <div>Party <span id="roomCode" class="ph-code big">----</span></div>
-        <button id="copyLink" class="ph-btn small">Copy link</button>
-      </div>
+    <div class="ph-panel purple l-left">
+      <div class="ph-head room-head"><span class="ic">🎉</span>Party <span id="roomCode" class="ph-code big">----</span><span class="sp"></span><button id="copyLink" class="ph-btn small" title="Copy an invite link">🔗 Invite</button></div>
       <div id="netBadge" class="net-badge"></div>
-      <ul id="playerList" class="ph-list players"></ul>
-      <div id="botCtl" class="ph-row host-only">
-        <button id="addBot" class="ph-btn small">+ Bot</button>
-        <button id="remBot" class="ph-btn small">− Bot</button>
-        <select id="botLevel"><option value="easy">Easy bots</option><option value="normal">Normal bots</option><option value="hard">Hard bots</option></select>
+      <ul id="playerList" class="ph-list players ph-well"></ul>
+      <div id="botCtl" class="bot-box host-only">
+        <span class="bb-l">🤖 Bots</span>
+        <button id="addBot" class="ph-btn small" title="Add a bot">+</button>
+        <button id="remBot" class="ph-btn small" title="Remove a bot">−</button>
+        <select id="botLevel"><option value="easy">Easy</option><option value="normal">Normal</option><option value="hard">Hard</option></select>
       </div>
-      <div class="ph-row" style="margin-top:8px">
-        <button id="readyBtn" class="ph-btn big">Ready!</button>
-      </div>
-      <div class="ph-row" style="margin-top:8px">
-        <button class="ph-btn ghost small" id="editProfile">✏ Name / color / hat</button>
-        <button class="ph-btn ghost small" data-open="settings">⚙</button>
+      <button id="readyBtn" class="ph-btn big wide ready-btn">Ready!</button>
+      <div class="ph-row foot">
+        <button class="ph-btn ghost small" id="editProfile">✏ Me</button>
+        <button class="ph-btn ghost small" data-open="settings">⚙ Settings</button>
         <button class="ph-btn danger small" id="leaveBtn">Leave</button>
       </div>
     </div>
     <div class="ph-panel l-mid">
-      <div id="lobbyAvatars" class="avatar-row"></div>
+      <div class="stage-box"><div id="lobbyAvatars" class="avatar-row"></div></div>
       <div class="mode-row">
-        <span>Choose:</span>
-        <button class="ph-btn small mode" data-mode="pick">Host picks</button>
-        <button class="ph-btn small mode" data-mode="vote">Everyone votes</button>
-        <button class="ph-btn small mode" data-mode="shuffle">Shuffle</button>
+        <span class="mr-l">Next game:</span>
+        <div class="seg">
+          <button class="mode" data-mode="pick">👑 Host picks</button>
+          <button class="mode" data-mode="vote">🗳 Everyone votes</button>
+          <button class="mode" data-mode="shuffle">🔀 Shuffle</button>
+        </div>
         <select id="shuffleLen"><option value="3">3 games</option><option value="5">5 games</option><option value="7">7 games</option></select>
       </div>
       <div id="gameGrid" class="game-grid"></div>
-      <div id="lobbyHint" class="ph-sub"></div>
-      <div class="ph-row">
+      <div class="start-bar">
+        <div id="lobbyHint" class="hint"></div>
         <button id="startBtn" class="ph-btn big host-only">Start</button>
         <button id="forceStart" class="ph-btn ghost small">Start anyway</button>
       </div>
     </div>
     <div class="ph-panel dark l-right">
-      <h3>🏆 Party champions</h3>
+      <div class="ph-head"><span class="ic">🏆</span>Champions</div>
       <div id="leaderboard"></div>
-      <h3 style="margin-top:12px">💬 Chat <small class="muted">(Enter)</small></h3>
-      <div id="chatPanel" class="chat-panel"></div>
+      <div class="sub-head">💬 Chat</div>
+      <div id="chatPanel" class="chat-panel ph-well"></div>
+      <button id="chatOpen" class="chat-open">Say something… <kbd>Enter</kbd></button>
     </div>
   </div>
 </section>
@@ -115,17 +110,18 @@
 <section id="setup" class="ph-screen hidden">
   <div class="setup-grid">
     <div class="ph-panel setup-panel">
-      <div class="ph-sub" id="setupCount"></div>
-      <h2 id="setupTitle">Game</h2>
-      <div id="setupBody"></div>
-      <div class="ph-row" style="margin-top:12px"><button id="setupReady" class="ph-btn big">Ready!</button></div>
-      <div id="setupWho" class="ph-sub"></div>
+      <div class="ph-head"><span class="ic">🎯</span><span id="setupTitle">Game</span><span class="sp"></span><span class="count-pill" id="setupCount"></span></div>
+      <div id="setupBody" class="setup-body"></div>
+      <div class="setup-foot">
+        <div id="setupWho" class="who"></div>
+        <button id="setupReady" class="ph-btn big">Ready!</button>
+      </div>
     </div>
     <div class="ph-panel dark howto-panel">
-      <h2>How to play</h2>
-      <p class="ph-sub howto-tag" id="howTag"></p>
+      <div class="ph-head"><span class="ic">📖</span>How to play</div>
+      <p class="howto-tag" id="howTag"></p>
       <ol class="howto" id="howList"></ol>
-      <h3>Controls</h3>
+      <div class="sub-head">🎮 Controls</div>
       <div id="howControls" class="controls-box"></div>
     </div>
   </div>
@@ -134,9 +130,10 @@
 <!-- LOADING -->
 <section id="loading" class="ph-screen hidden">
   <div class="ph-panel loading-panel">
-    <div class="ph-sub" id="loadSub"></div>
+    <div class="count-pill" id="loadSub"></div>
     <div class="ph-title small" id="loadTitle">Game</div>
     <p class="ph-sub" id="loadTag"></p>
+    <div class="load-dots"><i></i><i></i><i></i></div>
     <div id="loadWho" class="ph-row"></div>
   </div>
 </section>
@@ -144,14 +141,13 @@
 <!-- RESULTS -->
 <section id="results" class="ph-screen hidden">
   <div class="ph-panel results-panel">
-    <div class="ph-sub" id="resSub"></div>
-    <h2 id="resTitle">Results</h2>
-    <div id="resBody"></div>
-    <div id="resExtra" class="ph-sub"></div>
-    <h3>Party standings</h3>
-    <div id="resStandings"></div>
-    <div class="ph-row"><button id="resContinue" class="ph-btn big host-only">Continue</button></div>
-    <div id="resWait" class="ph-sub"></div>
+    <div class="count-pill" id="resSub"></div>
+    <h2 id="resTitle" class="res-title">Results</h2>
+    <div id="resBody" class="res-body"></div>
+    <div id="resExtra" class="ph-sub res-note"></div>
+    <div class="sub-head">🏆 Party standings</div>
+    <div id="resStandings" class="ph-well"></div>
+    <div class="res-foot"><button id="resContinue" class="ph-btn big host-only">Continue</button><div id="resWait" class="ph-sub"></div></div>
   </div>
 </section>
 
@@ -169,51 +165,56 @@
 <!-- OVERLAYS -->
 <section id="pause" class="ph-screen hidden overlay">
   <div class="ph-panel pause-panel">
-    <h2>Paused <small class="muted">(the game keeps running)</small></h2>
+    <div class="ph-head"><span class="ic">⏸</span>Paused<span class="sp"></span><small class="muted head-note">the game keeps running</small></div>
     <div class="ph-col">
-      <button class="ph-btn big" id="resumeBtn">Resume</button>
+      <button class="ph-btn big" id="resumeBtn">▶ Resume</button>
       <button class="ph-btn" data-open="settings">⚙ Settings</button>
       <button class="ph-btn" data-open="controls">🎮 Controls</button>
-      <button class="ph-btn danger host-only" id="endGameBtn">End game for everyone</button>
-      <button class="ph-btn ghost" id="pauseLeave">Leave party</button>
+      <button class="ph-btn danger host-only" id="endGameBtn">⏹ End game for everyone</button>
+      <button class="ph-btn ghost" id="pauseLeave">🚪 Leave party</button>
     </div>
   </div>
 </section>
 <section id="settings" class="ph-screen hidden overlay">
   <div class="ph-panel settings-panel">
-    <h2>Settings</h2>
+    <button class="ph-x" data-close title="Close">✕</button>
+    <div class="ph-head"><span class="ic">⚙</span>Settings</div>
+    <div class="set-group">🔊 Sound</div>
     <label class="ph-field">Master volume <input type="range" min="0" max="1" step="0.05" data-set="master"></label>
-    <label class="ph-field">Music volume <input type="range" min="0" max="1" step="0.05" data-set="music"></label>
+    <label class="ph-field">Music <input type="range" min="0" max="1" step="0.05" data-set="music"></label>
     <label class="ph-field">Sound effects <input type="range" min="0" max="1" step="0.05" data-set="sfx"></label>
+    <div class="set-group">🖱 Controls</div>
     <label class="ph-field">Mouse sensitivity <input type="range" min="0.2" max="3" step="0.1" data-set="sens"></label>
-    <label class="ph-field">Graphics quality <select data-set="quality"><option value="low">Low (fastest)</option><option value="med">Medium</option><option value="high">High</option></select></label>
-    <label class="ph-field">Show FPS <input type="checkbox" data-set="showFps"></label>
+    <div class="set-group">✨ Graphics</div>
+    <label class="ph-field">Quality <select data-set="quality"><option value="low">Low (fastest)</option><option value="med">Medium</option><option value="high">High</option></select></label>
+    <label class="ph-field">Show FPS <input type="checkbox" class="ph-switch" data-set="showFps"></label>
+    <div class="set-group">📡 Connection</div>
+    <div class="ph-row" style="margin:6px 0 14px"><button class="ph-btn small ghost" id="connReport" title="Copies how you are connected (direct or relay, and why) so it can be sent to whoever fixes the game">📋 Copy connection report</button></div>
     <button class="ph-btn big" data-close>Done</button>
   </div>
 </section>
 <section id="controls" class="ph-screen hidden overlay">
   <div class="ph-panel controls-panel">
-    <h2>Controls</h2>
+    <button class="ph-x" data-close title="Close">✕</button>
+    <div class="ph-head"><span class="ic">🎮</span>Controls</div>
     <div id="controlsBody" class="controls-box"></div>
     <button class="ph-btn big" data-close>Got it</button>
   </div>
 </section>
 <section id="profile" class="ph-screen hidden overlay">
-  <div class="ph-panel profile">
-    <h2>You</h2>
-    <div id="profileAvatar" class="avatar-slot"></div>
-    <label class="ph-field">Name <input id="nameIn2" maxlength="14" autocomplete="off"></label>
-    <div class="pick-label">Shirt</div>
-    <div class="swatches" id="colorPick2"></div>
-    <div class="pick-label">Skin</div>
-    <div class="swatches small" id="skinPick2"></div>
-    <div class="pick-label">Hair color</div>
-    <div class="swatches small" id="hairColPick2"></div>
-    <div class="pick-label">Hair</div>
-    <div class="hats" id="hairPick2"></div>
-    <div class="pick-label">Hat</div>
-    <div class="hats" id="hatPick2"></div>
-    <button class="ph-btn big" data-close>Done</button>
+  <div class="ph-panel purple profile">
+    <button class="ph-x" data-close title="Close">✕</button>
+    <div class="ph-head"><span class="ic">😎</span>You</div>
+    <div class="pedestal"><div id="profileAvatar" class="avatar-slot"></div></div>
+    <label class="ph-field name-field">Name <input id="nameIn2" maxlength="14" autocomplete="off"></label>
+    <div class="pickers">
+      <div class="pick-label">Shirt</div><div class="swatches" id="colorPick2"></div>
+      <div class="pick-label">Skin</div><div class="swatches small" id="skinPick2"></div>
+      <div class="pick-label">Hair color</div><div class="swatches small" id="hairColPick2"></div>
+      <div class="pick-label">Hair</div><div class="hats" id="hairPick2"></div>
+      <div class="pick-label">Hat</div><div class="hats" id="hatPick2"></div>
+    </div>
+    <button class="ph-btn big" data-close style="margin-top:12px">Done</button>
   </div>
 </section>
 <section id="scoreboard" class="ph-screen hidden overlay passthrough">

@@ -2,16 +2,10 @@
 // players see: pick a safe, cool, uncrowded platform they can reach, run and jump to it, air-dash to save a
 // short jump, and shove anyone standing close to an edge. ctx.bots.level tunes reaction time, aim, planning
 // horizon (how far ahead they read the lava) and how often they fumble a jump.
-import { C, ST_CRUMBLE, ST_GONE, lavaAt } from './world.js';
+import { C, ST_CRUMBLE, ST_GONE, lavaAt, jumpReach } from './world.js';
 
 const TAU = Math.PI * 2;
 // horizontal distance a running jump covers when landing dh higher (negative = lower)
-export function jumpReach(dh) {
-  const v = C.JUMP, g = C.G, disc = v * v - 2 * g * dh;
-  if (disc < 0) return 0;
-  return C.RUN * ((v + Math.sqrt(disc)) / (g * 1.05));
-}
-
 export function makeBot(Brain, level) {
   const b = new Brain(level);
   return { brain: b, lvl: level, target: -1, aimOff: 0, inp: { mx: 0, mz: 0, jh: false, j: 0, d: 0, s: 0 }, jumpK: 0.6, holdJ: 0, prey: null, fumble: false, stuck: 0 };

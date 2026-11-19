@@ -25,9 +25,28 @@ crumble; shove your friends off. Last one standing wins the round, best of 5.
   (how many players you outlived each round), then Bomb KOs.
 
 ## Controls
-WASD / arrows run (camera-relative) · Space jump (hold = higher, buffered + coyote time) · Shift dash · Left click / E
-shove · mouse looks after you click (pointer lock), otherwise the camera turns itself to face the arena · wheel zoom.
-Out: click = lava bomb, Space / right click = switch who you watch.
+WASD / arrows run (camera-relative) · Space jump (hold = higher, buffered + coyote time, and a short guaranteed
+minimum hop so a quick tap still clears a gap) · Shift dash (works once in the air, a good "save" for a bad jump) ·
+Left click / E shove · mouse looks after you click (pointer lock); **otherwise the camera is a chase cam that eases
+round to sit behind wherever you're currently facing/moving**, so WASD stays predictable without ever touching the
+mouse · wheel zoom. Out: click = lava bomb, Space / right click = switch who you watch.
+
+**Playtest fix (camera + feel):** the unlocked camera used to swing to always face the crater center, which fought
+the player's own WASD input (pressing "forward" kept meaning something different as you moved) and made the game
+feel much harder than the physics actually were. It now eases toward the direction you're facing instead, so holding
+one direction travels in a straight, predictable line, and turning (A/D) banks you around like a chase cam in most
+third-person games. Jumping was also softened: more coyote/buffer time, a much gentler height-cut on an early Space
+release (plus a guaranteed minimum hop so a quick tap isn't punished), bigger base jump distance/height, stronger air
+control, and more forgiving platform-edge landings. Headless 6-bot rounds run longer now (~70-75 s avg, up from ~60 s)
+because mistakes are less punishing — the "no new rock after 95 s" cutoff still caps every round.
+
+**Playtest fix (moving platforms):** the lift's "chain" used to be rigidly parented to the platform (always the same
+length, riding along with it) instead of hanging from a fixed point above — it looked like a glued-on stick, not a
+cable. It's now a separate mesh anchored to a fixed point in the rock, with its length recomputed every frame from
+the platform's current height. The gold slide/orbit platforms were also too thin and had an oversized, overly bright
+top disc that read as a separate glowing coin floating above the platform rather than part of it; they're now
+visually thicker (matches physics, which was also bumped from 0.55 to 0.85) with a warmer, slightly self-lit body and
+a small inset landing-pad marking instead of a floating disc.
 
 ## Netcode
 Host runs `HostSim` (host.js) at 60 Hz with every bot, 20 Hz binary snapshots (`encodeSnap`) on the unreliable

@@ -2,7 +2,7 @@
 // Stages are lists of solids (boxes / cylinders). Every moving obstacle is a pure function of the stage clock
 // (spin, slide, piston, pendulum), so clients predict them exactly. Only collapsing tiles and doors carry state
 // (`W.dyn`, sent in snapshots). Players are vertical capsules (feet at y) with a bouncy, readable move set:
-// run, variable jump, dive (also in the air, once per jump), belly slide, ledge hang + climb, grab.
+// run, variable jump, dive (Space again in mid-air, once per jump), belly slide, ledge hang + climb, grab.
 export const C = {
   R: 0.42, H: 1.5, HL: 0.8,                  // radius, standing height, low height (diving / knocked down)
   RUN: 7.4, ACC: 62, AIR_ACC: 22,
@@ -20,11 +20,13 @@ export const TILE_FALL = 0.9;                // seconds a tile shakes before it 
 // ---------------------------------------------------------------- solids
 export function solid(o) {
   const s = Object.assign({ shape: 'box', hx: 1, hy: 0.5, hz: 1, r: 1, bx: 0, by: 0, bz: 0, bry: 0, ox: 0, oz: 0, anim: null, hit: 0, belt: null, bounce: 0,
-    tile: -1, door: -1, fake: false, until: 0, blink: null, finish: false, noHang: false, look: 'floor', col: 0 }, o);
+    tile: -1, door: -1, fake: false, noStand: false, ice: false, safe: false, pal: 0, until: 0, blink: null, finish: false, noHang: false, look: 'floor', col: 0 }, o);
   s.q = {}; s.br = s.shape === 'cyl' ? s.r : Math.hypot(s.hx, s.hz);
   pose(s, 0, s); pose(s, 0, s.q);
   return s;
 }
+// giant rolling balls: travel one chute length every P seconds, then restart at the top
+export const rollU = (a, t) => (((t / a.P + a.ph) % 1) + 1) % 1;
 const pulse = (u) => (u < 0.1 ? u / 0.1 : u < 0.42 ? 1 : u < 0.72 ? 1 - (u - 0.42) / 0.3 : 0);
 const smooth = (u) => u * u * (3 - 2 * u);
 // writes x, y, z, ry, c (cos ry), sn (sin ry) and, for pendulums, th (swing angle) into o
@@ -35,6 +37,7 @@ export function pose(s, t, o) {
     case 'spin': ry += a.w * t + 0.5 * (a.acc || 0) * t * t; break;
     case 'slide': { const k = Math.sin(a.w * t + a.ph); x += a.v[0] * k; y += a.v[1] * k; z += a.v[2] * k; break; }
     case 'piston': { const k = smooth(pulse((((t * a.f + a.ph) % 1) + 1) % 1)); x += a.v[0] * k; y += a.v[1] * k; z += a.v[2] * k; break; }
+    case 'roll': { const u = rollU(a, t), d = u * a.P; x += a.v[0] * d; y += a.v[1] * d; z += a.v[2] * d; o.rollA = d / (s.r || 1); break; }
     case 'pend': { const th = a.amp * Math.sin(a.w * t + a.ph); x += a.d[0] * Math.sin(th) * a.L; y -= Math.cos(th) * a.L; z += a.d[1] * Math.sin(th) * a.L; o.th = th; break; }
   }
   const c = Math.cos(ry), sn = Math.sin(ry);
@@ -48,6 +51,7 @@ export function setPoses(W, t, dt) {
 // blinking platforms: on for `on` of every `p` seconds (phase ph), a pure function of the stage clock
 export const blinkU = (s, t) => ((t / s.blink.p + s.blink.ph) % 1 + 1) % 1;
 export function active(s, W) {
+  if (s.anim && s.anim.k === 'roll') { const u = rollU(s.anim, W.t); if (u < 0.02 || u > 0.985) return false; }
   if (s.blink && blinkU(s, W.t) > s.blink.on) return false;
   if (s.tile >= 0) return W.dyn[s.tile] < 2;
   if (s.door >= 0 && !s.fake) return W.dyn[s.door] === 0;
@@ -96,7 +100,7 @@ const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= Math.PI * 2;
 // W: {solids, moving, dyn, t, killY, doorHit(fn)}. Returns EV bits.
 export function stepPlayer(p, inp, dt, W) {
   let ev = 0;
-  const jp = inp.j !== p.lj, dp = inp.d !== p.ld; p.lj = inp.j; p.ld = inp.d;
+  const jp = inp.j !== p.lj, dp0 = inp.d !== p.ld; p.lj = inp.j; p.ld = inp.d;
   if (jp) p.jbuf = C.JBUF; else p.jbuf -= dt;
   p.down -= dt; p.hcd -= dt; p.gcd -= dt; p.hitCd -= dt;
   if (p.down <= 0 && p.gr >= 0) { p.tumble = false; p.slide = false; }
@@ -121,16 +125,18 @@ export function stepPlayer(p, inp, dt, W) {
   // ---- run
   if (ctl) {
     const slow = (p.grab ? 0.55 : 1) * (p.gby ? 0.4 : 1);
-    const a = (grounded ? C.ACC : C.AIR_ACC) * dt;
+    const ice = grounded && W.solids[p.gr].ice;
+    const a = (grounded ? (ice ? C.ACC * 0.085 : C.ACC) : C.AIR_ACC) * dt;
     let dx = mx * C.RUN * slow - p.vx, dz = mz * C.RUN * slow - p.vz; const dl = Math.hypot(dx, dz);
     if (dl > a) { dx *= a / dl; dz *= a / dl; }
     p.vx += dx; p.vz += dz;
     if (ml > 0.1) p.face += angDiff(Math.atan2(mx, mz), p.face) * Math.min(1, dt * 16);
-  } else if (grounded) { const f = Math.max(0, 1 - (p.slide ? 3.2 : 6) * dt); p.vx *= f; p.vz *= f; }
+  } else if (grounded) { const f = Math.max(0, 1 - (p.slide ? 3.2 : W.solids[p.gr].ice ? 0.6 : 6) * dt); p.vx *= f; p.vz *= f; }
   // ---- jump (also: a jump press gets you up early from a belly slide)
   if (p.slide && jp && grounded && p.down > 0.05) { p.down = 0; p.slide = false; p.tumble = false; p.jbuf = 0; p.vy = 6; p.gr = -1; ev |= EV.JUMP; }
   else if (ctl && p.jbuf > 0 && p.coy > 0) { p.vy = C.JUMP; p.gr = -1; p.coy = 0; p.jbuf = 0; p.jumping = true; ev |= EV.JUMP; }
-  // ---- dive (once per airtime)
+  // ---- dive: press Space a second time in mid-air (once per airtime). `inp.d` is only used by bots.
+  const dp = dp0 || (jp && p.jbuf > 0 && p.gr < 0 && p.coy <= 0);
   if (dp && !down && !p.dive && p.diveOk) {
     let dir = p.face; if (ml > 0.2) dir = Math.atan2(mx, mz);
     const sp = Math.min(C.DIVE_MAX, Math.max(C.DIVE, Math.hypot(p.vx, p.vz) * 1.12));
@@ -143,6 +149,13 @@ export function stepPlayer(p, inp, dt, W) {
   if (p.jumping && !inp.jh && p.vy > 0) p.vy -= C.JUMP_CUT * dt;
   if (p.vy <= 0) p.jumping = false;
   if (p.vy < -C.MAXFALL) p.vy = -C.MAXFALL;
+  // ---- wind from big fans: gusts shove you sideways (more when airborne)
+  if (W.winds) for (const f of W.winds) {
+    if (p.x < f.x0 || p.x > f.x1 || p.z < f.z0 || p.z > f.z1 || p.y < f.y0 || p.y > f.y1) continue;
+    if (f.on < 1 && ((((W.t / f.p + f.ph) % 1) + 1) % 1) > f.on) continue;
+    const k = p.gr >= 0 ? 1 : 1.5;
+    p.x += f.fx * k * dt; p.z += f.fz * k * dt;
+  }
   // ---- carried by the ground (moving / spinning platforms, conveyor belts)
   if (p.gr >= 0) {
     const s = W.solids[p.gr];
@@ -207,7 +220,7 @@ function collide(p, W, dt, wasGr) {
         }
       }
       const footIn = d < R * 0.75;
-      if (!s.hit) {
+      if (!s.hit && !s.noStand) {
         // land / stand on top
         const rise = s.anim ? Math.max(0, s.y - s.q.y) : 0;
         const tol = Math.max(0.28, -p.vy * dt + 0.12) + rise + (wasGr === i ? 0.25 : 0);
@@ -224,7 +237,7 @@ function collide(p, W, dt, wasGr) {
       if (s.hit && p.hitCd <= 0) {
         const v = pointVel(s, p.x - wx * R, p.z - wz * R, dt);
         const m = Math.hypot(v[0], v[2]);
-        if (m > 1.2) {
+        if (m > 0.45) {
           const sp = Math.max(C.HIT_MIN, Math.min(C.HIT_MAX, 4 + m * s.hit));
           let kx = v[0] / m * 0.75 + wx * 0.45, kz = v[2] / m * 0.75 + wz * 0.45; const kl = Math.hypot(kx, kz) || 1;
           knock(p, kx / kl * sp, 5 + sp * 0.18, kz / kl * sp); ev |= EV.HIT; p.lastBy = null;
@@ -237,7 +250,7 @@ function collide(p, W, dt, wasGr) {
       }
       p.wall = i; p.wn[0] = wx; p.wn[1] = wz; p.wtop = top;
       if (s.door >= 0 && !s.fake && W.dyn[s.door] === 0) { W.dyn[s.door] = 1; ev |= EV.DOOR; W.doorHit?.(s.door, p); }
-      else if (s.door >= 0 && s.fake && -vn > 2.5) { ev |= EV.BONK; W.fakeHit?.(s.door, p); }
+      else if (s.door >= 0 && s.fake && -vn > 2.5) { ev |= EV.BONK; knock(p, wx * 6.5, 5, wz * 6.5, 0.55); W.fakeHit?.(s.door, p); }
     }
   }
   return ev;

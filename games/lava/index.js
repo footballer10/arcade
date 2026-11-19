@@ -8,11 +8,13 @@
 // adopts a client's state when it is close to its own (smooth, responsive jumps) and otherwise forces a
 // correction (auth counter). Knockback, heat, crumbling, deaths and scoring are decided by the host only.
 export { manifest } from './manifest.js';
+import './tuning.js';
 import { C, LAYOUTS, PATTERNS, makeLevel, roundPlan, makeSolids, updateSolids, newPlayer, stepPlayer, separate, lavaAt, surgeIn, encodeSnap, decodeSnap, syncCounters, groundAt } from './world.js';
 import { HostSim, INTRO_T, standingsOf } from './host.js';
 import { makeBot, botThink } from './bots.js';
 import { createView } from './render.js';
 import { createSound } from './audio.js';
+import { SnapBuffer } from '../../core/interp.js';
 
 const CSS = `
 .lv-tags{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:2}
@@ -251,6 +253,9 @@ export async function start(ctx) {
       let v = view.get(id); if (!v) { v = {}; view.set(id, v); }
       v.px = v.x ?? r.x; v.py = v.y ?? r.y; v.pz = v.z ?? r.z; v.pface = v.face ?? r.face;
       v.tx = r.x; v.ty = r.y; v.tz = r.z; v.tface = r.face; v.at = now; v.span = Math.max(30, now - (v.lastAt || now - 50)); v.lastAt = now;
+      // relay-proof smoothing during play: drawn a little in the past from a timestamped buffer (core/interp.js)
+      if (!v.buf) v.buf = new SnapBuffer({ angles: ['face'] });
+      if (phase === 'play') v.buf.push(s.t, { x: r.x, y: r.y, z: r.z, face: r.face }, tC); else v.buf.clear();
       Object.assign(v, { vx: r.vx, vy: r.vy, vz: r.vz, alive: r.alive, grounded: r.grounded, dashing: r.dashing, stunned: r.stunned, shoving: r.shoving });
     }
   });
@@ -314,6 +319,8 @@ export async function start(ctx) {
       // others: interpolate between the last two snapshots
       for (const [id, v] of view) {
         if (id === ctx.myId || v.tx == null) continue;
+        const b = phase === 'play' && v.buf?.sample(tC);
+        if (b) { v.x = b.x; v.y = b.y; v.z = b.z; v.face = b.face; continue; }
         const f = Math.min(1.2, (now - v.at) / v.span);
         v.x = v.px + (v.tx - v.px) * f; v.y = v.py + (v.ty - v.py) * f; v.z = v.pz + (v.tz - v.pz) * f;
         let da = v.tface - v.pface; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2; v.face = v.pface + da * Math.min(1, f);
@@ -352,7 +359,9 @@ export async function start(ctx) {
     if (f) { const k = Math.min(1, dt * 10); cam.x += (f.x - cam.x) * k; cam.z += (f.z - cam.z) * k; cam.y += (f.y - cam.y) * Math.min(1, dt * 6); }
     if (vic) { victoryT += dt; cam.yaw += dt * 0.7; cam.dist += (6.5 - cam.dist) * Math.min(1, dt * 2); cam.pitch += (0.3 - cam.pitch) * Math.min(1, dt * 2); input.takeMouseDelta(1); }
     else if (input.mouse.locked) { const d = input.takeMouseDelta(ctx.settings.get('sens') || 1); cam.yaw -= d.x * 0.0032; cam.pitch = Math.max(0.12, Math.min(1.2, cam.pitch + d.y * 0.0026)); }
-    else if (f && Math.hypot(f.x, f.z) > 2.5) { const want = Math.atan2(-f.x, -f.z); let da = want - cam.yaw; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2; cam.yaw += Math.max(-1, Math.min(1, da)) * dt * 0.9; }
+    // No mouse lock: a chase camera that eases round to sit behind wherever you're facing (updated by your own
+    // WASD movement), instead of fighting your input by swinging to face the arena center.
+    else if (f && Number.isFinite(f.face)) { let da = f.face - cam.yaw; while (da > Math.PI) da -= Math.PI * 2; while (da < -Math.PI) da += Math.PI * 2; cam.yaw += da * Math.min(1, dt * 2.6); }
     if (cam.intro > 0) cam.intro = Math.max(0, cam.intro - dt / (phase === 'intro' ? INTRO_T - 0.6 : 3.2));
     // --- audio bed
     const my = view.get(focusId);

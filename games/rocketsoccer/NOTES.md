@@ -63,10 +63,19 @@ fixed rate. In head-to-head 2v2 tests (24 matches each): hard beat normal 44–3
   Medium = shadows; High = shadows + bloom and a fuller crowd (~240k triangles).
 
 ## Handling update (after playtest feedback)
-- Turning: about twice as sharp as the first version (a full-throttle U-turn needs ~12 units instead of ~23),
-  with a short steering ramp so key taps stay gentle. **Brake-turn**: S + A/D while rolling forward spins the car
-  round in a skid (180 degrees in ~0.5 s).
+- Turning: sharper than the first version (a full-throttle U-turn needs ~16 units instead of ~23) but not twitchy:
+  steering builds over ~0.3 s (a 0.1 s tap turns ~9 degrees, a held key gives full lock) and lets go quickly. **Brake-turn**: S + A/D while rolling forward spins the car
+  round in a skid (180 degrees in ~0.5 s). The skid needs ~0.15 s of S + steer at speed, so an ordinary brake into
+  a corner doesn't trigger it.
 - Air: without boost the car only tilts gently and levels itself; boost gives full flying control.
 - Netcode: clients round to float32 after every step like the host (replays now match bit for bit), send inputs
   every step, and the host keeps an adaptive jitter buffer per player (dry spells fell from 41% to ~4% of steps
   in the busy test machine).
+
+## Kickoff variety
+Every kickoff each bot picks a fresh plan (`pickKickoff` in `bots.js`), weighted by difficulty. Takers: straight
+front flip, diagonal dodge (ball leaves at an angle), plain power drive, lofted jump, off-centre clip, or hang back a
+beat and then go. Everyone reacts to the whistle a little late (more on easy). Other bots: pad run on either side,
+drop back to goal, trail the taker through midfield, or occasionally challenge for the ball as well. Easy bots rarely
+flip. Measured over 200 simulated kickoffs: 6 taker plans and 5 other plans all show up, and the ball leaves the
+kickoff at a spread of angles instead of always straight.

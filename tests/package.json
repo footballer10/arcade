@@ -3,5 +3,12 @@
   "private": true,
   "type": "module",
   "description": "Automated browser tests for the Party Hub. Not needed to play. Run: cd tests && npm install && node run-all.mjs",
-  "dependencies": { "three": "0.160.0", "peerjs": "1.5.4", "peer": "^1.0.2", "esbuild": "^0.24.0" }
+  "dependencies": {
+    "aedes": "^0.51.3",
+    "aedes-server-factory": "^0.2.1",
+    "esbuild": "^0.24.0",
+    "peer": "^1.0.2",
+    "peerjs": "1.5.4",
+    "three": "0.160.0"
+  }
 }
