@@ -39,7 +39,7 @@ export class HostSim {
     const lv = this.level;
     this.erode = lv.layers.map(() => this.rr());
     const prev = this.byId;
-    this.players = this.ids.map((id, i) => { const p = newPlayer(id, lv, i); const o = prev.get(id); if (o) { p.auth = o.auth + 1; p.lj = o.lj; p.ld = o.ld; p.lu = o.lu; } return p; });
+    this.players = this.ids.map((id, i) => { const p = newPlayer(id, lv, i); const o = prev.get(id); if (o) { p.auth = o.auth + 1; p.lj = o.lj; p.ld = o.ld; } return p; });
     this.byId = new Map(this.players.map((p) => [p.id, p]));
     // comeback: players behind the match leader start closer to the middle of the top floor (more room to plan)
     const top = Math.max(0, ...this.ids.map((id) => this.wins[id] || 0));
@@ -88,12 +88,12 @@ export class HostSim {
       let inp;
       if (b) { botThink(b, p, w, dt); inp = b.inp; }
       else if (p.id === myId) inp = myInput;
-      else { inp = this.inputs.get(p.id) || { mx: 0, mz: 0, j: p.lj, d: p.ld, u: p.lu }; if (!this.cfg.connected(p.id)) inp = { mx: 0, mz: 0, j: p.lj, d: p.ld, u: p.lu }; }
+      else { inp = this.inputs.get(p.id) || { mx: 0, mz: 0, j: p.lj, d: p.ld }; if (!this.cfg.connected(p.id)) inp = { mx: 0, mz: 0, j: p.lj, d: p.ld }; }
       stepPlayer(p, inp, dt, lv, this.t, ev);
       if (ev.ground >= 0) this.trigger(lv, p.l, ev.ground, idx, lv.delay);
       if (ev.land >= 0 && (ev.impact || 0) > 12) this.cfg.ev('thud', { id: p.id, l: p.l });
       if (ev.dash) this.cfg.ev('dash', { id: p.id });
-      if (ev.jump2 || ev.dive) this.cfg.ev(ev.dive ? 'dive' : 'jump2', { id: p.id });
+      if (ev.dive) this.cfg.ev('dive', { id: p.id });
       if (!p.alive) this.knockout(p);
     }
     collide(this.players.filter((p) => p.alive), (a, b, x, y, z, both) => {
