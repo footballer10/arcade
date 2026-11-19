@@ -3,15 +3,15 @@
 // the rest), time leaps onto moving platforms, pick doors (and remember the fake ones they bonked), hop
 // between tiles, and dive across finish lines. Difficulty (ctx.bots.level) sets reaction time, how far ahead
 // they look, how often they misjudge a hazard or a jump, and how bold they are.
-import { C, pose, active, groundAt, isDown, blinkU } from './world.js';
+import { C, pose, active, groundAt, isDown, blinkU, lavaLevel } from './world.js';
 
 export function makeBot(Brain, level, rnd = Math.random) {
   return { brain: new Brain(level, rnd), level, rnd, ni: 0, offs: new Map(), lane: null, door: null, tried: new Set(), inp: { mx: 0, mz: 0, jh: false, j: 0, d: 0, g: false },
-    stuck: 0, lx: 0, lz: 0, jumpT: 0, diveArm: false, ignore: new Map(), goal: -1, goalT: 0, wander: null, wanderT: 0, lastRs: -1, finDive: false, prey: null, leapT: 0 };
+    nf: new Map(), stuck: 0, lx: 0, lz: 0, jumpT: 0, diveArm: false, ignore: new Map(), goal: -1, goalT: 0, wander: null, wanderT: 0, lastRs: -1, finDive: false, prey: null, leapT: 0 };
 }
-export function resetBot(b) { b.pad = null; b.alt = null; b.ni = 0; b.offs.clear(); b.lane = null; b.door = null; b.tried.clear(); b.goal = -1; b.wander = null; b.finDive = false; b.diveArm = false; b.ignore.clear(); b.prey = null; }
+export function resetBot(b) { b.nf?.clear(); b.pad = null; b.alt = null; b.ni = 0; b.offs.clear(); b.lane = null; b.door = null; b.tried.clear(); b.goal = -1; b.wander = null; b.finDive = false; b.diveArm = false; b.ignore.clear(); b.prey = null; }
 
-const TMP = {}, TMP2 = {};
+const TMP = {}, TMP2 = {}, TMP3 = {};
 const jump = (b, hold = 0.32) => { b.inp.j++; b.jumpT = hold; };
 const dive = (b) => { b.inp.d++; };
 
@@ -20,13 +20,17 @@ export function botThink(G, p, b, dt) {
   const inp = b.inp, lv = b.level, st = G.st;
   b.jumpT -= dt; b.leapT -= dt; inp.jh = b.jumpT > 0; inp.g = false;
   const think = b.brain.ready(dt);
-  if (p.rs !== b.lastRs) { b.lastRs = p.rs; b.ni = 0; b.lane = null; b.door = null; b.stuck = 0; }   // respawned: find our place again
+  if (p.rs !== b.lastRs) {          // respawned: remember where we fell (to get careful there), then find our place again
+    if (b.lastRs >= 0) { b.nf.set(b.ni, (b.nf.get(b.ni) || 0) + 1); b.offs.clear(); b.lane = null; b.pad = null; b.alt = null; b.gate = null; }
+    b.lastRs = p.rs; b.ni = 0; b.door = null; b.stuck = 0;
+  }
   if (b.diveArm && p.gr < 0 && p.vy < 1.2 && !p.dive) { b.diveArm = false; dive(b); }
   if (p.gr >= 0) b.diveArm = false;
   if (isDown(p) || p.hang >= 0) { inp.mx = inp.mz = 0; return inp; }
   let tx, tz, tsolid = -1, leapNode = false;
   if (st.mode === 'race' || st.mode === 'crown') ({ tx, tz, tsolid, leapNode } = raceTarget(G, p, b));
   else if (st.id === 'tiles') ({ tx, tz, tsolid } = tileTarget(G, p, b, think));
+  else if (st.id === 'blockdash') ({ tx, tz } = dashTarget(G, p, b, think));
   else ({ tx, tz } = arenaTarget(G, p, b, think));
   if (tx == null) { inp.mx = inp.mz = 0; return inp; }
   let dx = tx - p.x, dz = tz - p.z; const dist = Math.hypot(dx, dz);
@@ -38,14 +42,15 @@ export function botThink(G, p, b, dt) {
   const grounded = p.gr >= 0;
   if (grounded && (mx || mz)) {
     const ax = p.x + mx * 0.85, az = p.z + mz * 0.85;
-    const below = tsolid < 0 && b.dropY != null && b.dropY < p.y - 0.8 && groundAt(G.W, ax, az, p.y - 6, p.y - 0.5) >= 0;   // fine to hop down
+    const below = (b.dropOK ? groundAt(G.W, ax, az, p.y - 2, p.y - 0.5) >= 0 : tsolid < 0 && b.dropY != null && b.dropY < p.y - 0.8 && groundAt(G.W, ax, az, p.y - 6, p.y - 0.5) >= 0);   // fine to hop down
     if (!below && groundAt(G.W, ax, az, p.y - 0.7, p.y + 0.55) < 0) {
-      const lp = leapPlan(G, p, tsolid >= 0 ? tsolid : groundAt(G.W, tx, tz, p.y - 3, p.y + 1.7), tx, tz);
-      const reach = 3.2 + lv.skill * 0.7, mistake = b.rnd() < lv.mistakes * dt * 4;
-      if (lp && lp.dy < 1.65 && (lp.gap <= reach || (mistake && lp.gap < reach + 2))) {
+      const careful = (b.nf.get(b.ni) || 0) >= 2;          // fell here twice already: only take safe jumps
+      const lp = leapPlan(G, p, tsolid >= 0 ? tsolid : groundAt(G.W, tx, tz, p.y - 3, p.y + 1.7), tx, tz, careful);
+      const reach = careful ? 2.9 : 3.2 + lv.skill * 0.7, mistake = !careful && b.rnd() < lv.mistakes * dt * 4;
+      if (lp && lp.ok && lp.dy < 1.65 && (lp.gap <= reach || (mistake && lp.gap < reach + 2))) {
         if (think || b.leapT < -0.6) {
           const l = Math.hypot(lp.ax - p.x, lp.az - p.z) || 1; mx = (lp.ax - p.x) / l; mz = (lp.az - p.z) / l;
-          jump(b, 0.5); b.leapT = 0.4; if (st.id === 'tiles' ? lp.gap > 3.4 : (lp.gap > 2.6 + lv.skill * 0.4 || b.rnd() < 0.15 * lv.skill)) b.diveArm = true;
+          jump(b, 0.5); b.leapT = 0.4; if (b.dropOK) { /* never dive onto a small rock */ } else if (st.id === 'tiles' ? lp.gap > 3.4 : (lp.gap > 2.6 + lv.skill * 0.4 || b.rnd() < 0.15 * lv.skill)) b.diveArm = true;
         } else { mx *= 0.15; mz *= 0.15; }
       } else if (!leapNode && dist < 1.2) { /* target reached at an edge: fine */ mx = mz = 0; }
       else { mx = mz = 0; }
@@ -59,11 +64,25 @@ export function botThink(G, p, b, dt) {
   }
   // giant rolling balls: sidestep out of their path
   const ball = ballThreat(G, p);
-  if (ball && b.rnd() > b.level.mistakes * dt * 3) {
+  if (ball && ball.across && b.rnd() > b.level.mistakes * dt * 3) { if (!ball.under) { mx = mz = 0; } }
+  else if (ball && b.rnd() > b.level.mistakes * dt * 3) {
     const side = Math.abs(p.x - ball.x) > 0.2 ? Math.sign(p.x - ball.x) : (b.ballSide ||= (b.rnd() < 0.5 ? 1 : -1));
     const room = side > 0 ? 6.6 - p.x : p.x + 6.6;
     if (room > 1.2) { mx = side; mz = 0.15; } else if (grounded && b.jumpT <= 0 && ball.tau < 0.45) jump(b, 0.5);
   } else b.ballSide = null;
+  // spike traps: don't step onto a strip that will be up when we get there (but get off one that is about to pop)
+  if (st.spikes?.length && grounded && (mx || mz)) {
+    const sp = spikeThreat(G, p, mx, mz, lv);
+    if (sp === 'wait') { mx = mz = 0; }
+  }
+  // bombs: get out of any red circle that is about to blow
+  if (G.W.blasts?.length) {
+    for (const bl of G.W.blasts) {
+      if (bl.t < G.W.t || bl.t > G.W.t + 1.6 - (1 - lv.skill) * 0.6) continue;
+      const dx = p.x - bl.x, dz = p.z - bl.z, d = Math.hypot(dx, dz);
+      if (d < bl.r + 1.2) { const l = d || 1; mx = dx / l; mz = dz / l; const k = Math.hypot(p.x, p.z); if (k > 7.5) { mx -= p.x / k * 0.8; mz -= p.z / k * 0.8; } break; }
+    }
+  }
   // ice: ease off the throttle near a target so you don't slide past it
   if (grounded && G.W.solids[p.gr]?.ice) { const k = Math.max(0.3, Math.min(1, dist / 3)); mx *= k; mz *= k; }
   // hazards ahead (sweepers, hammers, punchers)
@@ -71,11 +90,14 @@ export function botThink(G, p, b, dt) {
   if (hz && grounded) {
     const key = hz.s.idx;
     let ig = b.ignore.get(key);
-    if (!ig || G.W.t > ig.until) { ig = { miss: b.rnd() < lv.mistakes * 1.6, until: G.W.t + 1.2 }; b.ignore.set(key, ig); }
+    if (!ig || G.W.t > ig.until) { ig = { miss: b.rnd() < lv.mistakes * (hz.s.anim.k === 'piston' || (b.nf.get(b.ni) || 0) >= 2 ? 0.5 : 1.6), until: G.W.t + 1.2 }; b.ignore.set(key, ig); }
     if (!ig.miss) {
       if (hz.low && hz.tau <= 0.26 + lv.skill * 0.06) { if (b.jumpT <= 0) jump(b, 0.55); }
       else if (hz.high && lv.skill > 0.6 && b.rnd() < 0.5) { if (hz.tau < 0.3) { dive(b); } }
-      else if (!hz.low) { mx = -mx * 0.6; mz = -mz * 0.6; }
+      else if (!hz.low) {            // wait / back off, but never backwards off an edge
+        const bx = -mx * 0.6, bz = -mz * 0.6;
+        if (groundAt(G.W, p.x + bx * 1.4, p.z + bz * 1.4, p.y - 0.7, p.y + 0.55) >= 0) { mx = bx; mz = bz; } else { mx = mz = 0; }
+      }
     }
   }
   // stuck: jump, then try another way
@@ -123,6 +145,18 @@ function raceTarget(G, p, b) {
       if (near && !(i.open && i.left > 0.9 - b.level.skill * 0.3)) return { tx: s.x, tz: n.z - 2.3, tsolid: -1 };       // hold at the gate
       return { tx: s.x, tz: n.z + 2.4, tsolid: -1 };
     }
+    b.dropOK = n.rock != null;
+    if (n.rock != null) {
+      const L = G.W.lavas?.[n.rock];
+      const here = p.gr >= 0 ? G.W.solids[p.gr] : null, dry = here && here.y + here.hy > (L ? L.floor + 0.6 : -1e9);
+      if (L && dry && b.ni === b.rockNi) {
+        const tgt = n.sid != null ? G.W.solids[n.sid] : { x: n.x, z: n.z };
+        const need = Math.hypot(tgt.x - p.x, tgt.z - p.z) / 6.2 + 0.5 + (1 - b.level.skill) * 0.2;
+        let safe = true; for (let tau = 0; tau <= need; tau += 0.1) if (lavaLevel(L, G.W.t + tau) > L.floor - 0.1) { safe = false; break; }
+        if (!safe && !(b.rnd() < b.level.mistakes * 0.02)) return { tx: p.x, tz: p.z, tsolid: -1 };   // hold position on the rock
+      }
+      b.rockNi = b.ni;
+    }
     if (n.tip && n.sid != null) {
       // Tip Toe: bots know the path but sometimes misjudge and step on a neighbouring (fake) tile
       if (b.tipNi !== b.ni) {
@@ -153,6 +187,8 @@ function raceTarget(G, p, b) {
     }
     if (n.sid != null) {
       const s = G.W.solids[n.sid]; pose(s, G.W.t + 0.5, TMP); tx = TMP.x; tz = TMP.z; tsolid = n.sid;
+      // a platform sliding sideways: wait at the edge in our own lane rather than chasing it
+      if (s.anim && s.anim.k === 'slide' && Math.abs(s.anim.v[0]) > 0.5 && p.gr !== n.sid) tx = p.x + Math.max(-1.0, Math.min(1.0, TMP.x - p.x));
       if (p.gr === n.sid) { tx = s.x; tz = s.z; }
     } else if (n.alts) {
       if (b.lane == null) { const x = n.alts[Math.floor(b.rnd() * n.alts.length)]; b.lane = x; }
@@ -245,12 +281,15 @@ function arenaTarget(G, p, b, think) {
 }
 
 // closest landing spot on solid si (predicted ~0.45 s ahead) and the gap to it
-function leapPlan(G, p, si, tx, tz) {
+function leapPlan(G, p, si, tx, tz, careful = false) {
   if (si < 0) return null;
   const s = G.W.solids[si];
-  if (s.blink) { const u = blinkU(s, G.W.t + 0.55); if (u > s.blink.on - 0.1) return null; }
+  if (s.blink) { const u = blinkU(s, G.W.t + 0.55); if (u > s.blink.on - (careful ? 0.25 : 0.1)) return null; }
   else if (!active(s, G.W)) return null;
-  const P = s.anim ? (pose(s, G.W.t + 0.45, TMP2), TMP2) : s;
+  // where will a moving platform be when we land? (flight time grows with the distance)
+  let T = 0.45;
+  if (s.anim) for (let k = 0; k < 2; k++) { pose(s, G.W.t + T, TMP2); T = 0.32 + Math.max(0, Math.hypot(TMP2.x - p.x, TMP2.z - p.z) - (s.shape === 'cyl' ? s.r : Math.min(s.hx, s.hz))) / 6.5; }
+  const P = s.anim ? (pose(s, G.W.t + T, TMP2), TMP2) : s;
   let ax, az, gap;
   if (s.shape === 'cyl') {
     const dx = p.x - P.x, dz = p.z - P.z, d = Math.hypot(dx, dz) || 1;
@@ -264,22 +303,32 @@ function leapPlan(G, p, si, tx, tz) {
     // bias toward the route target when the platform is big
     if (s.hx > 3 || s.hz > 3) { ax = ax * 0.5 + tx * 0.5; az = az * 0.5 + tz * 0.5; }
   }
-  return { gap, ax, az, dy: P.y + s.hy - p.y };
+  // only jump at a moving platform when it will be (nearly) straight ahead on the route: no wild sideways leaps
+  let ok = true;
+  if (s.anim && s.anim.k !== 'spin') {
+    // courses run along +z: the platform must come to us, not the other way round
+    const jx = ax - p.x, jz = az - p.z;
+    ok = Math.abs(jx) <= (careful ? 0.7 : 1.15) + 0.2 * Math.abs(jz);
+    // and it must not be sliding away from under us: check it is still in place a moment after landing
+    pose(s, G.W.t + T + 0.25, TMP3); if (Math.hypot(TMP3.x - P.x, TMP3.z - P.z) > (careful ? 0.7 : 1.3)) ok = ok && Math.hypot(TMP3.x - ax, TMP3.z - az) < Math.max(s.hx, s.hz) - 0.3;
+  }
+  return { gap, ax, az, dy: P.y + s.hy - p.y, ok };
 }
 
 // first moving hitter that will overlap us soon
 function hazard(G, p, mx, mz, lv) {
-  const look = [0.12, 0.24, 0.36, 0.5];
+  const look = [0.12, 0.24, 0.36, 0.5], longLook = [0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 1.05];
   for (const s of G.W.moving) {
     if (!s.hit || s.soft || s.anim.k === 'roll') continue;
     if (Math.abs(s.x - p.x) > s.br + 7 || Math.abs(s.z - p.z) > s.br + 7) continue;
-    for (const tau of look) {
-      if (tau > 0.25 + lv.skill * 0.3) break;
+    const piston = s.anim.k === 'piston';            // punchers fire fast: look further ahead before stepping into their lane
+    for (const tau of piston ? longLook : look) {
+      if (!piston && tau > 0.25 + lv.skill * 0.3) break;
       pose(s, G.W.t + tau, TMP);
       const px = p.x + mx * C.RUN * tau, pz = p.z + mz * C.RUN * tau;
       const dx = px - TMP.x, dz = pz - TMP.z, lx = dx * TMP.c - dz * TMP.sn, lz = dx * TMP.sn + dz * TMP.c;
       const ex = Math.max(0, Math.abs(lx) - s.hx), ez = Math.max(0, Math.abs(lz) - s.hz);
-      if (Math.hypot(ex, ez) > C.R + 0.3) continue;
+      if (Math.hypot(ex, ez) > C.R + (piston ? 0.7 : 0.3)) continue;
       const top = TMP.y + s.hy, bot = TMP.y - s.hy;
       if (top < p.y + 0.05 || bot > p.y + C.H) continue;
       return { s, tau, low: top < p.y + 1.15, high: bot > p.y + 0.85 };
@@ -292,12 +341,58 @@ function hazard(G, p, mx, mz, lv) {
 function ballThreat(G, p) {
   for (const s of G.W.moving) {
     if (!s.anim || s.anim.k !== 'roll') continue;
-    if (Math.abs(s.z - p.z) > 12) continue;
+    if (Math.abs(s.z - p.z) > 12 && Math.abs(s.x - p.x) > 14) continue;
     for (const tau of [0.2, 0.4, 0.6, 0.8, 1.0]) {
       pose(s, G.W.t + tau, TMP);
       const u = (((G.W.t + tau) / s.anim.P + s.anim.ph) % 1 + 1) % 1; if (u < 0.02 || u > 0.985) continue;
+      const across = Math.abs(s.anim.v[0]) > Math.abs(s.anim.v[2]);
+      if (across) {            // a snowball crossing the lane: is it about to cross the strip just in front of us?
+        if (Math.abs(TMP.z - p.z) < s.r + 1.6 && TMP.z > p.z - 0.6 && Math.abs(TMP.x - p.x) < s.r + 2.2 + tau * 4 && Math.abs(TMP.y - s.hy - p.y) < 1.5) return { x: TMP.x, tau, across, under: Math.abs(TMP.z - p.z) < s.r + 0.5 && Math.abs(TMP.x - p.x) < s.r + 0.6 };
+        continue;
+      }
       if (Math.hypot(TMP.x - p.x, TMP.z - (p.z + 3.5 * tau)) < s.r + 1.1 && Math.abs(TMP.y - s.hy - p.y) < 1.5) return { x: TMP.x, tau };
     }
   }
   return null;
+}
+
+// spike strip ahead that will be up when we reach it -> 'wait'; standing on one that is about to pop -> 'go'
+function spikeThreat(G, p, mx, mz, lv) {
+  const W = G.W;
+  for (const i of G.st.spikes) {
+    const s = W.solids[i];
+    if (Math.abs(s.x - p.x) > 4 || Math.abs(s.z - p.z) > 4) continue;
+    const inside = Math.abs(p.x - s.x) < s.hx + C.R && Math.abs(p.z - s.z) < s.hz + C.R;
+    if (inside) return 'go';
+    for (let tau = 0.1; tau <= 0.55 + lv.skill * 0.15; tau += 0.1) {
+      const px = p.x + mx * C.RUN * tau, pz = p.z + mz * C.RUN * tau;
+      if (Math.abs(px - s.x) > s.hx + C.R + 0.1 || Math.abs(pz - s.z) > s.hz + C.R + 0.1) continue;
+      if (blinkU(s, W.t + tau) <= s.blink.on || blinkU(s, W.t + tau + 0.25) <= s.blink.on) return 'wait';
+    }
+  }
+  return null;
+}
+// Block Dash: line up with a gap in the next wall (or jump the low blocks) and stay near the front
+function dashTarget(G, p, b, think) {
+  const W = G.W, D = G.st.dash, lv = b.level;
+  // the nearest wall row still in front of us (a wave can be two rows: deal with one row at a time)
+  let front = 1e9;
+  for (const s of W.moving) { if (s.anim?.k !== 'wave' || !active(s, W)) continue; const f = s.z - s.hz; if (s.z + s.hz > p.z - C.R && f < front) front = f; }
+  const homeZ = D.cz + D.L * 0.2;
+  if (front > 1e8) return { tx: b.dashX ?? p.x, tz: homeZ };
+  const row = W.moving.filter((s) => s.anim?.k === 'wave' && active(s, W) && Math.abs((s.z - s.hz) - front) < 0.6);
+  if (think || b.dashFront == null || Math.abs(front - b.dashFront) > 1.2) {
+    const blocked = new Set(), low = new Set();
+    for (const s of row) { const c = Math.round((s.x + D.HW - 1) / 2); if (s.hy > 0.6) blocked.add(c); else low.add(c); }
+    let best = null, bd = 1e9;
+    for (let c = 0; c < 7; c++) { if (blocked.has(c)) continue; const x = -D.HW + 1 + c * 2, d = Math.abs(x - p.x) + (low.has(c) ? 1.5 : 0) + (c === 0 || c === 6 ? 1.2 : 0) + b.rnd() * (1.5 - lv.skill); if (d < bd) { bd = d; best = x; } }
+    if (best != null && (b.dashFront == null || b.rnd() > lv.mistakes * 0.4)) b.dashX = best;
+  }
+  b.dashFront = front;
+  // jump low blocks just before they reach us
+  for (const s of row) if (s.hy <= 0.6 && Math.abs(s.x - p.x) < s.hx + C.R + 0.3) {
+    const gap = (s.z - s.hz) - (p.z + C.R), spd = Math.abs(s.anim.v[2]);
+    if (gap > 0 && gap < 0.5 + spd * 0.16 && p.gr >= 0 && b.jumpT <= 0) jump(b, 0.45);
+  }
+  return { tx: b.dashX ?? p.x, tz: Math.max(homeZ - 2, Math.min(homeZ + 2, p.z)) };
 }
