@@ -8,7 +8,7 @@ export const C = {
   // Movement is tuned to be forgiving, not twitchy: generous coyote/buffer time, a short guaranteed minimum
   // hop (MIN_JUMP_T) so even a quick tap of Space clears a gap, strong air control so you can correct a bad jump.
   G: 27, JUMP: 11.2, RUN: 7.8, ACC_G: 85, ACC_A: 50, PR: 0.42, PH: 1.6,
-  COYOTE: 0.18, BUFFER: 0.22, FALL_MUL: 1.15, CUT_MUL: 1.4, MIN_JUMP_T: 0.16,
+  COYOTE: 0.18, BUFFER: 0.22, FALL_MUL: 1.15, CUT_MUL: 1.4, MIN_JUMP_T: 0.16, DJUMP: 8.6,
   DASH_V: 15.5, DASH_T: 0.16, DASH_CD: 0.9,
   SHOVE_CD: 0.75, SHOVE_R: 2.0, SHOVE_KB: 11.5, SHOVE_UP: 5.2, STUN: 0.38, BUMP_KB: 8,
   WALL_R: 15.2, LAND_LENIENCY: 0.26,
@@ -335,7 +335,7 @@ export function updateSolids(level, S, st, t, lava, dt = 1 / 60) {
 // ---------------------------------------------------------------- players
 export function newPlayer(id, plat) {
   return { id, x: plat ? plat.x : 0, y: plat ? plat.top : 3, z: plat ? plat.z : 0, vx: 0, vy: 0, vz: 0, face: plat ? Math.atan2(-plat.x, -plat.z) : 0,
-    gr: plat ? plat.id : -1, coyote: 0, jbuf: 0, jumping: false, jumpT: 0, dashT: 0, dashCd: 0, airDash: false, dx: 0, dz: 0, shoveCd: 0, shoveT: 0, stun: 0,
+    gr: plat ? plat.id : -1, coyote: 0, jbuf: 0, jumping: false, jumpT: 0, dashT: 0, dashCd: 0, airDash: false, airJump: false, dx: 0, dz: 0, shoveCd: 0, shoveT: 0, stun: 0,
     alive: true, lj: 0, ld: 0, ls: 0, bumped: null, landed: 0 };
 }
 export function syncCounters(p, inp) { p.lj = inp.j; p.ld = inp.d; p.ls = inp.s; }
@@ -370,9 +370,14 @@ export function stepPlayer(p, inp, dt, S) {
     if (el > acc) { ex *= acc / el; ez *= acc / el; }
     p.vx += ex; p.vz += ez;
   }
-  // jump (buffered + coyote)
-  if (p.jbuf > 0 && (p.gr >= 0 || p.coyote > 0) && p.stun <= 0) {
-    p.vy = C.JUMP + (g && g.vy > 0 ? g.vy * 0.5 : 0); p.jbuf = 0; p.coyote = 0; p.gr = -1; p.jumping = true; p.jumpT = 0; ev |= 1;
+  // jump (buffered + coyote); a second jump works once in the air (double jump — also your "dive": jump again
+  // on the way down to punch through a bad fall and reach something lower, instead of just dropping).
+  if (p.jbuf > 0 && p.stun <= 0) {
+    if (p.gr >= 0 || p.coyote > 0) {
+      p.vy = C.JUMP + (g && g.vy > 0 ? g.vy * 0.5 : 0); p.jbuf = 0; p.coyote = 0; p.gr = -1; p.jumping = true; p.jumpT = 0; p.airJump = false; ev |= 1;
+    } else if (!p.airJump && p.dashT <= 0) {
+      p.vy = C.DJUMP; p.jbuf = 0; p.jumping = true; p.jumpT = 0; p.airJump = true; ev |= 16;
+    }
   }
   // gravity (short hop when jump is released early, snappier falls)
   if (p.gr < 0 && p.dashT <= 0) {
@@ -407,7 +412,7 @@ export function stepPlayer(p, inp, dt, S) {
   }
   if (land >= 0) {
     if (wasGr < 0) { ev |= 8; p.landed = -p.vy; }
-    p.gr = land; p.y = landTop; p.vy = 0; p.airDash = false; p.jumping = false;
+    p.gr = land; p.y = landTop; p.vy = 0; p.airDash = false; p.airJump = false; p.jumping = false;
   } else if (p.gr >= 0) { p.gr = -1; p.coyote = C.COYOTE; p.vy = Math.min(p.vy, 0) + (g ? Math.min(0, g.vy) : 0); }
   // crater wall
   const rr = Math.hypot(p.x, p.z);
@@ -483,7 +488,7 @@ export function encodeSnap(s) {
   const i16 = (x) => { v.setInt16(o, Math.max(-32767, Math.min(32767, Math.round(x * 100)))); o += 2; };
   for (const p of s.players) {
     v.setUint8(o++, p.idx);
-    v.setUint8(o++, (p.alive ? 1 : 0) | (p.gr >= 0 ? 2 : 0) | (p.dashT > 0 ? 4 : 0) | (p.stun > 0 ? 8 : 0) | (p.shoveT > 0 ? 16 : 0));
+    v.setUint8(o++, (p.alive ? 1 : 0) | (p.gr >= 0 ? 2 : 0) | (p.dashT > 0 ? 4 : 0) | (p.stun > 0 ? 8 : 0) | (p.shoveT > 0 ? 16 : 0) | (p.airJump ? 32 : 0));
     i16(p.x); i16(p.y); i16(p.z); i16(p.vx); i16(p.vy); i16(p.vz);
     v.setUint8(o++, Math.round((((p.face % TAU) + TAU) % TAU) / TAU * 255)); v.setUint8(o++, p.auth & 255);
   }
@@ -499,7 +504,7 @@ export function decodeSnap(buf) {
   const i16 = () => { const x = v.getInt16(o) / 100; o += 2; return x; };
   for (let k = 0; k < nP; k++) {
     const idx = v.getUint8(o++), f = v.getUint8(o++);
-    s.players.push({ idx, alive: !!(f & 1), grounded: !!(f & 2), dashing: !!(f & 4), stunned: !!(f & 8), shoving: !!(f & 16), x: i16(), y: i16(), z: i16(), vx: i16(), vy: i16(), vz: i16(), face: (v.getUint8(o++) / 255) * TAU, auth: v.getUint8(o++) });
+    s.players.push({ idx, alive: !!(f & 1), grounded: !!(f & 2), dashing: !!(f & 4), stunned: !!(f & 8), shoving: !!(f & 16), airJump: !!(f & 32), x: i16(), y: i16(), z: i16(), vx: i16(), vy: i16(), vz: i16(), face: (v.getUint8(o++) / 255) * TAU, auth: v.getUint8(o++) });
   }
   for (let i = 0; i < nS; i++) s.st[i] = v.getUint8(o++);
   return s;
