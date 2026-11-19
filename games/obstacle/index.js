@@ -57,7 +57,8 @@ export async function start(ctx) {
   let devStage = new URLSearchParams(location.search).get('ocstage'); try { devStage ||= localStorage.getItem('oc.devstage'); } catch { /* */ }      // dev/test only: ?ocstage=hop plays that stage first
   if (devStage && STAGES[devStage]) plan[0] = devStage;
   const stages = new Map();
-  const stageFor = (k) => { if (!stages.has(k)) stages.set(k, buildStage(plan[k], ctx.rng(0x500 + k * 131))); return stages.get(k); };
+  let devMods = null; try { devMods = localStorage.getItem('oc.devmods')?.split(',') || null; } catch { /* */ }     // dev/test only: build round 1 from these sections
+  const stageFor = (k) => { if (!stages.has(k)) stages.set(k, buildStage(plan[k], ctx.rng(0x500 + k * 131), k === 0 && devStage && devMods ? devMods : null)); return stages.get(k); };
   const api = { autopilot: false, turbo: 1, plan, stats: { corrections: 0, snaps: 0 } };   // test-only hooks (tests/drivers.mjs)
   window.__obstacle = api;
 
@@ -97,7 +98,7 @@ export async function start(ctx) {
     if (mySlot >= 0) { const s = spawnOf(st, mySlot); me = newPlayer(ctx.myId, s.x, s.y, s.z, s.face); me.auth = -1; me.slot = mySlot; syncCounters(me, myInput); }
     resetBot(myBot);
     const sp = me || view.get(roundIn[0]) || { x: 0, y: 0, z: 0, face: 0 };
-    Object.assign(gfx.cam, { x: sp.x, y: sp.y, z: sp.z, yaw: st.len ? 0 : Math.atan2(-sp.x, -sp.z), mode: 'intro', introT: 0, orbit: Math.random() * 6 });
+    Object.assign(gfx.cam, { x: sp.x, y: sp.y, z: sp.z, yaw: (st.len || st.dash) ? 0 : Math.atan2(-sp.x, -sp.z), mode: 'intro', introT: 0, orbit: Math.random() * 6 });
     spec = null;
     showCard(k);
     show.classList.remove('on');
@@ -460,7 +461,7 @@ export async function start(ctx) {
       v.groundY = gi >= 0 ? W.solids[gi].y + W.solids[gi].hy : -1e9;
       if (v.grabIdx >= 0 && ids[v.grabIdx]) { const o = view.get(ids[v.grabIdx]); if (o) { v.grabX = o.x; v.grabY = o.y; v.grabZ = o.z; } else v.grabX = null; } else v.grabX = null;
     }
-    gfx.update(dt, now, { t: tC, W, players: view, hype, crownTaken: !!info.winner && st?.mode === 'crown',
+    gfx.update(dt, now, { t: tC, W, players: view, hype, me: ctx.myId, onBlast: (b) => { const f = view.get(camFocus); const d = f ? Math.hypot(f.x - b.x, f.z - b.z) : 99; sfx.hit(d < 4); if (d < 8) gfx.fx.shake(0.4); }, crownTaken: !!info.winner && st?.mode === 'crown',
       onTile: (s) => { if (near2(s, 9)) sfx.tile(true); }, onTileFall: (s) => sfx.tileFall(near2(s, 10)) });
     // name tags
     for (const [id, t] of tags) {

@@ -25,6 +25,6 @@ export const manifest = {
   options: [
     { key: 'rounds', label: 'Show length', default: '3', choices: [{ value: '3', label: '3 rounds' }, { value: '4', label: '4 rounds' }] },
     { key: 'pool', label: 'Stage pool', default: 'all', choices: [{ value: 'all', label: 'All stages', desc: 'Races and survival rounds' }, { value: 'races', label: 'Races only' }, { value: 'survival', label: 'Survival heavy' }] },
-    { key: 'final', label: 'Final', default: 'random', choices: [{ value: 'random', label: 'Random final' }, { value: 'crown', label: 'Crown Summit' }, { value: 'last', label: 'Bean Arena' }, { value: 'sumo', label: 'Sumo Slam' }] },
+    { key: 'final', label: 'Final', default: 'random', choices: [{ value: 'random', label: 'Random final' }, { value: 'crown', label: 'Crown Summit' }, { value: 'last', label: 'Bean Arena' }, { value: 'sumo', label: 'Sumo Slam' }, { value: 'mountain', label: 'Fall Mountain' }] },
   ],
 };
