@@ -299,7 +299,7 @@ export async function start(ctx) {
   const pings = [];
   function showSniff(d) {
     const [txt, col] = d < 5 ? ['🔥 BURNING HOT!', '#ff4d5e'] : d < 10 ? ['♨️ Warm…', '#ff8c42'] : d < 18 ? ['🌬️ Cool', '#3ea6ff'] : ['🧊 Ice cold', '#8fd3ff'];
-    sniffEl.textContent = `👃 ${txt}${d < 90 ? ' · about ' + Math.max(2, Math.round(d / 2) * 2) + ' m' : ''}`; sniffEl.style.background = col; sniffEl.classList.remove('hidden'); sniffT = R.SNIFF_T;
+    sniffEl.textContent = `👃 ${txt}${d < 90 ? ' · about ' + Math.max(2, Math.round(d / 2) * 2) + ' m' : ''}`; sniffEl.style.background = col; sniffEl.classList.remove('hidden'); sniffT = performance.now() + R.SNIFF_T * 1000;   // wall-clock deadline: a slow frame rate must not keep it on screen
     sfx.sniff(d < 10);
   }
 
@@ -421,8 +421,8 @@ export async function start(ctx) {
       showTag: (id, p) => viewerRole === 'spec' || phase === 'post' || (viewerRole === 'H' && p.role === 'H') || (p.role === 'S' && !!L && lineOfSight(L, [lp.x, lp.y, lp.z], [p.x, p.y + 1.5, p.z])),
     });
     // --- HUD
-    vigT = Math.max(0, vigT - dt); sniffT = Math.max(0, sniffT - dt);
-    if (sniffT <= 0) sniffEl.classList.add('hidden');
+    vigT = Math.max(0, vigT - dt);
+    if (performance.now() >= sniffT) sniffEl.classList.add('hidden');
     const lowHp = me && me.role === 'S' && me.alive && (me.hp ?? 100) <= 30;
     vig.style.boxShadow = `inset 0 0 120px 20px rgba(255,60,80,${(vigT * 0.9 + (lowHp ? 0.25 + Math.sin(now / 200) * 0.1 : 0)).toFixed(2)})`;
     const sc = ctx.spectator ? '👀 Spectating' : !me ? '' : me.role === 'S'

@@ -8,7 +8,8 @@ export const T = { INTRO: 4, HIDE: 20, POST: 7, HUNT: { short: 100, normal: 155,
 export const R = {
   HP: 100, WRONG: 10, FIND_HP: 20, REACH: 3.1, BONK_CD: 0.55, EYE: 1.45,
   FIND: 15, SWEEP: 10, SURVIVE: 10, SURV_EVERY: 5, TAUNT: 3, DARING: 5, DARING_R: 7, TAUNT_CD: 10,
-  FORCE_EVERY: 45, FORCED_WARN: 5,   // a hider who stays silent this long is forced to taunt; any taunt resets the clock SNIFF_CD: 22, SNIFF_T: 4,
+  FORCE_EVERY: 45, FORCED_WARN: 5,   // a hider who stays silent this long is forced to taunt; any taunt resets the clock
+  SNIFF_CD: 22, SNIFF_T: 4,          // sniff cooldown, and how long its hot/cold result stays on screen
   SPEED: { H: 4.2, S: 4.4 }, SPRINT: 1.5,
   PROP_MOVE: 0.55,   // while the seekers hunt, a disguised hider shuffles at this fraction of walking speed (and can't sprint): running away as a prop is slow
 };
