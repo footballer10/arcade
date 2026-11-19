@@ -9,6 +9,7 @@ export const manifest = {
     "Aim with the mouse, attack with left click, use your special with right click or Q, dash with Shift or Space.",
     "The more damage you take, the further you fly when hit. The gas zone shrinks, so keep to the middle.",
     "Orange power cubes stack (up to 5): each one permanently boosts your max health and damage for the round.",
+    "Some arenas have glowing teal portal pads: stepping on one instantly sends you to its partner pad.",
   ],
   minPlayers: 2,
   maxPlayers: 8,
