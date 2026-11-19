@@ -457,6 +457,7 @@ export async function start(ctx) {
       case 'boom': sfx('boom', vol); renderer.shake(0.4 * vol); break;
       case 'well': sfx('well', vol); break;
       case 'tp': sfx('tp', vol); break;
+      case 'portal': sfx('tp', mine ? 0.9 : vol * 0.5); break;
       case 'dash': sfx('dash', mine ? 0.8 : vol * 0.4); break;
       case 'bump': sfx('bump', vol); if (mine) renderer.shake(0.25); break;
       case 'sweep': sfx('sweep', vol); if (mine) { renderer.shake(0.5); renderer.hitstop(60); } break;
