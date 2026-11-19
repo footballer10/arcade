@@ -161,12 +161,14 @@ function stepCar(W, c, i) {
       // tyre grip kills sideways sliding
       const vs = c.vx * sx + c.vy * sy + c.vz * sz, k = vs * (1 - Math.exp(-(skid ? 3 : C.GRIP) * DT));
       c.vx -= sx * k; c.vy -= sy * k; c.vz -= sz * k;
-      c.vy -= (W.grav || C.G) * DT;
+      // gravity only tugs at you on the flat floor: on walls it is a third as strong and on the roof it is gone, so
+      // you keep your speed climbing and can cruise across the ceiling like the floor
+      c.vy -= (W.grav || C.G) * DT * (ny >= 0.7 ? 1 : 0.3 + 0.7 * Math.max(0, ny) / 0.7);
       c.vx -= nx * C.STICK * DT; c.vy -= ny * C.STICK * DT; c.vz -= nz * C.STICK * DT;
       c.wx = c.wy = c.wz = 0;
-      // too slow on a wall, or hanging from the ceiling: fall off
+      // you only drop off a wall or the roof if you slow almost to a stop
       const spd = len3(c.vx, c.vy, c.vz);
-      if ((ny < 0.3 && spd < 7) || (ny < -0.35 && spd < 24) || ny < -0.75) {
+      if ((ny < 0.3 && spd < 4) || (ny < -0.5 && spd < 6)) {
         c.gnd = 0; c.jt = -1; c.dj = 1; c.jhold = 0;
         c.vx += nx * 2; c.vy += ny * 2; c.vz += nz * 2;
       }
@@ -242,7 +244,7 @@ function carSurface(W, c, i, inp, pressed) {
     }
     c.x += nx * (C.REST - d); c.y += ny * (C.REST - d); c.z += nz * (C.REST - d);
     const vn2 = c.vx * nx + c.vy * ny + c.vz * nz;
-    if (vn2 < 0) { c.vx -= nx * vn2; c.vy -= ny * vn2; c.vz -= nz * vn2; }
+    c.vx -= nx * vn2; c.vy -= ny * vn2; c.vz -= nz * vn2;   // glued to the surface: nothing pushes you into it or off it
     alignUp(c, nx, ny, nz, Math.min(1, 16 * DT));
     return;
   }
