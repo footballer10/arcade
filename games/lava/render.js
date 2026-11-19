@@ -345,6 +345,7 @@ export function createView(ctx) {
       b.a.userData.rig.rotation.x = p.shoving ? 0.35 : p.dashing ? 0.5 : p.stunned ? -0.3 : 0;
       if (p.stunned) b.a.userData.rig.rotation.z = Math.sin(t * 30) * 0.2;
       if (p.dashing && Math.random() < 0.8) spawn(p.x, p.y + 0.8, p.z, 0, 0.5, 0, 0.35, 0.7, WHITE, 0);
+      if (p.airJump && !p.grounded && Math.random() < 0.35) spawn(p.x + (Math.random() - 0.5) * 0.3, p.y - 0.2, p.z + (Math.random() - 0.5) * 0.3, 0, -0.3, 0, 0.3, 0.3, WHITE, 1.5);
       // blob shadow on the highest solid below
       let gy = s.lava;
       if (s.S) for (const sl of s.S) { if (!sl.solid || sl.top > p.y + 0.05 || sl.top < gy) continue; if (Math.hypot(sl.x - p.x, sl.z - p.z) < sl.r) gy = sl.top; }
@@ -441,6 +442,7 @@ export function createView(ctx) {
       hit(x, y, z) { burst(x, y + 0.9, z, 18, 6, SPARK, 0.4, 0.5, 3, -4); burst(x, y + 0.9, z, 6, 3, WHITE, 0.25, 0.9, 1, 0); },
       die(x, y, z) { burst(x, y, z, 50, 6, FIRE, 1.1, 0.9, 9, -10); burst(x, y, z, 24, 3, SPARK, 1.4, 0.5, 12, -12); },
       land(x, y, z, k) { burst(x, y + 0.05, z, Math.round(4 + k * 6), 2.5, new THREE.Color(0.6, 0.55, 0.6), 0.35, 0.35, 0.6, -2); },
+      doubleJump(x, y, z, colorHex) { burst(x, y - 0.3, z, 10, 2.2, new THREE.Color(colorHex ?? 0xffffff), 0.3, 0.35, 1.5, -3); },
       shake(k) { cam.shake = Math.max(cam.shake, k); },
       bomb(b, colorHex, lavaY) { addBomb(b, colorHex, lavaY); },
       kick(k = 1) { cam.kick = Math.max(cam.kick || 0, k); },

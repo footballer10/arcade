@@ -20,6 +20,10 @@ function standable(w, s, i) {
 }
 function occOf(w, id, self) { let n = 0; for (const o of w.players) if (o !== self && o.alive && o.gr === id) n++; return n; }
 
+// how much of the true physics reach a bot of this skill THINKS it has when picking a target: >1 means it
+// overestimates (commits to jumps that are really a bit too far and falls short), <1 means it plays safe.
+const reachMargin = (L) => 1.3 - 0.53 * L.skill;
+
 function scorePlat(w, me, s, i, b, cur) {
   const L = b.lvl, look = 0.8 + L.skill * 6;
   const futureLava = lavaAt(w.lv, w.t + look);
@@ -30,11 +34,15 @@ function scorePlat(w, me, s, i, b, cur) {
   if (s.kind === 'pumice') sc -= 1.2 + (w.st[i] / 100) * 6;
   if (s.kind === 'mover') sc -= 0.35;
   if (s.kind === 'glass') sc -= 0.6;
-  if (w.bombs) for (const bm of w.bombs) if (Math.hypot(s.x - bm.x, s.z - bm.z) < s.r + C.BOMB_R * 0.8) sc -= 6 * L.skill;   // dodge telegraphed bombs
+  if (w.bombs) for (const bm of w.bombs) {
+    const notice = 0.3 + L.skill * 0.9;             // how long before impact this skill level actually reacts
+    if (bm.land - w.t > notice) continue;
+    if (Math.hypot(s.x - bm.x, s.z - bm.z) < s.r + C.BOMB_R * 0.8) sc -= 3 * L.skill;
+  }
   const occ = occOf(w, s.id, me);
   sc -= occ * (s.kind === 'pumice' ? 4 : 1.6);
   if (!cur) sc -= Math.hypot(s.x - me.x, s.z - me.z) * 0.12;
-  return sc + (b.brain.rnd() - 0.5) * (1 - L.skill) * 1.6;
+  return sc + (b.brain.rnd() - 0.5) * (1 - L.skill) * 4.5;
 }
 
 // w = {S, st, lava, lv, t, players[], level}; me = player state. Fills and returns bot.inp.
@@ -57,7 +65,7 @@ export function botThink(w, me, b, dt) {
       const dh = s.top - fromY;
       if (dh > 1.5) continue;
       const gap = Math.max(0, Math.hypot(s.x - me.x, s.z - me.z) - s.r - (cur ? cur.r * 0.8 : 0));
-      const reach = jumpReach(dh) * 0.88;
+      const reach = jumpReach(dh) * reachMargin(L);
       if (gap > reach) continue;
       const sc = scorePlat(w, me, s, i, b, false);
       if (sc > bs) { bs = sc; best = i; }
@@ -68,7 +76,7 @@ export function botThink(w, me, b, dt) {
       for (let i = 0; i < S.length; i++) {
         const s = S[i]; if (s === cur || !standable(w, s, i) || s.top - fromY > 1.3 || s.top < w.lava + 0.8) continue;
         const gap = Math.max(0, Math.hypot(s.x - me.x, s.z - me.z) - s.r - (cur ? cur.r * 0.8 : 0));
-        if (gap < jumpReach(s.top - fromY) + 1.4 && gap - s.top < bd) { bd = gap - s.top; best = i; bs = curScore + 1; }
+        if (gap < jumpReach(s.top - fromY) * reachMargin(L) + 0.6 && gap - s.top < bd) { bd = gap - s.top; best = i; bs = curScore + 1; }
       }
     }
     if (best >= 0 && bs > curScore) { if (b.target !== best) { b.target = best; b.aimOff = (b.brain.rnd() * 2 - 1) * L.aimError * 0.8; b.fumble = b.brain.mistake(); b.jumpK = 0.42 + b.brain.rnd() * 0.25; } }
@@ -82,10 +90,10 @@ export function botThink(w, me, b, dt) {
         if (d > C.SHOVE_R + 0.6 || Math.abs(o.y - me.y) > 1.2) continue;
         // someone squaring up to me: shove first (quick bots win these exchanges)
         const facing = (Math.sin(o.face) * (me.x - o.x) + Math.cos(o.face) * (me.z - o.z)) / (d || 1);
-        if (facing > 0.5 && d < C.SHOVE_R + 0.3 && b.brain.rnd() < L.skill * 0.9) { b.prey = o; break; }
+        if (facing > 0.5 && d < C.SHOVE_R + 0.3 && b.brain.rnd() < L.skill * 0.55) { b.prey = o; break; }
         const oc = o.gr >= 0 ? S[o.gr] : null;
         const edge = !oc || Math.hypot(o.x - oc.x, o.z - oc.z) > oc.r - 0.6;
-        if (b.brain.rnd() < (edge ? 0.35 + L.skill * 0.55 : L.skill * 0.25)) { b.prey = o; break; }
+        if (b.brain.rnd() < (edge ? L.skill * 0.6 : L.skill * 0.12)) { b.prey = o; break; }
       }
     }
   }
@@ -142,6 +150,15 @@ export function botThink(w, me, b, dt) {
       if (willMiss && Math.abs(after - dc) < tgt.r + 0.4 && b.brain.rnd() < 0.15 + L.skill * 0.6) {
         const a = Math.atan2(tgt.x - me.x, tgt.z - me.z); inp.mx = Math.sin(a); inp.mz = Math.cos(a); inp.d++; b.target = tgt.id;
       }
+    }
+  }
+  // in the air, heading toward a higher target that the first jump won't quite reach: double-jump to stretch
+  // it (once per airtime) — a legitimate recovery, not guaranteed; weaker bots notice and use it less often.
+  if (me.gr < 0 && !me.airJump && me.stun <= 0 && T && T !== cur && T.top > me.y + 0.3 && me.vy < 2.5) {
+    const gd = Math.max(0, Math.hypot(T.x - me.x, T.z - me.z) - T.r);
+    const willFallShort = gd > jumpReach(T.top - me.y) * reachMargin(L) * 0.85;
+    if (willFallShort && b.brain.rnd() < 0.08 + L.skill * 0.5) {
+      const a = Math.atan2(T.x - me.x, T.z - me.z); inp.mx = Math.sin(a); inp.mz = Math.cos(a); inp.j++; inp.jh = true; b.holdJ = 0.3;
     }
   }
   // stuck against a column side: hop

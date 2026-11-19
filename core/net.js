@@ -26,6 +26,15 @@ const NETLOG = /[?&]netlog=1/.test(location.search);
 const nlog = (...a) => { if (NETLOG) console.info('[net]', Math.round(performance.now()), ...a); };
 
 // 'peer' (every real online party) = direct WebRTC with an automatic MQTT-relay fallback; 'local' = tabs (tests).
+// Connecting to the signalling + relay servers takes a few seconds, so the hub starts it while the player is still
+// on the home screen; the first party created or joined then reuses that ready transport.
+let warm = null;
+export function prewarm(kind) {
+  if (kind === 'local' || warm) return;
+  const t = createTransport(kind);
+  const w = warm = { kind, t, ready: t.open().then(() => t) };
+  w.ready.catch(() => { if (warm === w) warm = null; });
+}
 export function createTransport(kind) { return simTransport(kind === 'local' ? new LocalTransport() : new DualTransport()); }
 
 export class PartyNet extends Emitter {
@@ -56,8 +65,10 @@ export class PartyNet extends Emitter {
 
   async _ensureOpen() {
     if (this.t) return;
-    this.t = createTransport(this.kind);
-    await this.t.open();
+    if (warm && warm.kind === this.kind) {
+      const w = warm; warm = null; this.t = w.t;
+      try { await w.ready; } catch { this.t = createTransport(this.kind); await this.t.open(); }
+    } else { this.t = createTransport(this.kind); await this.t.open(); }
     this.t.onconnection = (c) => this._incoming(c);
   }
 

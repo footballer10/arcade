@@ -26,8 +26,9 @@ const dots = (g, w, h, n, color, r0, r1) => { g.fillStyle = color; for (let i = 
 // felt: two crisp mowing stripes per repeat (the lane UVs repeat every 2.5 m, so 4 stripes across a 5 m lane)
 const turfMap = canvasTex(128, 128, (g, w, h) => {
   const grd = g.createLinearGradient(0, 0, w, 0);   // two soft-edged mowing stripes per repeat (edges blurred so diagonals stay smooth)
-  grd.addColorStop(0, '#ffffff'); grd.addColorStop(0.44, '#ffffff'); grd.addColorStop(0.5, '#e9e9e9'); grd.addColorStop(0.94, '#e9e9e9'); grd.addColorStop(1, '#ffffff');
+  grd.addColorStop(0, '#ffffff'); grd.addColorStop(0.42, '#ffffff'); grd.addColorStop(0.5, '#dedede'); grd.addColorStop(0.92, '#dedede'); grd.addColorStop(1, '#ffffff');
   g.fillStyle = grd; g.fillRect(0, 0, w, h);
+  dots(g, w, h, 70, 'rgba(0,0,0,.05)', 0.7, 1.5); dots(g, w, h, 50, 'rgba(255,255,255,.35)', 0.6, 1.3);
 });
 // grass: flat colour with sparse cartoon tufts and soft lighter patches
 const groundMap = canvasTex(512, 512, (g, w, h) => {
@@ -37,10 +38,10 @@ const groundMap = canvasTex(512, 512, (g, w, h) => {
     const x = rnd() * w, y = rnd() * h, r = 40 + rnd() * 50;
     for (const ox of [-w, 0, w]) for (const oy of [-h, 0, h]) { g.fillStyle = 'rgba(255,255,255,.28)'; g.beginPath(); g.ellipse(x + ox, y + oy, r, r * 0.7, 0, 0, 7); g.fill(); }
   }
-  g.strokeStyle = '#d8d8d8'; g.lineWidth = 4; g.lineCap = 'round'; g.lineJoin = 'round';
-  for (let i = 0; i < 7; i++) {
+  g.fillStyle = '#d2d2d2';
+  for (let i = 0; i < 8; i++) {
     const x = 20 + rnd() * (w - 40), y = 20 + rnd() * (h - 40);
-    g.beginPath(); g.moveTo(x - 7, y - 8); g.lineTo(x, y + 4); g.lineTo(x + 3, y - 12); g.lineTo(x + 7, y + 4); g.lineTo(x + 14, y - 7); g.stroke();
+    for (const [dx, lean, ht] of [[-6, -5, 14], [0, 0, 19], [6, 5, 14]]) { g.beginPath(); g.moveTo(x + dx - 3.5, y); g.quadraticCurveTo(x + dx, y - ht * 0.6, x + dx + lean, y - ht); g.quadraticCurveTo(x + dx + 1, y - ht * 0.5, x + dx + 3.5, y); g.fill(); }
   }
 }, { repeat: [45, 45] });
 // painted rail: flat colour, a bright top lip and one dark groove
@@ -69,9 +70,12 @@ const sandMap = canvasTex(128, 128, (g, w, h) => {
   dots(g, w, h, 30, '#e8b860', 1, 2.2);
 });
 const iceMap = canvasTex(256, 256, (g, w, h) => {
-  g.fillStyle = '#c4ecff'; g.fillRect(0, 0, w, h);
-  g.fillStyle = 'rgba(255,255,255,.85)';
-  for (const [x, wd] of [[30, 26], [80, 10], [150, 34], [210, 12]]) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x + wd, 0); g.lineTo(x + wd - 120, h); g.lineTo(x - 120, h); g.fill(); g.beginPath(); g.moveTo(x + w, 0); g.lineTo(x + wd + w, 0); g.lineTo(x + wd - 120 + w, h); g.lineTo(x - 120 + w, h); g.fill(); }
+  g.fillStyle = '#cdeeff'; g.fillRect(0, 0, w, h);
+  for (const [x, wd] of [[40, 34], [150, 20], [225, 42]]) {
+    for (const ox of [-w, 0, w]) { const gr = g.createLinearGradient(x + ox, 0, x + ox + wd, 0); gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.5, 'rgba(255,255,255,.75)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(x + ox, 0, wd, h); }
+  }
+  g.strokeStyle = 'rgba(255,255,255,.95)'; g.lineWidth = 3; g.lineCap = 'round';
+  for (const [x, y] of [[60, 70], [190, 150], [110, 215]]) { g.beginPath(); g.moveTo(x - 7, y); g.lineTo(x + 7, y); g.moveTo(x, y - 7); g.lineTo(x, y + 7); g.stroke(); }
 });
 const boostMap = canvasTex(64, 64, (g, w, h) => {
   g.fillStyle = '#ff7a1a'; g.fillRect(0, 0, w, h);
@@ -98,6 +102,7 @@ const crateMap = canvasTex(128, 128, (g, w, h) => {
   g.lineWidth = 12; g.lineJoin = 'round'; g.strokeStyle = '#17112e'; g.strokeText('?', 64, 70); g.fillStyle = '#fff'; g.fillText('?', 64, 70);
 });
 const cupMap = canvasTex(64, 64, (g, w, h) => { const gr = g.createRadialGradient(32, 32, 4, 32, 32, 32); gr.addColorStop(0, '#05030c'); gr.addColorStop(0.8, '#17112e'); gr.addColorStop(1, '#2b2350'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
+const dotMap = canvasTex(64, 64, (g) => { const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, '#fff'); gr.addColorStop(0.62, '#fff'); gr.addColorStop(0.72, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); }, { clamp: true });
 const glowMap = canvasTex(64, 64, (g) => { const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.3, 'rgba(255,255,255,.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); }, { clamp: true });
 // puffy cartoon cloud: crisp overlapping circles, flat bottom, a soft shaded underside
 const cloudMap = canvasTex(256, 128, (g) => {
@@ -155,6 +160,26 @@ export const M = {
 
 // ---------------------------------------------------------------- ink outlines (inverted hull)
 // A back-face copy pushed out along smoothed normals, so long thin rails get an even line (a scaled copy wouldn't).
+// Relief: slopes get contour lines (a ring every 10 cm of height) and are shaded light/dark by which way they face, so hills,
+// ramps, banks and the mounds and bowls around the cup read at a glance. Flat ground is untouched.
+M.turf.onBeforeCompile = (sh) => {
+  sh.vertexShader = sh.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vWPos; varying vec3 vWN;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz; vWN = normalize(mat3(modelMatrix) * objectNormal);');
+  sh.fragmentShader = sh.fragmentShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vWPos; varying vec3 vWN;')
+    .replace('#include <dithering_fragment>', `
+      float slope = length(normalize(vWN).xz);   // ~ gradient: 0 flat
+      float sl = smoothstep(0.025, 0.1, slope);
+      vec2 dn = normalize(vWN.xz + vec2(1e-5));
+      gl_FragColor.rgb *= 1.0 + sl * dot(dn, normalize(vec2(-0.55, 0.83))) * 0.26;
+      float hh = vWPos.y / 0.1, fw = max(fwidth(hh), 1e-4);
+      float ln = 1.0 - smoothstep(fw * 0.35, fw * 1.05, abs(fract(hh + 0.5) - 0.5));
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb * vec3(0.74, 0.88, 0.76), ln * sl);
+      #include <dithering_fragment>`);
+};
+M.turf.customProgramCacheKey = () => 'golf-turf-relief';
+
 export const INK = '#17112e';
 const inkMats = new Map();
 function inkMat(w) {
@@ -228,7 +253,16 @@ export function initEnv(renderer) {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 }
 export function ballMaterial(color) {
-  return toon({ color, transparent: true });
+  const m = toon({ color, transparent: true });
+  m.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace('#include <dithering_fragment>', `
+      vec3 bn = normalize(normal);
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1.0), smoothstep(0.915, 0.93, dot(bn, normalize(vec3(-0.45, 0.72, 0.52)))) * 0.95);
+      gl_FragColor.rgb += pow(1.0 - clamp(bn.z, 0.0, 1.0), 3.0) * 0.14;
+      #include <dithering_fragment>`);
+  };
+  m.customProgramCacheKey = () => 'golf-ball';
+  return m;
 }
 export const blobGeo = new THREE.CircleGeometry(1, 24).rotateX(-Math.PI / 2);
 
@@ -470,7 +504,7 @@ export class Particles {
     this.vel = new Float32Array(cap * 3); this.life = new Float32Array(cap); this.grav = new Float32Array(cap);
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(this.col, 3));
-    this.points = new THREE.Points(g, new THREE.PointsMaterial({ size: 0.14, vertexColors: true, transparent: true, depthWrite: false }));
+    this.points = new THREE.Points(g, new THREE.PointsMaterial({ size: 0.2, map: dotMap, alphaTest: 0.05, vertexColors: true, transparent: true, depthWrite: false }));
     this.points.frustumCulled = false; scene.add(this.points);
     for (let i = 0; i < cap; i++) this.pos[i * 3 + 1] = -9999;
   }
@@ -585,3 +619,110 @@ export function animate(t) {
   M.mineLight.color.setScalar(0.5 + 0.5 * Math.sin(t * 10)); M.mineLight.color.g = M.mineLight.color.b = 0.1;
 }
 M.portalA.map.center.set(0.5, 0.5); M.portalB.map.center.set(0.5, 0.5);
+
+
+// ---------------------------------------------------------------- smooth banked-corner wall, planter and rail contact shadows
+// The banked corner's physics wall is 9 straight boxes; drawing it as one smooth ribbon (and the corner planter as a
+// polar sector) removes the sawtooth along the curve.
+export function bankWall(hole, arc) {
+  const T = C.T, N = 36, g = new THREE.Group();
+  const rin = T, rout = T + C.WALL_TH, [icx, icz] = arc.ic, y0 = arc.y0;
+  const smp = [];
+  for (let i = 0; i <= N; i++) {
+    const a = arc.a0 + i / N * Math.PI / 2, c = Math.cos(a), s = Math.sin(a);
+    const hb = C.heightAt(hole, icx + c * (T - 0.2), icz + s * (T - 0.2));
+    smp.push({ c, s, y1: (hb ?? arc.t.h0) + 0.38 });
+  }
+  const pos = [], uv = [], idx = [];
+  const quad = (a, b, c, d) => { const k = pos.length / 3 - 4; idx.push(k + a, k + b, k + c, k + a, k + c, k + d); };
+  const face = (rad, flip) => {   // vertical ring face
+    for (let i = 0; i <= N; i++) { const p = smp[i]; pos.push(icx + p.c * rad, y0, icz + p.s * rad, icx + p.c * rad, p.y1, icz + p.s * rad); uv.push(i * 0.35, 0, i * 0.35, 0.5); }
+    const k = pos.length / 3 - 2 * (N + 1);
+    for (let i = 0; i < N; i++) { const a = k + i * 2; if (flip) idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); else idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+  };
+  face(rin, false); face(rout, true);
+  { // top
+    for (let i = 0; i <= N; i++) { const p = smp[i]; pos.push(icx + p.c * rin, p.y1, icz + p.s * rin, icx + p.c * rout, p.y1, icz + p.s * rout); uv.push(i * 0.35, 0.5, i * 0.35, 0.7); }
+    const k = pos.length / 3 - 2 * (N + 1);
+    for (let i = 0; i < N; i++) { const a = k + i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+  }
+  for (const i of [0, N]) { // end caps
+    const p = smp[i];
+    pos.push(icx + p.c * rin, y0, icz + p.s * rin, icx + p.c * rout, y0, icz + p.s * rout, icx + p.c * rout, p.y1, icz + p.s * rout, icx + p.c * rin, p.y1, icz + p.s * rin);
+    uv.push(0, 0, 0.2, 0, 0.2, 0.5, 0, 0.5);
+    const k = pos.length / 3 - 4; if (i === 0) idx.push(k, k + 2, k + 1, k, k + 3, k + 2); else idx.push(k, k + 1, k + 2, k, k + 2, k + 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx); geo.computeVertexNormals();
+  const rail = new THREE.Mesh(geo, M.wood); rail.castShadow = true; rail.receiveShadow = true; g.add(rail);
+
+  // planter: flat stone top filling the tile corner behind the curve, bounded by the tile square
+  const ppos = [], pidx = [], pu = [], top = arc.t.h0 + 0.5, M2 = 24;
+  for (let i = 0; i <= M2; i++) {
+    const phi = i / M2 * Math.PI / 2, a = arc.a0 + phi, c = Math.cos(a), s = Math.sin(a), rm = T / Math.max(Math.cos(phi), Math.sin(phi));
+    ppos.push(icx + c * (T + 0.05), top, icz + s * (T + 0.05), icx + c * rm, top, icz + s * rm);
+    pu.push((icx + c * (T + 0.05)) / 1.6, (icz + s * (T + 0.05)) / 1.6, (icx + c * rm) / 1.6, (icz + s * rm) / 1.6);
+  }
+  for (let i = 0; i < M2; i++) { const a = i * 2; pidx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+  const pg = new THREE.BufferGeometry();
+  pg.setAttribute('position', new THREE.Float32BufferAttribute(ppos, 3)); pg.setAttribute('uv', new THREE.Float32BufferAttribute(pu, 2));
+  pg.setIndex(pidx); pg.computeVertexNormals();
+  const pm = new THREE.Mesh(pg, M.stone); pm.receiveShadow = true; pm.userData.noInk = true; g.add(pm);
+  return g;
+}
+
+// A soft dark gradient on the turf beside every rail on flat ground: cheap ambient occlusion that also shows on Low.
+const aoMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+M.ao = aoMat;
+export function railShadows(hole) {
+  const pos = [], col = [], idx = [], W = 0.55, A = 0.34;
+  const flat = (x, z, h0) => { const h = C.heightAt(hole, x, z); return h !== null && Math.abs(h - h0) < 0.025; };
+  for (const w of hole.walls) {
+    if (w.kind === 'tunnel') continue;
+    const alongX = w.hx > w.hz, L = alongX ? w.hx : w.hz, th = alongX ? w.hz : w.hx;
+    for (const side of [-1, 1]) {
+      const nx = alongX ? 0 : side, nz = alongX ? side : 0, ax = alongX ? 1 : 0, az = alongX ? 0 : 1;
+      const px = w.x + nx * (th + 0.04), pz = w.z + nz * (th + 0.04);
+      if (!C.tileAt(hole, px + nx * 0.3, pz + nz * 0.3)) continue;
+      const h0 = C.heightAt(hole, px + nx * 0.2, pz + nz * 0.2); if (h0 === null) continue;
+      if (![-0.95, -0.5, 0, 0.5, 0.95].every((f) => flat(px + nx * 0.2 + ax * L * f, pz + nz * 0.2 + az * L * f, h0))) continue;
+      const k = pos.length / 3, y = h0 + 0.014;
+      for (const e of [-1, 1]) {
+        pos.push(px + ax * L * e, y, pz + az * L * e); col.push(0.04, 0.07, 0.12, A);
+        pos.push(px + nx * W + ax * L * e, y, pz + nz * W + az * L * e); col.push(0.04, 0.07, 0.12, 0);
+      }
+      idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2);
+    }
+  }
+  if (!idx.length) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 4)); geo.setIndex(idx);
+  const m = new THREE.Mesh(geo, aoMat); m.renderOrder = 1; m.userData.noInk = true; m.frustumCulled = false;
+  return m;
+}
+
+// Two white rings around the cup that follow the ground (mound, bowl or flat), so the target reads from far away.
+M.cupRing = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+export function cupRings(hole) {
+  const { x, z } = hole.cup, pos = [], idx = [], SEG = 56;
+  const h0 = C.heightAt(hole, x, z) ?? hole.cup.y;
+  for (const [r0, r1] of [[0.64, 0.69], [1.22, 1.26]]) {
+    const ring = [];
+    for (let i = 0; i <= SEG; i++) {
+      const a = i / SEG * Math.PI * 2, c = Math.cos(a), s = Math.sin(a);
+      const ha = C.heightAt(hole, x + c * r0, z + s * r0), hb = C.heightAt(hole, x + c * r1, z + s * r1);
+      const ok = ha !== null && hb !== null && Math.abs(ha - h0) < 0.6 && Math.abs(hb - h0) < 0.6;
+      ring.push(ok ? [x + c * r0, ha + 0.02, z + s * r0, x + c * r1, hb + 0.02, z + s * r1] : null);
+    }
+    for (let i = 0; i < SEG; i++) {
+      const p = ring[i], q = ring[i + 1]; if (!p || !q) continue;
+      const k = pos.length / 3; pos.push(...p, ...q);
+      idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx);
+  const m = new THREE.Mesh(geo, M.cupRing); m.userData.noInk = true; m.renderOrder = 2; m.frustumCulled = false;
+  return m;
+}

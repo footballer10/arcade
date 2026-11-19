@@ -39,8 +39,11 @@ export class DualTransport {
   async claim(alias) {
     const code = alias.slice(5);
     let err = null, any = false;
-    if (this.peerOk) { try { await this.peer.claim(this.peer.roomAddr(code)); any = true; } catch (e) { err = e; if (e.type === 'unavailable-id') throw e; } }
-    if (this.relayOk) { try { await this.relay.claim(this.relay.roomAddr(code)); any = true; } catch (e) { if (e.type === 'unavailable-id' && !any) throw e; err = err || e; } }
+    // both at once (they used to run one after the other)
+    const [p, r] = await Promise.allSettled([this.peerOk ? this.peer.claim(this.peer.roomAddr(code)) : Promise.reject(null), this.relayOk ? this.relay.claim(this.relay.roomAddr(code)) : Promise.reject(null)]);
+    if (p.status === 'rejected' && p.reason?.type === 'unavailable-id') { if (r.status === 'fulfilled') this.relay.release(this.relay.roomAddr(code)); throw p.reason; }
+    if (r.status === 'rejected' && r.reason?.type === 'unavailable-id' && p.status !== 'fulfilled') throw r.reason;
+    any = p.status === 'fulfilled' || r.status === 'fulfilled'; err = p.reason || r.reason;
     if (!any) throw err || new Error('Could not claim room');
     (this.codes ||= new Set()).add(code);
     if (!this._stopKeep) { let n = 0; this._stopKeep = everySecond(() => { if (++n % 6 === 0) this._keepClaims(); }); }
@@ -96,9 +99,13 @@ export class DualTransport {
   }
   // Direct (WebRTC) only: used to move a player off the relay once a direct link works.
   connectDirect(target, timeout = 20000) {
-    if (!this.peerOk || RELAY_ONLY) return Promise.reject(Object.assign(new Error('direct unavailable'), { type: 'network' }));
+    if ((!this.peerOk && !this.relayOk) || RELAY_ONLY) return Promise.reject(Object.assign(new Error('direct unavailable'), { type: 'network' }));
     const a = parse(target);
-    return (BLOCK_DIRECT ? blocked(timeout) : this.peer.connect(a.room ? this.peer.roomAddr(a.room) : a.p, timeout)).then((c) => { c.via = 'direct'; return c; });
+    if (BLOCK_DIRECT) return blocked(timeout);
+    const viaRelay = () => (this.relayOk ? this.relay.connectRtc(a.room ? this.relay.roomAddr(a.room) : a.r, timeout) : Promise.reject(Object.assign(new Error('direct unavailable'), { type: 'network' })));
+    // PeerJS first; if its server is unreachable (or the host isn't on it), set WebRTC up through the relay instead
+    if (!this.peerOk) return viaRelay();
+    return this.peer.connect(a.room ? this.peer.roomAddr(a.room) : a.p, timeout).then((c) => { c.via = 'direct'; return c; }, (e) => viaRelay().catch(() => { throw e; }));
   }
   relayInfo() { return this.relay ? this.relay.clients.map((c, i) => `${new URL(BROKERS[i]).hostname}:${c?.open ? 'ok' : 'down'}`).join(' ') : 'off'; }
   close() { this._stopKeep?.(); this.peer.close(); this.relay?.close(); }

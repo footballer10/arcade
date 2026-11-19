@@ -93,6 +93,7 @@ export class HostSim {
       if (ev.ground >= 0) this.trigger(lv, p.l, ev.ground, idx, lv.delay);
       if (ev.land >= 0 && (ev.impact || 0) > 12) this.cfg.ev('thud', { id: p.id, l: p.l });
       if (ev.dash) this.cfg.ev('dash', { id: p.id });
+      if (ev.dive) this.cfg.ev('dive', { id: p.id });
       if (!p.alive) this.knockout(p);
     }
     collide(this.players.filter((p) => p.alive), (a, b, x, y, z, both) => {

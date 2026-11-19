@@ -7,6 +7,7 @@
 // The host connects to every broker it can reach and answers on whichever one a joiner used.
 import { MqttClient } from './mqtt.js';
 import { everySecond } from './keepalive.js';
+import { rtcConnect, rtcAnswer } from './transport-rtc.js';
 
 // ?relay=url1,url2 overrides the broker list (the automated tests run their own broker).
 const OVERRIDE = new URLSearchParams(location.search).get('relay');
@@ -33,7 +34,10 @@ class RelayConn {
 }
 
 export class RelayTransport {
-  constructor() { this.kind = 'relay'; this.addr = null; this.clients = []; this.aliases = new Set(); this.conns = new Map(); this.waiting = new Map(); this.onconnection = null; }
+  _rtcReg(sid, h) { if (h) this.rtc.set(sid, h); else this.rtc.delete(sid); }
+  // A direct WebRTC link to `target`, set up through the relay instead of the PeerJS server.
+  connectRtc(target, timeout = 15000) { return rtcConnect((x) => this._postAll(x), target, timeout, (sid, h) => this._rtcReg(sid, h)); }
+  constructor() { this.rtc = new Map(); this.kind = 'relay'; this.addr = null; this.clients = []; this.aliases = new Set(); this.conns = new Map(); this.waiting = new Map(); this.onconnection = null; }
   roomAddr(code) { return 'room-' + code; }
   // Resolves as soon as one broker is connected (plus a short moment for the others); slow or blocked brokers keep
   // connecting in the background and join in when they're up. A broker that drops is reconnected automatically
@@ -109,11 +113,15 @@ export class RelayTransport {
       case 'ack': if (m.to === this.addr) this.waiting.get('ack:' + m.cid)?.(i); break;
       case 'm': this.conns.get(m.cid)?.onmessage?.(m.d); break;
       case 'fin': this.conns.get(m.cid)?._closed(); break;
+      // WebRTC set up through the relay (for networks that block the PeerJS server)
+      case 'ro': if (this._mine(m.to) && !this.rtc.has(m.sid)) rtcAnswer((x) => this._post(i, x), m.from, m.sid, m.sdp, (sid, h) => this._rtcReg(sid, h), (c) => this.onconnection?.(c)).catch(() => this.rtc.delete(m.sid)); break;
+      case 'ra': if (m.to === this.addr) this.rtc.get(m.sid)?.answer?.(m.sdp); break;
+      case 'rc': if (this._mine(m.to)) this.rtc.get(m.sid)?.cand?.(m.c); break;
     }
   }
   claim(alias) {
     return new Promise((res, rej) => {
-      const t = setTimeout(() => { this.waiting.delete('own:' + alias); this.aliases.add(alias); this._sub(alias); res(); }, 900);
+      const t = setTimeout(() => { this.waiting.delete('own:' + alias); this.aliases.add(alias); this._sub(alias); res(); }, 500);
       this.waiting.set('own:' + alias, () => { clearTimeout(t); this.waiting.delete('own:' + alias); rej(Object.assign(new Error('Room code taken'), { type: 'unavailable-id' })); });
       this._sub(this.addr);
       this._postAll({ k: 'who', to: alias, alias });

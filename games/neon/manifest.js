@@ -8,7 +8,7 @@ export const manifest = {
     "Race anti-gravity ships around the track. First over the line after the last lap wins.",
     "Hold Space while steering to drift. The drift charges blue, then pink, then gold: let go for a speed boost.",
     "Chain drifts quickly for bigger boosts, but holding gold too long overheats the drift.",
-    "Hold Shift to spend your boost meter. In Knockout mode the last-place ship is knocked out every lap.",
+    "Hold Shift to spend your boost meter. In Knockout mode the last-place ship is knocked out every lap — once you're out, hit Space to watch another racer.",
   ],
   minPlayers: 1,
   maxPlayers: 8,
@@ -20,7 +20,7 @@ export const manifest = {
     ['W / ↑', 'Accelerate'], ['S / ↓', 'Brake / reverse'], ['A D / ← →', 'Steer'],
     ['Space (hold) + steer', 'Drift: charges blue → pink → gold. Let go for a boost'],
     ['Drift again quickly', 'Chain drifts for ×1.5 … ×3 boost'], ['Hold gold too long', 'Overheat: the drift burns out'], ['Shift (hold)', 'Spend boost meter'],
-    ['Q', 'Look back'], ['Spectating: A / D', 'Switch racer'],
+    ['Q', 'Look back'], ['Derezzed / spectating: Space or A / D', 'Switch who you watch'],
   ],
   picks: [
     { key: 'ship', label: 'Ship', default: 'comet', choices: [

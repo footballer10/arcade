@@ -79,3 +79,13 @@ beat and then go. Everyone reacts to the whistle a little late (more on easy). O
 drop back to goal, trail the taker through midfield, or occasionally challenge for the ball as well. Easy bots rarely
 flip. Measured over 200 simulated kickoffs: 6 taker plans and 5 other plans all show up, and the ball leaves the
 kickoff at a spread of angles instead of always straight.
+
+## Goal replay fixes
+- **Skipping is a deliberate hold.** Space is also jump, and players mash it while the goal is celebrated; a single
+  press used to count as a skip vote, so one stray press (instantly, in a solo game) cut the replay to a flash.
+  Now you hold Space for 0.6 s, only after the first 0.8 s, and only once Space has been let go. The badge shows
+  "hold Space to skip" and the progress. The host only accepts votes for the replay that is playing.
+- **The replay starts when the screen's own copy of the match enters the replay phase.** It used to start from the
+  host's reliable 'replay' event and be cancelled if the (unreliable) snapshot that flips the phase had not arrived
+  yet, which showed a frozen world for the whole replay on laggy connections. The two no longer depend on arrival
+  order. Checked with 250 ms of added lag: replay shown 14 of 16 samples (0 of 14 before).
