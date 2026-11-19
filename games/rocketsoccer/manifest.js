@@ -26,7 +26,7 @@ export const manifest = {
     ['Right click', 'Ball cam on / off (camera follows the ball)'],
     ['Drive into curves', 'Ride up the walls'],
     ['Supersonic ram', 'Demolish an opponent'],
-    ['Space during a replay', 'Vote to skip it'],
+    ['Hold Space during a replay', 'Vote to skip it'],
   ],
   picks: [
     { key: 'team', label: 'Team', default: 'auto', choices: [

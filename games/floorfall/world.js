@@ -13,6 +13,7 @@ export const C = {
   R: 0.42,               // player radius
   SPEED: 6.0, ACC: 62, AIR_ACC: 20,
   JUMP: 8.4, G: 25, MAX_FALL: 30,
+  DIVE_V: 19,            // Space again in the air = dive: plunge downwards this fast
   DASH_V: 13.5, DASH_T: 0.16, DASH_CD: 1.6, DASH_LIFT: 3,
   BUMP: 7, BUMP_UP: 3.6, STUN: 0.3,
   COYOTE: 0.2,
@@ -121,7 +122,7 @@ export function newPlayer(id, lv, idx) {
   const T = lv.layers[lv.L - 1], i = lv.spawns[idx % lv.spawns.length];
   const x = T.xs[i], z = T.zs[i];
   return { id, x, y: T.y, z, vx: 0, vy: 0, vz: 0, g: true, l: lv.L - 1, face: Math.atan2(-x, -z), alive: true,
-    dashT: 0, dashCd: 0, stun: 0, coy: 0, lj: 0, ld: 0, auth: 0, air: 0 };
+    dashT: 0, dashCd: 0, stun: 0, coy: 0, lj: 0, ld: 0, dive: false, auth: 0, air: 0 };
 }
 // Remember the input counters so a new round / correction never fires an old press.
 export function syncCounters(p, inp) { p.lj = inp.j; p.ld = inp.d; }
@@ -129,7 +130,7 @@ export function syncCounters(p, inp) { p.lj = inp.j; p.ld = inp.d; }
 // One physics step (host and client prediction). inp = {mx, mz, j, d} (j/d are press counters).
 // Returns what happened this step (for sounds / tile triggers).
 export function stepPlayer(p, inp, dt, lv, t, ev = {}) {
-  ev.land = -1; ev.ground = -1; ev.jump = false; ev.dash = false; ev.fell = false;
+  ev.land = -1; ev.ground = -1; ev.jump = false; ev.dash = false; ev.fell = false; ev.dive = false;
   if (!p.alive) return ev;
   const ml = Math.hypot(inp.mx, inp.mz), k = Math.min(1, ml), dx = ml > 1e-3 ? inp.mx / ml : 0, dz = ml > 1e-3 ? inp.mz / ml : 0;
   const ctl = p.stun > 0 ? 0.2 : 1;
@@ -150,6 +151,7 @@ export function stepPlayer(p, inp, dt, lv, t, ev = {}) {
   if (inp.j !== p.lj) {
     p.lj = inp.j;
     if ((p.g || p.coy > 0) && p.stun <= 0.15) { p.vy = C.JUMP; p.g = false; p.coy = 0; ev.jump = true; }
+    else if (!p.g && !p.dive && p.stun <= 0.15) { p.dive = true; p.vy = -C.DIVE_V; p.vx *= 0.5; p.vz *= 0.5; p.dashT = 0; ev.dive = true; }   // Space again in the air: dive
   }
   if (p.dashT > 0) { p.dashT -= dt; if (p.dashT <= 0) { p.vx *= 0.45; p.vz *= 0.45; } }
   p.dashCd = Math.max(0, p.dashCd - dt); p.stun = Math.max(0, p.stun - dt);
@@ -157,7 +159,7 @@ export function stepPlayer(p, inp, dt, lv, t, ev = {}) {
   if (p.g) {
     const L = lv.layers[p.l], i = tileAt(L, p.x, p.z);
     if (!solid(L, i, t)) { p.g = false; p.coy = C.COYOTE; p.vy = 0; ev.fell = true; }
-    else { p.y = L.y; p.vy = 0; ev.ground = i; p.air = 0; }
+    else { p.y = L.y; p.vy = 0; ev.ground = i; p.air = 0; p.dive = false; }
   }
   if (!p.g) {
     p.coy -= dt; p.air += dt;
@@ -168,7 +170,7 @@ export function stepPlayer(p, inp, dt, lv, t, ev = {}) {
         const L = lv.layers[h];
         if (py >= L.y - 1e-4 && p.y <= L.y) {
           const i = tileAt(L, p.x, p.z);
-          if (solid(L, i, t)) { p.y = L.y; ev.impact = -p.vy; p.vy = 0; p.g = true; p.l = h; ev.land = i; ev.ground = i; p.air = 0; break; }
+          if (solid(L, i, t)) { p.y = L.y; ev.impact = -p.vy; p.vy = 0; p.g = true; p.l = h; ev.land = i; ev.ground = i; p.air = 0; p.dive = false; break; }
         }
       }
     }
