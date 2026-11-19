@@ -50,6 +50,7 @@ export function createSound(audio) {
       if (active && Math.random() < dt * (0.7 + danger * 2)) { const f = 70 + Math.random() * 90; audio.tone('sine', f, f * 2.4, 0.18, 0.05 + danger * 0.06); }
     },
     jump() { if (A() && gate('j', 60)) { audio.tone('square', 260, 520, 0.09, 0.05); audio.tone('sine', 400, 800, 0.12, 0.06); } },
+    doubleJump() { if (A()) { audio.tone('square', 340, 680, 0.1, 0.055); audio.tone('sine', 620, 1150, 0.14, 0.07); audio.burst(0.1, 0.05, 'highpass', 2200, 1400); } },
     land(k = 0.5) { if (A() && gate('l', 70)) { audio.burst(0.08, 0.12 * k + 0.05, 'lowpass', 900, 120); audio.tone('sine', 140, 60, 0.1, 0.08 * k + 0.03); } },
     dash() { if (A()) { audio.burst(0.22, 0.18, 'bandpass', 900, 3200); audio.tone('sawtooth', 300, 700, 0.12, 0.03); } },
     shove(hit) { if (!A()) return; audio.burst(0.12, 0.16, 'bandpass', 500, 1600); if (!hit) audio.tone('triangle', 330, 220, 0.1, 0.05); },
