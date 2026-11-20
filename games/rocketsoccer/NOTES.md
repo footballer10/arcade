@@ -79,3 +79,23 @@ beat and then go. Everyone reacts to the whistle a little late (more on easy). O
 drop back to goal, trail the taker through midfield, or occasionally challenge for the ball as well. Easy bots rarely
 flip. Measured over 200 simulated kickoffs: 6 taker plans and 5 other plans all show up, and the ball leaves the
 kickoff at a spread of angles instead of always straight.
+
+## Goal replay fixes
+- **Skipping is a deliberate hold.** Space is also jump, and players mash it while the goal is celebrated; a single
+  press used to count as a skip vote, so one stray press (instantly, in a solo game) cut the replay to a flash.
+  Now you hold Space for 0.6 s, only after the first 0.8 s, and only once Space has been let go. The badge shows
+  "hold Space to skip" and the progress. The host only accepts votes for the replay that is playing.
+- **The replay starts when the screen's own copy of the match enters the replay phase.** It used to start from the
+  host's reliable 'replay' event and be cancelled if the (unreliable) snapshot that flips the phase had not arrived
+  yet, which showed a frozen world for the whole replay on laggy connections. The two no longer depend on arrival
+  order. Checked with 250 ms of added lag: replay shown 14 of 16 samples (0 of 14 before).
+
+## Ceiling driving
+- **Physics:** the old rules dropped you off the roof the instant you reached it (0.1 s). Now you stay stuck to any
+  surface unless you slow almost to a stop (below 4 on a wall, below 6 on the roof). Gravity is a third as strong on
+  walls and gone on the roof, so climbing keeps your speed, and nothing pushes you into or off the surface while
+  attached. Floor, wall, roof, opposite wall and back to the floor is one continuous loop. A roof U-turn is as tight
+  as on the floor. Stall up there and you drop and land on your wheels; jump to leave on purpose.
+- **Camera:** its "up" follows the surface you drive on (on walls and the roof it rolls with the car; on the floor
+  and in the air it is plain world-up). The roof looks like a floor, so A/D steer the way they look.
+- **Bots** hop off the roof if they end up there.

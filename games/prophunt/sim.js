@@ -8,7 +8,8 @@ export const T = { INTRO: 4, HIDE: 20, POST: 7, HUNT: { short: 100, normal: 155,
 export const R = {
   HP: 100, WRONG: 10, FIND_HP: 20, REACH: 3.1, BONK_CD: 0.55, EYE: 1.45,
   FIND: 15, SWEEP: 10, SURVIVE: 10, SURV_EVERY: 5, TAUNT: 3, DARING: 5, DARING_R: 7, TAUNT_CD: 10,
-  FORCE_EVERY: 45, FORCED_WARN: 5,   // a hider who stays silent this long is forced to taunt; any taunt resets the clock SNIFF_CD: 22, SNIFF_T: 4,
+  FORCE_EVERY: 45, FORCED_WARN: 5,   // a hider who stays silent this long is forced to taunt; any taunt resets the clock
+  SNIFF_CD: 22, SNIFF_T: 4,          // sniff cooldown, and how long its hot/cold result stays on screen
   SPEED: { H: 4.2, S: 4.4 }, SPRINT: 1.5,
   PROP_MOVE: 0.55,   // while the seekers hunt, a disguised hider shuffles at this fraction of walking speed (and can't sprint): running away as a prop is slow
 };
@@ -178,12 +179,14 @@ export class HostSim {
     }
   }
   taunt(p, forced) {
-    p.lastTaunt = this.t; p.fz = R.FORCE_EVERY; (this.heard ||= []).push({ id: p.id, x: p.x, y: p.y, z: p.z, t: this.t }); if (this.heard.length > 12) this.heard.shift(); this.stats[p.id].taunts++;
+    // what the seekers (and their bots) HEAR is only the general area: a random point up to ~3 m from the real spot
+    const fa = Math.random() * Math.PI * 2, fr = 3.2 * Math.sqrt(Math.random());
+    p.lastTaunt = this.t; p.fz = R.FORCE_EVERY; (this.heard ||= []).push({ id: p.id, x: p.x + Math.cos(fa) * fr, y: p.y, z: p.z + Math.sin(fa) * fr, t: this.t }); if (this.heard.length > 12) this.heard.shift(); this.stats[p.id].taunts++;
     let near = Infinity; for (const q of this.players.values()) if (q.alive && q.role === 'S') near = Math.min(near, Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z));
     const daring = !forced && near <= R.DARING_R && this.phase === 'hunt';
     const pts = forced || this.phase !== 'hunt' ? 0 : R.TAUNT + (daring ? R.DARING : 0);
     this.add(p.id, pts);
-    this.cfg.ev('taunt', { id: p.id, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), pts: pts * this.mult, daring, forced });
+    this.cfg.ev('taunt', { id: p.id, n: this.stats[p.id].taunts, x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), pts: pts * this.mult, daring, forced });
   }
   tag(p, a) {
     if (p.role !== 'S' || !p.alive || this.phase !== 'hunt') return;

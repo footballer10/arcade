@@ -15,9 +15,9 @@ tunable('obstacle', [
     JBUF:     { value: 0.14, label: 'Jump buffer (s)', min: 0, max: 0.4 },
   } },
   { target: C, group: 'Dive', items: {
-    DIVE:     { value: 10.8, label: 'Dive speed', min: 4, max: 18 },
+    DIVE:     { value: 12,   label: 'Dive speed', min: 4, max: 18 },
     DIVE_UP:  { value: 5.4,  label: 'Dive lift', min: 0, max: 10 },
-    SLIDE_T:  { value: 0.38, label: 'Belly-slide time (s)', min: 0.1, max: 1.2 },
+    SLIDE_T:  { value: 0.32, label: 'Belly-slide time (s)', min: 0.1, max: 1.2 },
   } },
   { target: C, group: 'Ledges, hits & grabs', items: {
     HANG_MAX: { value: 4,    label: 'Max ledge hang (s)', min: 1, max: 10 },

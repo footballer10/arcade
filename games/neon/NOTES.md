@@ -18,7 +18,7 @@ The pre-round screen has the per-player **Ship** pick and the host's **Track**, 
 | Hold gold too long | Overheat: the drift burns out and the chain breaks |
 | Shift (hold) | Spend the boost meter |
 | Q (hold) | Look back |
-| A / D while spectating or after finishing | Switch which racer the camera follows |
+| Space, or A / D, once you're derezzed/finished/spectating | Switch which racer the camera follows |
 
 Tab (scoreboard), Esc (pause) and Enter (chat) are the hub's.
 
@@ -35,7 +35,9 @@ Tab (scoreboard), Esc (pause) and Enter (chat) are the hub's.
 - **Tracks**: walls are energy barriers (scrape = lose speed, hard hit = drift lost). Some edges are open (fall = respawn
   after ~1.3 s). Jumps need speed. Wall-ride pipes curve up the sides. Each track has one hidden **shortcut**: an
   opening in the wall that splits off onto a narrow, often unwalled lane.
-- **Knockout mode**: no finish line; every 14–25 s (depends on player count) the last ship is derezzed until one remains.
+- **Knockout mode**: no finish line; every 14–25 s (depends on player count) the last ship is derezzed until one remains. If the
+  ship you're watching gets derezzed (including your own), the camera automatically moves on to whoever's
+  leading among the ships still racing; Space or A/D pick a different one by hand.
 
 ## Tracks
 | Track | Mood | Features |
@@ -66,6 +68,14 @@ snapshot it saw. Other ships are interpolated 100 ms in the past.
   drift hiss that rises with tier, tier chimes, release whoosh, chain arpeggio, close-pass whooshes, wall crunches.
 - Graphics presets: High = bloom + shadows + stars + denser city; Medium = shadows, no bloom; Low = no shadows,
   no bloom, pixel ratio 1, sparser city, smaller spark pool.
+
+## Bot difficulty
+Per-track head-to-head sims (3 bots of the same difficulty, no mixed-skill drafting) show the real gap: easy finishes
+~15-40% slower than hard depending on the track, normal sits close behind hard. Easy bots barely drift (they only
+bother on the sharpest corners), steer more sluggishly, brake earlier into corners, hoard their boost meter longer,
+and rarely attempt shortcuts; hard bots do all of this aggressively. (Earlier tuning had every difficulty finishing
+within a few seconds of each other — the AI drove the same near-flawless line at every skill level and only the
+top-speed cap differed by ~5%.)
 
 ## Human playtest fixes
 The first real human playtest found three bugs bot simulation never would have surfaced, all fixed:

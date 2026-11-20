@@ -24,9 +24,9 @@ export const manifest = {
     ['Space + direction', 'Second press while holding a direction: dodge flip (a power hit)'],
     ['Shift (hold)', 'Boost · in the air: full flying control (pitch, turn, roll)'],
     ['Right click', 'Ball cam on / off (camera follows the ball)'],
-    ['Drive into curves', 'Ride up the walls'],
+    ['Drive into curves', 'Ride up the walls and across the roof: the camera rolls with you, and you only fall if you slow to a stop'],
     ['Supersonic ram', 'Demolish an opponent'],
-    ['Space during a replay', 'Vote to skip it'],
+    ['Hold Space during a replay', 'Vote to skip it'],
   ],
   picks: [
     { key: 'team', label: 'Team', default: 'auto', choices: [
