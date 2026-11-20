@@ -585,6 +585,8 @@ export async function start(ctx) {
   const map = MAP_IDS.includes(ctx.options.map) ? ctx.options.map : ctx.rng(0xd0).pick(MAP_IDS);
   const list = ctx.players.map((p) => ({ id: p.id, name: p.name, cls: ctx.picks[p.id]?.cls === 'board' ? 'board' : 'ski', bot: p.isBot, color: p.colorHex, hat: p.hat }));
   startRace(ctx.seed, list, map, opts);
+  const bgm = ctx.music('downhill');   // in-game music (core/music.js), stops by itself when the round ends
+  ctx.on('go', () => bgm.start());
   ctx.on('go', () => { if (S.race) { S.race.startAt = performance.now(); } });
   ctx.on('leave', (id) => { if (!hostSays() || !S.race) return; const ent = S.race.ents.get(id); if (ent) { ent.left = true; removeEnt(id); } });
   ctx.on('join', (id) => { if (hostSays()) S.viewers.add(id); });

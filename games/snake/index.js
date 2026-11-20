@@ -456,6 +456,8 @@ export async function start(ctx) {
     mg.restore();
   }
 
+  const bgm = ctx.music('snake');   // in-game music (core/music.js), stops by itself when the round ends
+  ctx.on('go', () => bgm.start());
   ctx.on('go', () => { goAt = performance.now(); ui.banner('SLITHER!', 1100); });
 
   // host simulation tick (keeps running in background tabs)

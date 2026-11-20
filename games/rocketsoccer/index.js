@@ -628,6 +628,8 @@ export async function start(ctx) {
     const st = isSim && ref ? ref.stats : stats;
     return { columns: ['Player', 'Team', 'Points', 'Goals', 'Assists', 'Saves', 'Shots', 'Demos'], rows: roster.map((r, i) => ({ r, s: st[i] || {} })).sort((a, b) => a.r.team - b.r.team || b.s.pts - a.s.pts).map(({ r, s }) => [`<span style="color:${r.colorCss}">${ui.esc(r.name)}</span>`, TEAM[r.team].emoji, s.pts ?? 0, s.g ?? 0, s.a ?? 0, s.s ?? 0, s.sh ?? 0, s.d ?? 0]) };
   });
+  const bgm = ctx.music('stadium');   // in-game music (core/music.js), stops by itself when the round ends
+  ctx.on('go', () => bgm.start());
   ctx.on('go', () => {
     sfx.sfx('whistle'); goT = 0; cheer = 0.8;
     if (myIdx >= 0) ui.banner(`${TEAM[myTeam].emoji} You're ${TEAM[myTeam].name}! Score in the ${TEAM[1 - myTeam].name.toLowerCase()} goal`, 2200, { small: true });

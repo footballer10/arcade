@@ -173,6 +173,8 @@ export async function start(ctx) {
   function becomeHost() { sim = createSim(view); }
   if (net.isHost) sim = createSim(null);
   ctx.on('hostchange', ({ amHost }) => { if (amHost && !sim) becomeHost(); });
+  const bgm = ctx.music('arcade');   // in-game music (core/music.js), stops by itself when the round ends
+  ctx.on('go', () => bgm.start());
   ctx.on('go', () => ui.banner('GRAB THE COINS!', 1200));
 
   // Host: 60 Hz simulation (keeps running in background tabs) + snapshots at 15 Hz.
