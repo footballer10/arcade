@@ -160,7 +160,7 @@ export const M = {
 
 // ---------------------------------------------------------------- ink outlines (inverted hull)
 // A back-face copy pushed out along smoothed normals, so long thin rails get an even line (a scaled copy wouldn't).
-// Relief: slopes get contour lines (a ring every 7 cm of height) and are shaded light/dark by which way they face, so hills,
+// Relief: slopes get contour lines (a ring every 10 cm of height) and are shaded light/dark by which way they face, so hills,
 // ramps, banks and the mounds and bowls around the cup read at a glance. Flat ground is untouched.
 M.turf.onBeforeCompile = (sh) => {
   sh.vertexShader = sh.vertexShader
@@ -170,12 +170,12 @@ M.turf.onBeforeCompile = (sh) => {
     .replace('#include <common>', '#include <common>\nvarying vec3 vWPos; varying vec3 vWN;')
     .replace('#include <dithering_fragment>', `
       float slope = length(normalize(vWN).xz);   // ~ gradient: 0 flat
-      float sl = smoothstep(0.02, 0.08, slope);
+      float sl = smoothstep(0.025, 0.1, slope);
       vec2 dn = normalize(vWN.xz + vec2(1e-5));
-      gl_FragColor.rgb *= 1.0 + sl * dot(dn, normalize(vec2(-0.55, 0.83))) * 0.4;
-      float hh = vWPos.y / 0.07, fw = max(fwidth(hh), 1e-4);
-      float ln = 1.0 - smoothstep(fw * 0.7, fw * 1.7, abs(fract(hh + 0.5) - 0.5));
-      gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb * 0.5, ln * sl);
+      gl_FragColor.rgb *= 1.0 + sl * dot(dn, normalize(vec2(-0.55, 0.83))) * 0.26;
+      float hh = vWPos.y / 0.1, fw = max(fwidth(hh), 1e-4);
+      float ln = 1.0 - smoothstep(fw * 0.35, fw * 1.05, abs(fract(hh + 0.5) - 0.5));
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb * vec3(0.74, 0.88, 0.76), ln * sl);
       #include <dithering_fragment>`);
 };
 M.turf.customProgramCacheKey = () => 'golf-turf-relief';
@@ -703,11 +703,11 @@ export function railShadows(hole) {
 }
 
 // Two white rings around the cup that follow the ground (mound, bowl or flat), so the target reads from far away.
-M.cupRing = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+M.cupRing = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 export function cupRings(hole) {
   const { x, z } = hole.cup, pos = [], idx = [], SEG = 56;
   const h0 = C.heightAt(hole, x, z) ?? hole.cup.y;
-  for (const [r0, r1] of [[0.62, 0.7], [1.2, 1.28]]) {
+  for (const [r0, r1] of [[0.64, 0.69], [1.22, 1.26]]) {
     const ring = [];
     for (let i = 0; i <= SEG; i++) {
       const a = i / SEG * Math.PI * 2, c = Math.cos(a), s = Math.sin(a);

@@ -13,6 +13,7 @@ import { createRng } from './rng.js';
 import { BOT_LEVELS, BotBrain } from './bots.js';
 import { css, hex } from './palette.js';
 import { applyTuning } from './tune.js';
+import { createMusic } from './music.js';
 
 // Simulation ticks. While the page is visible they run once per screen frame, right before the game draws, so
 // every frame shows exactly the newest state (a separate 60 Hz timer drifts against the screen: some frames get two
@@ -83,6 +84,8 @@ export class GameRuntime extends Emitter {
       tick: (fn) => { ensureTicker(); this.ticks.add(fn); tickFns.add(fn); return () => { this.ticks.delete(fn); tickFns.delete(fn); }; }, // 60 Hz, also in background tabs
       onCleanup: (fn) => this.cleanups.push(fn),
       log: (...a) => console.log(`[${manifest.id}]`, ...a),
+      // in-game music (core/music.js): ctx.music('golf').start(); stops automatically when the round ends
+      music: (style) => { const m = createMusic(style); this.cleanups.push(() => m.stop()); return m; },
     };
     this._raf = 0; this._last = performance.now();
     const loop = (now) => {

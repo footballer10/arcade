@@ -144,6 +144,7 @@ export async function start(ctx) {
       case 'roundEnd': net.toAll({ t: 're', winners: d.winners, wins: d.wins, pts: sim.pts, bumps: sim.bumps, cracked: sim.cracked, k: d.round }); break;
       case 'hit': net.toAll({ t: 'hit', ...d }); break;
       case 'dash': net.toAll({ t: 'da', id: d.id }); break;
+      case 'dive': net.toAll({ t: 'dv', id: d.id }); break;
       case 'thud': net.toAll({ t: 'th', id: d.id }); break;
       case 'done': finish(); break;
     }
@@ -234,6 +235,7 @@ export async function start(ctx) {
         gfx.burst(m.x, m.y, m.z, 0xfff27a, 18); gfx.burst(m.x, m.y, m.z, ctx.player(m.a)?.colorHex ?? 0xffffff, 10);
         break;
       }
+      case 'dv': if (m.id !== ctx.myId) { const v = view.get(m.id), f = focusPos(); if (v && Math.hypot(v.x - f.x, v.z - f.z) < 8 && Math.abs(v.y - f.y) < 3) snd.dive(); if (v) gfx.burst(v.x, v.y + 0.3, v.z, 0xffffff, 8); } break;
       case 'da': if (m.id !== ctx.myId) { const v = view.get(m.id), f = focusPos(); if (v && Math.hypot(v.x - f.x, v.z - f.z) < 8 && Math.abs(v.y - f.y) < 2) snd.dash(); } break;
       case 'th': if (m.id === ctx.myId) gfx.shake(0.2); break;
     }
@@ -316,11 +318,12 @@ export async function start(ctx) {
     if (mp && lastMe) {
       if (!lastMe.g && mp.g && mp.alive) snd.land(Math.min(1, (mp.l !== lastMe.l ? 1 : 0.4)));
       if (lastMe.g && !mp.g && mp.vy > 2) snd.jump();
+      if (mp.dive && !lastMe.dive) { snd.dive(); gfx.burst(mp.x, mp.y + 0.3, mp.z, 0xffffff, 10); gfx.shake(0.12); }
       if (lastMe.g && !mp.g && mp.vy <= 2 && mp.alive) snd.fall();
       if ((mp.dashT || 0) > (lastMe.dashT || 0) + 0.05) snd.dash();
       if (mp.g && mp.l !== lastMe.l) gfx.shake(0.25);
     }
-    lastMe = mp ? { g: mp.g, l: mp.l, vy: mp.vy, dashT: mp.dashT } : null;
+    lastMe = mp ? { g: mp.g, l: mp.l, vy: mp.vy, dashT: mp.dashT, dive: mp.dive } : null;
     const focus = focusPos();
     const alive = ids.filter((id) => pos.get(id)?.alive !== false).length;
     snd.intensity(N > 1 ? (N - alive) / Math.max(1, N - 1) * 0.8 + (tC > C.COLLAPSE_AT / (api.turbo || 1) ? 0.3 : 0) : Math.min(1, tC / 90));
@@ -350,7 +353,7 @@ export async function start(ctx) {
       return { id, name: pl?.name || '?', color: pl?.color ?? 0, value: '★'.repeat(w) || '·', me: id === ctx.myId, out };
     }).sort((a, b) => (a.out - b.out) || ((info.wins[b.id] || 0) - (info.wins[a.id] || 0))), need > 1 ? `First to ${need} ★` : '');
     const cd = mp?.dashCd || 0;
-    if (amAlive()) ui.abilities([{ key: 'Space', label: 'Jump', ready: !!mp?.g }, { key: 'Shift', label: 'Dash', cd: cd / C.DASH_CD, ready: cd <= 0 }]);
+    if (amAlive()) ui.abilities([{ key: 'Space', label: mp?.g || mp?.coy > 0 ? 'Jump' : 'Dive', ready: !!mp?.g || mp?.coy > 0 || !mp?.dive }, { key: 'Shift', label: 'Dash', cd: cd / C.DASH_CD, ready: cd <= 0 }]);
     else ui.abilities([]);
   }
   ui.setScoreboard(() => { const src = sim || info; return { columns: ['Player', '★ Rounds', 'Outlived', 'Tiles cracked', 'Bumps'], rows: standings().flat().map((id) => [ui.esc(ctx.player(id)?.name || id), src.wins[id] || 0, src.pts[id] || 0, src.cracked?.[id] || 0, src.bumps?.[id] || 0]) }; });

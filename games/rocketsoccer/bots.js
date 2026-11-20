@@ -5,7 +5,7 @@
 // skill = speed/boost use, dodge shots and (hard) aerials, mistakes = whiffs and wrong reads.
 import { C, PH, qrot, predictBall, len3, clamp } from './physics.js';
 
-const tmp = [0, 0, 0], fwd = [0, 0, 0];
+const tmp = [0, 0, 0], fwd = [0, 0, 0], upv = [0, 0, 0];
 function local(c, x, y, z) {   // world point -> car frame (x = left, y = up, z = forward)
   const dx = x - c.x, dy = y - c.y, dz = z - c.z;
   const qx = -c.qx, qy = -c.qy, qz = -c.qz, qw = c.qw;
@@ -189,6 +189,8 @@ export function botInput(W, i, bot, role) {
   bot.think -= 1 / 60;
   if (bot.think <= 0) { bot.think = 0.3 * (0.7 + bot.rnd() * 0.6); plan(W, i, bot, role); }
   const sp = len3(c.vx, c.vy, c.vz);
+  // upside down on the roof: bots don't know how to play from there, so they hop off and land on their wheels
+  if (c.gnd && qrot(c, 0, 1, 0, upv)[1] < -0.25) { out.jump = true; return out; }
   // ---- aerial (hard bots): jump, then point the nose at the ball and boost
   if (bot.aerial > 0) {
     bot.aerial -= 1 / 60;

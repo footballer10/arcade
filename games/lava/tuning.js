@@ -13,6 +13,7 @@ tunable('lava', [
     FALL_MUL: { value: 1.15, label: 'Extra gravity when falling', min: 1, max: 2.5 },
     COYOTE:   { value: 0.18, label: 'Coyote time (s)', hint: 'jump still works this long after leaving a ledge', min: 0, max: 0.4 },
     BUFFER:   { value: 0.22, label: 'Jump buffer (s)', hint: 'early Space presses still count', min: 0, max: 0.4 },
+    DJUMP:    { value: 8.6,  label: 'Double jump power', hint: 'press Space again in the air — once, resets on landing', min: 0, max: 14 },
   } },
   { target: C, group: 'Dash & shove', items: {
     DASH_V:   { value: 15.5, label: 'Dash speed', min: 6, max: 30 },

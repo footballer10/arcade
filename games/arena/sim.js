@@ -24,6 +24,7 @@ export const MAPS = {
       { x: 0, z: 13, r: 1.2 }, { x: 1, z: -14, r: 1.1 }, { x: 0, z: 0, r: 0.9 },
     ],
     bushes: [{ x: -2.5, z: 4, r: 1.8 }, { x: 10, z: -8.5, r: 2 }, { x: -11, z: -10, r: 1.8 }, { x: 5, z: 11, r: 1.6 }, { x: -14, z: 8, r: 1.6 }, { x: 15.5, z: 5, r: 1.5 }, { x: -2.5, z: -10.5, r: 1.6 }],
+    portals: [{ x: 11, z: 11 }, { x: -11, z: -11 }],
   },
   sweeper: {
     name: 'Sweeper Sands', theme: 'desert',
@@ -66,6 +67,8 @@ export const MAP_KEYS = Object.keys(MAPS);
 export const OBSTACLES = [];
 export const HOLES = [];
 export const BUSHES = []; // walk-through tall grass: hides you from enemies who aren't close
+export const PORTALS = []; // paired teleport pads: stepping on one sends you to the other
+export const PORTAL_R = 1.4, PORTAL_CD = 1.2;
 export const MAP = { key: 'pillars', sweeper: null, theme: 'meadow', slip: false };
 export function setMap(key) {
   const m = MAPS[key] || MAPS.pillars;
@@ -73,6 +76,7 @@ export function setMap(key) {
   OBSTACLES.length = 0; OBSTACLES.push(...m.obstacles.map((o) => ({ ...o })));
   HOLES.length = 0; HOLES.push(...(m.holes || []).map((h) => ({ ...h })));
   BUSHES.length = 0; BUSHES.push(...(m.bushes || []).map((b) => ({ ...b })));
+  PORTALS.length = 0; PORTALS.push(...(m.portals || []).map((p) => ({ ...p })));
   MAP.sweeper = m.sweeper || null;
   MAP.theme = m.theme || 'meadow';
   MAP.slip = !!m.slip;
@@ -228,7 +232,7 @@ const r2 = (v) => Math.round(v * 100) / 100;
 const FRESH = () => ({
   x: 0, z: 0, y: 0, vy: 0, hp: 100, maxHp: 100, alive: false, falling: false, fallT: 0, pit: null, ghost: false,
   mvx: 0, mvz: 0, kbx: 0, kbz: 0, dvx: 0, dvz: 0,
-  atkCd: 0, dashCd: 0, spCd: 0, slamT: 0, blastT: 0, chargeT: 0, chargeHit: [], invT: 0, hitT: 0, swingT: 0, bumpT: 0, sweepT: 0,
+  atkCd: 0, dashCd: 0, spCd: 0, slamT: 0, blastT: 0, chargeT: 0, chargeHit: [], invT: 0, hitT: 0, swingT: 0, bumpT: 0, sweepT: 0, portalT: 0,
   ammo: MAX_AMMO, shield: 0, shieldT: 0, speedT: 0, dmgT: 0, slowT: 0, giantT: 0,
   cubes: 0, baseHp: 100,
   lastHitBy: null, lastHitT: -99, placement: 0, hist: [],
@@ -395,7 +399,7 @@ export class Sim {
       if (!p.alive) { if (p.ghost) this.updateGhost(p, raw, dt, active); continue; }
       const ch = CHARS[p.char];
       const inp = (active && raw) || { mx: 0, mz: 0, aim: p.aim };
-      p.atkCd -= dt; p.dashCd -= dt * rate; p.spCd -= dt * rate; p.invT -= dt; p.hitT -= dt; p.swingT -= dt; p.sweepT -= dt;
+      p.atkCd -= dt; p.dashCd -= dt * rate; p.spCd -= dt * rate; p.invT -= dt; p.hitT -= dt; p.swingT -= dt; p.sweepT -= dt; p.portalT -= dt;
       p.speedT -= dt; p.dmgT -= dt; p.shieldT -= dt; p.slowT -= dt; p.giantT -= dt;
       p.ammo = Math.min(MAX_AMMO, p.ammo + (dt * rate) / ch.reload);
       if (p.shieldT <= 0) p.shield = 0;
@@ -413,6 +417,7 @@ export class Sim {
       const wasCharging = p.chargeT > 0;
       if (integrate(p, active ? inp : { mx: 0, mz: 0 }, dt, p.speedT > 0 ? 1.5 : 1)) this.fx.push({ k: 'bump', x: r2(p.x), z: r2(p.z), id: p.id });
       if (wasCharging) this.updateCharge(p);
+      if (active && p.portalT <= 0 && PORTALS.length) this.tryPortal(p);
 
       const dc = Math.hypot(p.x, p.z);
       if (active && dc > this.zoneR) {
@@ -431,6 +436,18 @@ export class Sim {
         a.x -= nx * push; a.z -= nz * push; b.x += nx * push; b.z += nz * push;
       }
     }
+  }
+
+  // Paired teleport pads: step on one, pop out of the other, facing away from it.
+  tryPortal(p) {
+    const from = PORTALS.findIndex((pt) => Math.hypot(p.x - pt.x, p.z - pt.z) < PORTAL_R);
+    if (from < 0) return;
+    const to = PORTALS[from ^ 1];
+    if (!to) return;
+    this.fx.push({ k: 'portal', x: r2(p.x), z: r2(p.z), id: p.id });
+    p.x = to.x; p.z = to.z; p.portalT = PORTAL_CD;
+    for (let k = 0; k < 3; k++) collideObstacles(p);
+    this.fx.push({ k: 'portal', x: r2(p.x), z: r2(p.z), id: p.id });
   }
 
   // Going over the edge: a little hop, then a proper arc down into the sea. Pits suck you in.

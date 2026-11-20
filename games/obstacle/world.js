@@ -7,7 +7,7 @@ export const C = {
   R: 0.42, H: 1.5, HL: 0.8,                  // radius, standing height, low height (diving / knocked down)
   RUN: 7.4, ACC: 62, AIR_ACC: 22,
   GRAV: 32, JUMP: 11.6, JUMP_CUT: 46, MAXFALL: 34,
-  DIVE: 10.8, DIVE_MAX: 13, DIVE_UP: 5.4, DIVE_AIR_UP: 3.4, SLIDE_T: 0.38,
+  DIVE: 12, DIVE_MAX: 14.5, DIVE_UP: 5.4, DIVE_AIR_UP: 4.4, SLIDE_T: 0.32, DIVE_STEER: 2.4,
   COYOTE: 0.11, JBUF: 0.14, STEP_UP: 0.5,
   HANG_MAX: 4, HANG_DROP: 1.25,
   HIT_MIN: 6, HIT_MAX: 15, DOWN_T: 0.9,
@@ -15,12 +15,14 @@ export const C = {
   BUMP_DIVE: 8,
 };
 export const EV = { JUMP: 1, DIVE: 2, LAND: 4, BONK: 8, HIT: 16, FELL: 32, HANG: 64, CLIMB: 128, BOUNCE: 256, DOOR: 512 };
+// rising / falling lava (Lava Rush): low for half the cycle, then swells up over the floor and drains again
+export const lavaLevel = (L, t) => L.y0 + L.amp * Math.max(0, Math.sin(((t / L.p + L.ph) % 1) * Math.PI * 2));
 export const TILE_FALL = 0.9;                // seconds a tile shakes before it drops
 
 // ---------------------------------------------------------------- solids
 export function solid(o) {
   const s = Object.assign({ shape: 'box', hx: 1, hy: 0.5, hz: 1, r: 1, bx: 0, by: 0, bz: 0, bry: 0, ox: 0, oz: 0, anim: null, hit: 0, belt: null, bounce: 0,
-    tile: -1, door: -1, fake: false, noStand: false, ice: false, safe: false, pal: 0, until: 0, blink: null, finish: false, noHang: false, look: 'floor', col: 0 }, o);
+    tile: -1, door: -1, fake: false, spike: false, noStand: false, ice: false, safe: false, pal: 0, until: 0, blink: null, finish: false, noHang: false, look: 'floor', col: 0 }, o);
   s.q = {}; s.br = s.shape === 'cyl' ? s.r : Math.hypot(s.hx, s.hz);
   pose(s, 0, s); pose(s, 0, s.q);
   return s;
@@ -37,6 +39,7 @@ export function pose(s, t, o) {
     case 'spin': ry += a.w * t + 0.5 * (a.acc || 0) * t * t; break;
     case 'slide': { const k = Math.sin(a.w * t + a.ph); x += a.v[0] * k; y += a.v[1] * k; z += a.v[2] * k; break; }
     case 'piston': { const k = smooth(pulse((((t * a.f + a.ph) % 1) + 1) % 1)); x += a.v[0] * k; y += a.v[1] * k; z += a.v[2] * k; break; }
+    case 'wave': { const k = Math.max(0, t - a.t0); x += a.v[0] * k; y += a.v[1] * k; z += a.v[2] * k; break; }
     case 'roll': { const u = rollU(a, t), d = u * a.P; x += a.v[0] * d; y += a.v[1] * d; z += a.v[2] * d; o.rollA = d / (s.r || 1); break; }
     case 'pend': { const th = a.amp * Math.sin(a.w * t + a.ph); x += a.d[0] * Math.sin(th) * a.L; y -= Math.cos(th) * a.L; z += a.d[1] * Math.sin(th) * a.L; o.th = th; break; }
   }
@@ -51,6 +54,7 @@ export function setPoses(W, t, dt) {
 // blinking platforms: on for `on` of every `p` seconds (phase ph), a pure function of the stage clock
 export const blinkU = (s, t) => ((t / s.blink.p + s.blink.ph) % 1 + 1) % 1;
 export function active(s, W) {
+  if (s.anim && s.anim.k === 'wave' && (W.t < s.anim.t0 || W.t > s.anim.t1)) return false;
   if (s.anim && s.anim.k === 'roll') { const u = rollU(s.anim, W.t); if (u < 0.02 || u > 0.985) return false; }
   if (s.blink && blinkU(s, W.t) > s.blink.on) return false;
   if (s.tile >= 0) return W.dyn[s.tile] < 2;
@@ -131,7 +135,15 @@ export function stepPlayer(p, inp, dt, W) {
     if (dl > a) { dx *= a / dl; dz *= a / dl; }
     p.vx += dx; p.vz += dz;
     if (ml > 0.1) p.face += angDiff(Math.atan2(mx, mz), p.face) * Math.min(1, dt * 16);
-  } else if (grounded) { const f = Math.max(0, 1 - (p.slide ? 3.2 : W.solids[p.gr].ice ? 0.6 : 6) * dt); p.vx *= f; p.vz *= f; }
+  } else if (grounded) { const f = Math.max(0, 1 - (p.slide ? 1.5 : W.solids[p.gr].ice ? 0.6 : 6) * dt); p.vx *= f; p.vz *= f; }
+  // ---- steer a dive / belly slide a little toward the stick (keeps the speed, only bends the path)
+  if ((p.dive || p.slide) && ml > 0.2) {
+    const sp = Math.hypot(p.vx, p.vz);
+    if (sp > 1) {
+      const cur = Math.atan2(p.vx, p.vz), d = angDiff(Math.atan2(mx, mz), cur), mxT = C.DIVE_STEER * (p.slide ? 0.6 : 1) * dt;
+      const na = cur + Math.max(-mxT, Math.min(mxT, d)); p.vx = Math.sin(na) * sp; p.vz = Math.cos(na) * sp; p.face = na;
+    }
+  }
   // ---- jump (also: a jump press gets you up early from a belly slide)
   if (p.slide && jp && grounded && p.down > 0.05) { p.down = 0; p.slide = false; p.tumble = false; p.jbuf = 0; p.vy = 6; p.gr = -1; ev |= EV.JUMP; }
   else if (ctl && p.jbuf > 0 && p.coy > 0) { p.vy = C.JUMP; p.gr = -1; p.coy = 0; p.jbuf = 0; p.jumping = true; ev |= EV.JUMP; }
@@ -186,6 +198,17 @@ export function stepPlayer(p, inp, dt, W) {
     }
   }
   if (p.y < W.killY) ev |= EV.FELL;
+  if (W.lavas) for (const L of W.lavas) {
+    if (p.x < L.x0 || p.x > L.x1 || p.z < L.z0 || p.z > L.z1) continue;
+    if (p.y < lavaLevel(L, W.t) - 0.05) ev |= EV.FELL;
+  }
+  if (W.blasts) for (const b of W.blasts) {
+    if (b.t > W.t || b.t <= W.t - dt) continue;
+    const dx = p.x - b.x, dz = p.z - b.z, d = Math.hypot(dx, dz);
+    if (d > b.r + C.R || Math.abs(p.y - b.y) > 2.5) continue;
+    const k = 1 - 0.45 * d / b.r, nx = d > 0.1 ? dx / d : 1, nz = d > 0.1 ? dz / d : 0;
+    knock(p, nx * 12 * k, 9 + 3 * k, nz * 12 * k, 0.9); ev |= EV.HIT;
+  }
   return ev;
 }
 
@@ -219,6 +242,15 @@ function collide(p, W, dt, wasGr) {
           if (px < pz) { nlx = Math.sign(lx) || 1; pen = px + R; } else { nlz = Math.sign(lz) || 1; pen = pz + R; }
         }
       }
+      if (s.spike) {
+        if (p.hitCd <= 0) {
+          let kx = p.x - s.x, kz = p.z - s.z; const kl = Math.hypot(kx, kz);
+          if (kl > 0.2) { kx /= kl; kz /= kl; } else { const vl = Math.hypot(p.vx, p.vz) || 1; kx = -p.vx / vl; kz = -p.vz / vl; }
+          const vl = Math.hypot(p.vx, p.vz); if (vl > 1) { kx = kx * 0.4 - p.vx / vl * 0.6; kz = kz * 0.4 - p.vz / vl * 0.6; const l2 = Math.hypot(kx, kz) || 1; kx /= l2; kz /= l2; }
+          knock(p, kx * 7.5, 8.5, kz * 7.5, 0.85); ev |= EV.HIT;
+        }
+        continue;
+      }
       const footIn = d < R * 0.75;
       if (!s.hit && !s.noStand) {
         // land / stand on top
@@ -229,6 +261,14 @@ function collide(p, W, dt, wasGr) {
         if (footIn && p.vy > 0 && p.y + H - bot < 0.45 && p.y < bot) { p.y = bot - H; p.vy = 0; p.jumping = false; continue; }
         if (p.y >= top - 0.05) continue;          // level with the top: a seam between platforms, not a wall
       }
+      // sweeping Block Dash walls always shove you the way they travel (never sideways off the platform)
+      if (s.anim && s.anim.k === 'wave' && p.y < top - 0.05) {
+        const dirz = Math.sign(s.anim.v[2]) || -1, face = s.z + dirz * s.hz;
+        const want = face + dirz * R;
+        if ((p.z - want) * dirz < 0) { p.z = want; if (p.vz * dirz < 0) p.vz = 0; }
+        p.wall = i; p.wn[0] = 0; p.wn[1] = dirz; p.wtop = top;
+        continue;
+      }
       // push out sideways
       const nx = nlx * s.c + nlz * s.sn, nz = -nlx * s.sn + nlz * s.c;
       if (s.shape === 'cyl') { p.x += nlx * pen; p.z += nlz * pen; } else { p.x += nx * pen; p.z += nz * pen; }
@@ -238,7 +278,7 @@ function collide(p, W, dt, wasGr) {
         const v = pointVel(s, p.x - wx * R, p.z - wz * R, dt);
         const m = Math.hypot(v[0], v[2]);
         if (m > 0.45) {
-          const sp = Math.max(C.HIT_MIN, Math.min(C.HIT_MAX, 4 + m * s.hit));
+          const sp = Math.max(C.HIT_MIN, Math.min(s.kmax || C.HIT_MAX, 4 + m * s.hit));
           let kx = v[0] / m * 0.75 + wx * 0.45, kz = v[2] / m * 0.75 + wz * 0.45; const kl = Math.hypot(kx, kz) || 1;
           knock(p, kx / kl * sp, 5 + sp * 0.18, kz / kl * sp); ev |= EV.HIT; p.lastBy = null;
           continue;

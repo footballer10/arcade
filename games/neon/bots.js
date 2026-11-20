@@ -6,14 +6,22 @@ import { C, CLASSES, clamp, tierOf } from './physics.js';
 
 export function newBrain(level, rnd = Math.random) {
   const sk = level.skill ?? 0.7;
+  // Difficulty is deliberately exaggerated well beyond the raw core skill number (0.45/0.7/0.92): with the same
+  // flawless, instant-reaction line-following every tier gets from the formulas below, "easy" and "hard" bots
+  // used to finish within a few seconds of each other -- not actually easy. Top speed, cornering caution, drift
+  // willingness and steering sharpness all now spread much further apart by tier.
+  const T = sk > 0.85 ? 2 : sk > 0.55 ? 1 : 0;   // 0 easy, 1 normal, 2 hard
   return {
     level, rnd, sk,
     think: 0, noise: 0, noiseT: 0,
-    tierGoal: sk > 0.85 ? 3 : sk > 0.6 ? 2 : 1,
-    speedCap: 0.9 + sk * 0.1,                       // fraction of top speed they allow themselves
-    boostMin: sk > 0.85 ? 22 : sk > 0.6 ? 35 : 55,  // meter % before they spend it
-    driftK: 0.022 - sk * 0.009,                     // curvature that makes them drift
-    scChance: Math.max(0, sk * 1.1 - 0.35),         // chance to take a shortcut each lap
+    tierGoal: [1, 2, 3][T],
+    speedCap: [0.72, 0.88, 0.99][T],                 // fraction of top speed they allow themselves
+    steerGain: [0.55, 0.82, 1.05][T],                // how sharply they correct toward the ideal line
+    cornerCaution: [0.5, 0.22, 0][T],                // extra margin before they lift/brake into a corner
+    boostMin: [72, 42, 20][T],                       // meter % before they spend it
+    driftK: [0.021, 0.015, 0.0105][T],               // curvature that makes them bother drifting
+    scChance: [0.04, 0.32, 0.8][T],                  // chance to take a shortcut each lap
+    bailChance: [0.012, 0.004, 0.0008][T],           // per-frame chance to bail out of a held drift early
     scPlan: new Map(), lapSeen: -1,
     holdDrift: false, wobble: 0, lineBias: (rnd() * 2 - 1) * 2.5,
   };
@@ -76,7 +84,10 @@ export function botInput(sh, br, env, out = {}) {
       let rel = sh.s - sc.a; if (rel < -tr.main.L / 2) rel += tr.main.L;
       if (rel > -60 && rel < ENTRY - 8) dT = sc.side * (rel < -20 ? extent(path, sh.s, sc.side) * 0.7 : extent(path, sh.s, sc.side) + 4);
     }
-  } else dT = br.noise * 0.2;
+  }
+  // (while actually ON a shortcut lane, dT keeps the corner-aware racing line computed above instead of being
+  // overridden -- it used to collapse to "just stay near the centre", which doesn't react to the shortcut's own
+  // curves and ran bots straight off the narrow lane on anything but the gentlest one)
   dT = clamp(dT, -hwL - 6, hwR + 6);
 
   // heading we want relative to the track tangent, and the turn rate that holds it
@@ -86,7 +97,7 @@ export function botInput(sh, br, env, out = {}) {
   const cy = Math.cos(sh.yaw), sy = Math.sin(sh.yaw);
   const vT = sh.vf * cy - sh.vl * sy, vR = sh.vf * sy + sh.vl * cy;
   const velYaw = Math.atan2(vR, Math.max(1, vT));
-  const need = kHere * v + (yawDes - velYaw) * (sh.drift ? 2.4 : 3.2);
+  const need = kHere * v + (yawDes - velYaw) * (sh.drift ? 2.4 : 3.2) * br.steerGain;
   const vn = clamp(sh.vf / C.VMAX, 0, 1.4);
   const grip = (C.TURN_LO + (C.TURN_HI - C.TURN_LO) * Math.min(1, vn)) * K.turn;
 
@@ -94,7 +105,8 @@ export function botInput(sh, br, env, out = {}) {
   const kd = C.DRIFT_K * K.turn, ka = C.DRIFT_KADJ * K.turn;
   // how much the track turns over the next stretch (same direction only)
   let ang = 0; for (let x = 0; x < 30 + v * 1.6; x += 5) { const kk = scalar(path, path.k, sh.s + x); if (Math.sign(kk) === Math.sign(kC || kPeak)) ang += Math.abs(kk) * 5; }
-  const want = kC !== 0 && kDist < 6 + v * 0.12 && Math.abs(kPeak) > br.driftK && Math.abs(kPeak) > (kd - ka) * 1.2 && ang > 0.75 && v > 32 && !sh.air && sh.path === 0;
+  // (drifting works just as well on a shortcut lane as on the main track -- no sh.path restriction here)
+  const want = kC !== 0 && kDist < 6 + v * 0.12 && Math.abs(kPeak) > br.driftK && Math.abs(kPeak) > (kd - ka) * 1.2 && ang > 0.75 && v > 32 && !sh.air;
   if (!sh.drift) {
     br.holdDrift = false;
     if (want && rnd() > lv.mistakes * 0.05) {
@@ -105,8 +117,8 @@ export function botInput(sh, br, env, out = {}) {
       br.driftDir = dir; br.dT = 0;
     } else {
       out.steer = clamp(need / grip, -1, 1);
-      // too fast for the corner on grip: lift / brake a little
-      if (Math.abs(need) > grip * 1.25 && v > 38) { out.throttle = 0; if (Math.abs(need) > grip * 1.6) out.brake = 0.6; }
+      // too fast for the corner on grip: lift / brake a little (lower-skill bots play it safer, earlier)
+      if (Math.abs(need) > grip * (1.25 - br.cornerCaution) && v > 38) { out.throttle = 0; if (Math.abs(need) > grip * (1.6 - br.cornerCaution)) out.brake = 0.6; }
     }
   } else {
     const dir = sh.drift;
@@ -122,7 +134,7 @@ export function botInput(sh, br, env, out = {}) {
     const wallNear = br.dT > 0.25 && (-dPred * dir > (dir > 0 ? hwL : hwR) - 1.4 || dPred * dir > (dir > 0 ? hwR : hwL) - 1.0);
     const fullTier = tier >= br.tierGoal && Math.abs(kFar) < br.driftK * 0.7;
     if (ending || fullTier || wallNear || tier >= 3 || dir !== br.driftDir) { br.holdDrift = false; br.why = ending ? 'end' : fullTier ? 'tier' : wallNear ? 'wall' : tier >= 3 ? 't3' : 'dir'; }
-    if (lv.mistakes > 0.2 && rnd() < 0.002) br.holdDrift = false;   // easy bots bail early sometimes
+    if (rnd() < br.bailChance) br.holdDrift = false;   // lower-skill bots bail out of a drift early sometimes
   }
   out.drift = br.holdDrift;
 
