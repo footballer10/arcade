@@ -230,16 +230,26 @@ export async function start(ctx) {
       case 'poof': gfx.fx.poof(m.x, m.y, m.z, p(m.id)?.colorHex ?? 0xffffff); sfx.poof(m.x, m.y, m.z); if (m.id !== ctx.myId) gfx.fx.pop(m.id); break;
       case 'taunt': {
         api.stats.taunts++;
-        sfx.taunt(tauntOf(m.id), m.x, m.y, m.z, m.forced ? 1.3 : 1);
-        gfx.fx.notes(m.x, m.y, m.z, p(m.id)?.colorHex ?? 0xffffff, m.daring || m.forced); gfx.fx.tauntHat(m.id);
+        // everyone except the taunter only gets the general AREA: a spot 2-5 m from the real one (same for all viewers),
+        // so a taunt narrows the search without pointing at the object
+        const self = m.id === ctx.myId; let [sx, sz] = [m.x, m.z];
+        if (!self) {
+          let h = 2166136261; for (const ch of `${m.id}:${m.n || 0}`) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+          const a = ((h >>> 0) % 6283) / 1000, r = 2.2 + (((h >>> 13) % 1000) / 1000) * 2.8;
+          sx = m.x + Math.cos(a) * r; sz = m.z + Math.sin(a) * r;
+          if (L) { sx = Math.max(L.ox + 0.5, Math.min(L.ox + L.w - 0.5, sx)); sz = Math.max(L.oz + 0.5, Math.min(L.oz + L.d - 0.5, sz)); }
+        }
+        const sy = self ? m.y : 0;
+        sfx.taunt(tauntOf(m.id), sx, m.y, sz, m.forced ? 1.3 : 1);
+        gfx.fx.notes(sx, sy, sz, p(m.id)?.colorHex ?? 0xffffff, m.daring || m.forced); if (self) gfx.fx.tauntHat(m.id);
         { // visible taunt: shockwave rings + speech bubble (red ring for a forced taunt, big for a daring one)
           const icon = m.forced ? '📢' : TAUNT_ICON[tauntOf(m.id)] || '🎺', col = m.forced ? 0xff4d5e : m.daring ? 0xffd23f : p(m.id)?.colorHex ?? 0xffffff;
           const hv = view.get(m.id), bodyH = hv && hv.kind >= 0 && hv.role === 'H' ? KINDS[hv.kind].size[1] : 1.75;
-          gfx.fx.taunt(m.x, m.y, m.z, col, icon, { big: m.daring || m.forced, h: bodyH });
+          gfx.fx.taunt(sx, sy, sz, col, icon, { big: m.daring || m.forced, h: self ? bodyH : 1.3, area: !self });
           // seekers (and anyone watching) also get a pointer at the screen edge while the taunt is off-screen
           if (m.id !== ctx.myId && (ctx.spectator || !me || me.role === 'S' || !me.alive)) {
             const el = ui.el('div', 'pr-ping', `<div class="ic">${icon}</div><div class="ar">▲</div>`); el.style.setProperty('--c', m.forced ? '#ff4d5e' : p(m.id)?.colorCss || '#fff');
-            ctx.container.appendChild(el); pings.push({ el, x: m.x, y: m.y + 1, z: m.z, t: 0 });
+            ctx.container.appendChild(el); pings.push({ el, x: sx, y: 1, z: sz, t: 0 });
             while (pings.length > 6) pings.shift().el.remove();
           }
         }
@@ -289,7 +299,7 @@ export async function start(ctx) {
   const pings = [];
   function showSniff(d) {
     const [txt, col] = d < 5 ? ['🔥 BURNING HOT!', '#ff4d5e'] : d < 10 ? ['♨️ Warm…', '#ff8c42'] : d < 18 ? ['🌬️ Cool', '#3ea6ff'] : ['🧊 Ice cold', '#8fd3ff'];
-    sniffEl.textContent = `👃 ${txt}${d < 90 ? ' · about ' + Math.max(2, Math.round(d / 2) * 2) + ' m' : ''}`; sniffEl.style.background = col; sniffEl.classList.remove('hidden'); sniffT = R.SNIFF_T;
+    sniffEl.textContent = `👃 ${txt}${d < 90 ? ' · about ' + Math.max(2, Math.round(d / 2) * 2) + ' m' : ''}`; sniffEl.style.background = col; sniffEl.classList.remove('hidden'); sniffT = performance.now() + R.SNIFF_T * 1000;   // wall-clock deadline: a slow frame rate must not keep it on screen
     sfx.sniff(d < 10);
   }
 
@@ -411,8 +421,8 @@ export async function start(ctx) {
       showTag: (id, p) => viewerRole === 'spec' || phase === 'post' || (viewerRole === 'H' && p.role === 'H') || (p.role === 'S' && !!L && lineOfSight(L, [lp.x, lp.y, lp.z], [p.x, p.y + 1.5, p.z])),
     });
     // --- HUD
-    vigT = Math.max(0, vigT - dt); sniffT = Math.max(0, sniffT - dt);
-    if (sniffT <= 0) sniffEl.classList.add('hidden');
+    vigT = Math.max(0, vigT - dt);
+    if (performance.now() >= sniffT) sniffEl.classList.add('hidden');
     const lowHp = me && me.role === 'S' && me.alive && (me.hp ?? 100) <= 30;
     vig.style.boxShadow = `inset 0 0 120px 20px rgba(255,60,80,${(vigT * 0.9 + (lowHp ? 0.25 + Math.sin(now / 200) * 0.1 : 0)).toFixed(2)})`;
     const sc = ctx.spectator ? '👀 Spectating' : !me ? '' : me.role === 'S'

@@ -1,21 +1,37 @@
 // Three.js rendering for Arena Royale: bright cartoon style (toon shading, outlines, chunky characters).
 import * as THREE from 'three';
-import { ARENA_R, OBSTACLES, HOLES, BUSHES, MAP, inBush, inHole, sweeperAngle, BLAST_R, SLAM_R, BOMB_R, BOMB_RANGE, MAX_AMMO } from './sim.js';
+import { ARENA_R, OBSTACLES, HOLES, BUSHES, PORTALS, PORTAL_R, MAP, inBush, inHole, sweeperAngle, BLAST_R, SLAM_R, BOMB_R, BOMB_RANGE, MAX_AMMO } from './sim.js';
 
 import { PALETTE } from '../../core/palette.js';
 import { buildHat } from '../../core/avatar.js';
 export const COLORS = PALETTE;   // party colors: players keep their color in every game
 export const cssColor = (i) => '#' + COLORS[i % COLORS.length].toString(16).padStart(6, '0');
 const PU_COLORS = { speed: 0xffe14d, shield: 0x4de1ff, dmg: 0xff4d6a, heal: 0x5dff7a, giant: 0xff9de0, cube: 0xffa531 };
+// What each power-up does, at a glance: a floating glyph above the gem (so it reads from across the arena,
+// not just from the tooltip-less pickup text that only flashes for the player who grabs it).
+const PU_ICONS = { speed: '⚡', shield: '🛡', dmg: '🔥', heal: '➕', giant: '⬆', cube: '📦' };
+const iconTexCache = new Map();
+function iconTexture(glyph) {
+  let t = iconTexCache.get(glyph);
+  if (t) return t;
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  g.font = '44px "Segoe UI Emoji","Noto Color Emoji",sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(glyph, 32, 36);
+  t = new THREE.CanvasTexture(c);
+  iconTexCache.set(glyph, t);
+  return t;
+}
 const SKY = 0x4cc3ff;
 const WATER = 0x2ea8f0;
 
 const THEMES = {
-  meadow: { tileA: '#93d653', tileB: '#82c846', line: '#6fae3a', cliff: 0x9a6a3c, cliffTop: 0x6dbb3c, block: 0xd8954f, wall: 0xa7b0c4, bush: 0x2fa84a, bushDark: 0x228a3a },
-  desert: { tileA: '#f6cf86', tileB: '#ecc072', line: '#d9a85a', cliff: 0xc07a42, cliffTop: 0xe7b665, block: 0xe7a862, wall: 0x46b358, bush: 0x7cb342, bushDark: 0x5f9632 },
-  candy:  { tileA: '#ffd9ea', tileB: '#ffc4dd', line: '#f59ac0', cliff: 0xb5651d, cliffTop: 0xff8fc0, block: 0xffe08a, wall: 0x9be0ff, bush: 0x3cc47c, bushDark: 0x2a9d60 },
-  ice:    { tileA: '#cfefff', tileB: '#bfe6fb', line: '#9fd4f2', cliff: 0x5f86c4, cliffTop: 0xe4f6ff, block: 0x8fd3ff, wall: 0x7f9ac4, bush: 0x2e9b62, bushDark: 0x1f7a4c },
-  snow:   { tileA: '#eef6ff', tileB: '#dde9f8', line: '#c4d7ef', cliff: 0x7e93b8, cliffTop: 0xe9f3ff, block: 0x9fdcff, wall: 0x8e9bb0, bush: 0x2e9b62, bushDark: 0x1f7a4c },
+  meadow: { tileA: '#93d653', tileB: '#82c846', line: '#6fae3a', cliff: 0x9a6a3c, cliffTop: 0x6dbb3c, block: 0xd8954f, wall: 0xa7b0c4, bush: 0x2fa84a, bushDark: 0x228a3a, deco: 'flower' },
+  desert: { tileA: '#f6cf86', tileB: '#ecc072', line: '#d9a85a', cliff: 0xc07a42, cliffTop: 0xe7b665, block: 0xe7a862, wall: 0x46b358, bush: 0x7cb342, bushDark: 0x5f9632, deco: 'crack' },
+  candy:  { tileA: '#ffd9ea', tileB: '#ffc4dd', line: '#f59ac0', cliff: 0xb5651d, cliffTop: 0xff8fc0, block: 0xffe08a, wall: 0x9be0ff, bush: 0x3cc47c, bushDark: 0x2a9d60, deco: 'swirl' },
+  ice:    { tileA: '#cfefff', tileB: '#bfe6fb', line: '#9fd4f2', cliff: 0x5f86c4, cliffTop: 0xe4f6ff, block: 0x8fd3ff, wall: 0x7f9ac4, bush: 0x2e9b62, bushDark: 0x1f7a4c, deco: 'crystal' },
+  snow:   { tileA: '#eef6ff', tileB: '#dde9f8', line: '#c4d7ef', cliff: 0x7e93b8, cliffTop: 0xe9f3ff, block: 0x9fdcff, wall: 0x8e9bb0, bush: 0x2e9b62, bushDark: 0x1f7a4c, deco: 'snowflake' },
 };
 
 // 3-step toon ramp + inverted-hull outlines give the chunky cartoon look.
@@ -40,10 +56,34 @@ function tileTexture(th) {
     g.strokeStyle = th.line; g.lineWidth = 6;
     g.strokeRect(i * 128 + 3, j * 128 + 3, 122, 122);
   }
-  // a few flecks so the floor doesn't look flat
+  // a few flecks so the floor doesn't look flat, plus a theme motif so each arena reads as its own place
   g.fillStyle = th.line;
   for (let k = 0; k < 18; k++) { g.globalAlpha = 0.35; g.beginPath(); g.arc(Math.random() * 256, Math.random() * 256, 3 + Math.random() * 4, 0, 6.28); g.fill(); }
   g.globalAlpha = 1;
+  for (let k = 0; k < 7; k++) {
+    const x = Math.random() * 256, y = Math.random() * 256;
+    if (th.deco === 'flower') {
+      g.fillStyle = ['#fff6b0', '#ff9ec7', '#ffffff'][k % 3];
+      for (let p = 0; p < 5; p++) { const a = (p / 5) * 6.28; g.beginPath(); g.arc(x + Math.cos(a) * 4, y + Math.sin(a) * 4, 3, 0, 6.28); g.fill(); }
+      g.fillStyle = '#ffd23f'; g.beginPath(); g.arc(x, y, 2.4, 0, 6.28); g.fill();
+    } else if (th.deco === 'crack') {
+      g.strokeStyle = th.line; g.lineWidth = 2; g.globalAlpha = 0.5;
+      g.beginPath(); g.moveTo(x, y);
+      let cx = x, cy = y;
+      for (let s = 0; s < 3; s++) { cx += (Math.random() - 0.5) * 14; cy += (Math.random() - 0.5) * 14; g.lineTo(cx, cy); }
+      g.stroke(); g.globalAlpha = 1;
+    } else if (th.deco === 'swirl') {
+      g.strokeStyle = ['#ff6fa8', '#ffffff'][k % 2]; g.lineWidth = 3; g.globalAlpha = 0.6;
+      g.beginPath(); g.arc(x, y, 5, 0, Math.PI * 1.5); g.stroke(); g.globalAlpha = 1;
+    } else if (th.deco === 'crystal') {
+      g.fillStyle = '#ffffff'; g.globalAlpha = 0.65;
+      g.beginPath(); g.moveTo(x, y - 7); g.lineTo(x + 4, y); g.lineTo(x, y + 7); g.lineTo(x - 4, y); g.closePath(); g.fill(); g.globalAlpha = 1;
+    } else if (th.deco === 'snowflake') {
+      g.strokeStyle = '#ffffff'; g.lineWidth = 2; g.globalAlpha = 0.7;
+      for (let p = 0; p < 3; p++) { const a = (p / 3) * Math.PI; g.beginPath(); g.moveTo(x - Math.cos(a) * 6, y - Math.sin(a) * 6); g.lineTo(x + Math.cos(a) * 6, y + Math.sin(a) * 6); g.stroke(); }
+      g.globalAlpha = 1;
+    }
+  }
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.repeat.set(ARENA_R * 2 / 5, ARENA_R * 2 / 5); // 2.5 m tiles
@@ -231,6 +271,16 @@ export class Renderer {
       }
       this.mapGroup.add(g);
       this.bushMeshes.push({ b, mats: [mat, mat2] });
+    }
+
+    for (const p of PORTALS) {
+      const g = new THREE.Group(); g.position.set(p.x, 0, p.z);
+      const pad = new THREE.Mesh(new THREE.CylinderGeometry(PORTAL_R, PORTAL_R * 1.1, 0.25, 28), toon(0x1b4a5c, { emissive: 0x3ff0c8, emissiveIntensity: 0.5 }));
+      pad.position.y = 0.12; g.add(pad);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(PORTAL_R * 0.85, 0.09, 8, 32), basic(0x3ff0c8, 0.9));
+      ring.rotation.x = -Math.PI / 2; ring.position.y = 0.3; g.add(ring);
+      p._ring = ring;
+      this.mapGroup.add(g);
     }
 
     this.beam = null;
@@ -459,6 +509,7 @@ export class Renderer {
     this.updateClouds(view.zoneR, now);
     if (this.beam) this.beam.rotation.y = -sweeperAngle(view.t || 0);
     for (const o of OBSTACLES) if (o._dome) o._dome.scale.y = 0.45 + Math.sin(now * 5 + o.x) * 0.05;
+    for (const p of PORTALS) if (p._ring) { p._ring.rotation.z = now * 1.5; p._ring.position.y = 0.3 + Math.sin(now * 3 + p.x) * 0.06; }
 
     const me = view.players.find((p) => p.id === localId && p.alive);
     // bushes go see-through when you're inside them
@@ -625,11 +676,14 @@ export class Renderer {
         gem.castShadow = true; m.add(gem); m.userData.gem = gem;
         const pool = new THREE.Mesh(new THREE.CircleGeometry(0.9, 24), basic(PU_COLORS[u.type], 0.35));
         pool.rotation.x = -Math.PI / 2; pool.position.y = 0.05; m.add(pool);
+        const icon = new THREE.Sprite(new THREE.SpriteMaterial({ map: iconTexture(PU_ICONS[u.type] || '?'), transparent: true, sizeAttenuation: true }));
+        icon.scale.set(0.9, 0.9, 1); m.add(icon); m.userData.icon = icon;
         this.scene.add(m); this.puMeshes.set(u.id, m);
       }
       m.position.set(u.x, 0, u.z);
       m.userData.gem.position.y = 0.9 + Math.sin(now * 3 + u.id) * 0.2;
       m.userData.gem.rotation.y = now * 2;
+      m.userData.icon.position.y = 2.0 + Math.sin(now * 3 + u.id) * 0.2;
     }
     for (const [id, m] of this.puMeshes) if (!us.has(id)) { this.scene.remove(m); this.puMeshes.delete(id); }
 
@@ -768,6 +822,9 @@ export class Renderer {
         m.position.set(x, 1.5, z);
         push(m, 0.35, (k) => { m.scale.set(1 - k, 1 + k, 1 - k); m.material.opacity = 0.8 * (1 - k); });
       }
+    } else if (e.k === 'portal') {
+      ringFx(e.x, e.z, 1.6, 0x3ff0c8, 0.4, 0.15);
+      puffs(e.x, e.z, 0x3ff0c8, 6, 1.1, 0.4, 0.35);
     } else if (e.k === 'elim') {
       if (e.how === 'fall') { // SPLASH
         const wy = e.pit ? 0.06 : -0.85;
