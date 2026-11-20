@@ -84,7 +84,10 @@ export function botInput(sh, br, env, out = {}) {
       let rel = sh.s - sc.a; if (rel < -tr.main.L / 2) rel += tr.main.L;
       if (rel > -60 && rel < ENTRY - 8) dT = sc.side * (rel < -20 ? extent(path, sh.s, sc.side) * 0.7 : extent(path, sh.s, sc.side) + 4);
     }
-  } else dT = br.noise * 0.2;
+  }
+  // (while actually ON a shortcut lane, dT keeps the corner-aware racing line computed above instead of being
+  // overridden -- it used to collapse to "just stay near the centre", which doesn't react to the shortcut's own
+  // curves and ran bots straight off the narrow lane on anything but the gentlest one)
   dT = clamp(dT, -hwL - 6, hwR + 6);
 
   // heading we want relative to the track tangent, and the turn rate that holds it
@@ -102,7 +105,8 @@ export function botInput(sh, br, env, out = {}) {
   const kd = C.DRIFT_K * K.turn, ka = C.DRIFT_KADJ * K.turn;
   // how much the track turns over the next stretch (same direction only)
   let ang = 0; for (let x = 0; x < 30 + v * 1.6; x += 5) { const kk = scalar(path, path.k, sh.s + x); if (Math.sign(kk) === Math.sign(kC || kPeak)) ang += Math.abs(kk) * 5; }
-  const want = kC !== 0 && kDist < 6 + v * 0.12 && Math.abs(kPeak) > br.driftK && Math.abs(kPeak) > (kd - ka) * 1.2 && ang > 0.75 && v > 32 && !sh.air && sh.path === 0;
+  // (drifting works just as well on a shortcut lane as on the main track -- no sh.path restriction here)
+  const want = kC !== 0 && kDist < 6 + v * 0.12 && Math.abs(kPeak) > br.driftK && Math.abs(kPeak) > (kd - ka) * 1.2 && ang > 0.75 && v > 32 && !sh.air;
   if (!sh.drift) {
     br.holdDrift = false;
     if (want && rnd() > lv.mistakes * 0.05) {
