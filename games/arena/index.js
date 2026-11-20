@@ -101,6 +101,8 @@ export async function start(ctx) {
     return s;
   }
   if (isHost()) sim = makeSim(null);
+  const bgm = ctx.music('arena');   // in-game music (core/music.js), stops by itself when the round ends
+  ctx.on('go', () => bgm.start());
   ctx.on('go', () => {
     if (!isHost() || !sim || sim.phase !== 'lobby') return;
     sim.startMatch();

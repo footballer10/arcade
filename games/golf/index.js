@@ -822,6 +822,8 @@ export async function start(ctx) {
   ctx.on('hostchange', ({ amHost }) => { if (amHost && !S.isHost) becomeHost(); });
   ctx.on('join', (id) => { if (S.isHost && lastPrep) net.to(id, holeMsg()); });
   ctx.on('leave', (id) => { const p = S.players.find((x) => x.id === id); if (!p) return; p.gone = true; if (S.sim) { const b = S.sim.balls.get(id); if (b) b.out = true; } });
+  const bgm = ctx.music('golf');   // in-game music (core/music.js), stops by itself when the round ends
+  ctx.on('go', () => bgm.start());
   ctx.on('go', () => {
     if (S.isHost) { S.phase = 'playing'; if (S.sim) { S.sim.timeLeft = S.opts.time; S.sim.intro = INTRO_SECS + 0.3; net.toAll(holeMsg()); } }
     else if (S.phase === 'waiting') S.phase = 'playing';
