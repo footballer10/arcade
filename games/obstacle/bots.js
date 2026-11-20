@@ -3,16 +3,16 @@
 // the rest), time leaps onto moving platforms, pick doors (and remember the fake ones they bonked), hop
 // between tiles, and dive across finish lines. Difficulty (ctx.bots.level) sets reaction time, how far ahead
 // they look, how often they misjudge a hazard or a jump, and how bold they are.
-import { C, pose, active, groundAt, isDown, blinkU, lavaLevel, rollU } from './world.js';
+import { C, pose, active, groundAt, isDown, blinkU, lavaLevel, rollU, stepPlayer, setPoses, EV } from './world.js';
 
 export function makeBot(Brain, level, rnd = Math.random) {
   return { brain: new Brain(level, rnd), level, rnd, ni: 0, offs: new Map(), lane: null, door: null, tried: new Set(), inp: { mx: 0, mz: 0, jh: false, j: 0, d: 0, g: false },
     nf: new Map(), stuck: 0, lx: 0, lz: 0, jumpT: 0, diveArm: false, ignore: new Map(), goal: -1, goalT: 0, wander: null, wanderT: 0, lastRs: -1, finDive: false, prey: null, leapT: 0 };
 }
-export function resetBot(b) { b.nf?.clear(); b.pad = null; b.alt = null; b.ni = 0; b.offs.clear(); b.lane = null; b.door = null; b.tried.clear(); b.goal = -1; b.wander = null; b.finDive = false; b.diveArm = false; b.ignore.clear(); b.prey = null; }
+export function resetBot(b) { b.nf?.clear(); b.pad = null; b.alt = null; b.ni = 0; b.offs.clear(); b.lane = null; b.door = null; b.tried.clear(); b.goal = -1; b.wander = null; b.finDive = false; b.diveArm = false; b.ignore.clear(); b.prey = null; b.flight = null; b.safe = null; b.edgeWait = 0; b.commit = null; }
 
 const TMP = {}, TMP2 = {}, TMP3 = {};
-const jump = (b, hold = 0.32) => { b.inp.j++; b.jumpT = hold; };
+const jump = (b, hold = 0.32, why = '') => { b.inp.j++; b.jumpT = hold; b.inp.jh = true; b.jumpWhy = why; };   // held from the press itself, or the jump comes out short
 const dive = (b) => { b.inp.d++; };
 
 // G: {st, W, players: [{id,x,y,z,...}] (in round), me: id}
@@ -22,11 +22,22 @@ export function botThink(G, p, b, dt) {
   const think = b.brain.ready(dt);
   if (p.rs !== b.lastRs) {          // respawned: remember where we fell (to get careful there), then find our place again
     if (b.lastRs >= 0) { b.nf.set(b.ni, (b.nf.get(b.ni) || 0) + 1); b.offs.clear(); b.lane = null; b.pad = null; b.alt = null; b.gate = null; }
-    b.lastRs = p.rs; b.ni = 0; b.door = null; b.stuck = 0;
+    b.lastRs = p.rs; b.ni = 0; b.door = null; b.stuck = 0; b.flight = null; b.safe = null; b.edgeWait = 0; b.commit = null;
   }
   if (b.diveArm && p.gr < 0 && p.vy < 1.2 && !p.dive) { b.diveArm = false; dive(b); }
   if (p.gr >= 0) b.diveArm = false;
   if (isDown(p) || p.hang >= 0) { inp.mx = inp.mz = 0; return inp; }
+  // a ground move the look-ahead approved (e.g. through a moving gap): follow through
+  if (b.commit) {
+    if (G.W.t < b.commit.until && !p.tumble) { inp.mx = b.commit.mx; inp.mz = b.commit.mz; return inp; }
+    b.commit = null;
+  }
+  // following a jump the look-ahead approved: keep the same stick input until we land
+  if (b.flight) {
+    if ((p.gr >= 0 && G.W.t > b.flight.t0 + 0.1) || (b.flight.end && G.W.t > b.flight.end)) b.flight = null;
+    else if (G.W.t < b.flight.t0 + 2.4) { inp.mx = b.flight.mx; inp.mz = b.flight.mz; return inp; }
+    else b.flight = null;
+  }
   let tx, tz, tsolid = -1, leapNode = false;
   if (st.mode === 'race' || st.mode === 'crown') ({ tx, tz, tsolid, leapNode } = raceTarget(G, p, b));
   else if (st.id === 'tiles') ({ tx, tz, tsolid } = tileTarget(G, p, b, think));
@@ -43,14 +54,48 @@ export function botThink(G, p, b, dt) {
   if (grounded && (mx || mz)) {
     const ax = p.x + mx * 0.85, az = p.z + mz * 0.85;
     const below = (b.dropOK ? groundAt(G.W, ax, az, p.y - 2, p.y - 0.5) >= 0 : tsolid < 0 && b.dropY != null && b.dropY < p.y - 0.8 && groundAt(G.W, ax, az, p.y - 6, p.y - 0.5) >= 0);   // fine to hop down
-    if (!below && groundAt(G.W, ax, az, p.y - 0.7, p.y + 0.55) < 0) {
+    if (below && hazardNear(G, p) && (think || b.dropChk == null) && canPlan(G)) {
+      const r = lookAhead(G, p, { mx, mz, T: 1.0, minY: p.y - 3.5 });
+      b.dropChk = r.ok;
+    }
+    if (below && b.dropChk === false && hazardNear(G, p)) { mx = mz = 0; }
+    if (!below) b.dropChk = null;
+    const stepUp = !below && groundAt(G.W, ax, az, p.y - 0.7, p.y + 0.55) < 0 && groundAt(G.W, p.x + mx * 1.3, p.z + mz * 1.3, p.y + 0.55, p.y + 1.85) >= 0;
+    if (stepUp) {
+      // a step (or a higher platform) right in front: jump up onto it when the look-ahead says the landing is safe
+      if ((think || b.leapT < -0.3) && b.jumpT <= 0 && canPlan(G)) {
+        const fl = Math.hypot(mx, mz) || 1, ux = mx / fl, uz = mz / fl;
+        const r = lookAhead(G, p, { mx: ux, mz: uz, jump: true, hold: 0.5, T: 1.4, stand: 0.3, after: [ux * 0.2, uz * 0.2], minY: p.y - 0.8, accept: (gr) => G.W.solids[gr].y + G.W.solids[gr].hy > p.y + 0.5 });
+        if (r.ok || b.rnd() < lv.mistakes * 0.03) { jump(b, 0.5, 'stepup'); b.leapT = 0.4; b.flight = { mx: ux, mz: uz, t0: G.W.t, ok: r.ok }; inp.mx = ux; inp.mz = uz; return inp; }
+      }
+      mx *= 0.05; mz *= 0.05;
+    }
+    else if (!below && groundAt(G.W, ax, az, p.y - 0.7, p.y + 0.55) < 0) {
       const careful = (b.nf.get(b.ni) || 0) >= 2;          // fell here twice already: only take safe jumps
       const lp = leapPlan(G, p, tsolid >= 0 ? tsolid : groundAt(G.W, tx, tz, p.y - 3, p.y + 1.7), tx, tz, careful);
-      const reach = careful ? 2.9 : 3.2 + lv.skill * 0.7, mistake = !careful && b.rnd() < lv.mistakes * dt * 4;
-      if (lp && lp.ok && lp.dy < 1.65 && (lp.gap <= reach || (mistake && lp.gap < reach + 2))) {
+      const reach = careful ? 2.9 : 3.2 + lv.skill * 0.7, mistake = !careful && think && b.rnd() < lv.mistakes * 0.08;
+      const tsi = tsolid >= 0 ? tsolid : groundAt(G.W, tx, tz, p.y - 3, p.y + 1.7);
+      if (lp && tsi >= 0 && !mistake && lp.gap < 7 && lp.dy < 1.8) {
+        // look-ahead: only jump when a simulated jump lands (and stays) safely; otherwise wait at the edge
+        b.edgeWait = (b.edgeWait || 0) + dt;
+        if ((think || b.leapT < -0.3) && canPlan(G)) {
+          const pl = planLeap(G, p, b, tsi, lp.ax, lp.az, careful);
+          if (pl) {
+            const e = (b.rnd() - 0.5) * lv.aimError * 0.32, c = Math.cos(e), sn = Math.sin(e);
+            mx = pl.mx * c + pl.mz * sn; mz = -pl.mx * sn + pl.mz * c;
+            jump(b, 0.5, 'leap'); b.leapT = 0.4; b.edgeWait = 0;
+            b.flight = { mx, mz, t0: G.W.t, plan: pl, si: tsi, end: pl.bounce ? G.W.t + pl.t + 0.05 : null }; if (pl.dive) b.diveArm = true;
+            inp.mx = mx; inp.mz = mz; return inp;
+          }
+        }
+        if (b.edgeWait < 5 + lv.skill * 4) { mx = mz = 0; }
+        else if (lp.ok && lp.gap <= reach) { jump(b, 0.5, 'leapFallback'); b.leapT = 0.4; b.edgeWait = 0; const l = Math.hypot(lp.ax - p.x, lp.az - p.z) || 1; mx = (lp.ax - p.x) / l; mz = (lp.az - p.z) / l; }
+        else { mx = mz = 0; }
+      }
+      else if (lp && lp.ok && lp.dy < 1.65 && (lp.gap <= reach || (mistake && lp.gap < reach + 2))) {
         if (think || b.leapT < -0.6) {
           const l = Math.hypot(lp.ax - p.x, lp.az - p.z) || 1; mx = (lp.ax - p.x) / l; mz = (lp.az - p.z) / l;
-          jump(b, 0.5); b.leapT = 0.4; if (b.dropOK) { /* never dive onto a small rock */ } else if (st.id === 'tiles' ? lp.gap > 3.4 : (lp.gap > 2.6 + lv.skill * 0.4 || b.rnd() < 0.15 * lv.skill)) b.diveArm = true;
+          jump(b, 0.5, 'leapOld'); b.leapT = 0.4; if (b.dropOK) { /* never dive onto a small rock */ } else if (st.id === 'tiles' ? lp.gap > 3.4 : (lp.gap > 2.6 + lv.skill * 0.4 || b.rnd() < 0.15 * lv.skill)) b.diveArm = true;
         } else { mx *= 0.15; mz *= 0.15; }
       } else if (!leapNode && dist < 1.2) { /* target reached at an edge: fine */ mx = mz = 0; }
       else { mx = mz = 0; }
@@ -68,12 +113,12 @@ export function botThink(G, p, b, dt) {
   else if (ball && b.rnd() > b.level.mistakes * dt * 3) {
     // step into the nearest pocket that is clear of every ball coming down at us, then keep running up it
     const px = ballPocket(G, p);
-    if (px == null) { if (grounded && b.jumpT <= 0 && ball.tau < 0.45) jump(b, 0.5); }
+    if (px == null) { if (grounded && b.jumpT <= 0 && ball.tau < 0.45) jump(b, 0.5, 'ballJump'); }
     else if (Math.abs(px - p.x) > 0.3) { mx = Math.sign(px - p.x); mz = 0.2; }
     else { mx = (px - p.x) * 2; mz = 0.8; }
   }
   // spike traps: don't step onto a strip that will be up when we get there (but get off one that is about to pop)
-  if (st.spikes?.length && grounded && (mx || mz)) {
+  if (st.spikes?.length && grounded && (mx || mz) && st.mode !== 'race' && st.mode !== 'crown') {
     const sp = spikeThreat(G, p, mx, mz, lv);
     if (sp === 'wait') { mx = mz = 0; }
   }
@@ -87,28 +132,44 @@ export function botThink(G, p, b, dt) {
   }
   // ice: ease off the throttle near a target so you don't slide past it
   if (grounded && G.W.solids[p.gr]?.ice) { const k = Math.max(0.3, Math.min(1, dist / 3)); mx *= k; mz *= k; }
-  // hazards ahead (sweepers, hammers, punchers)
-  const hz = hazard(G, p, mx, mz, lv);
-  if (hz && grounded) {
-    const key = hz.s.idx;
-    let ig = b.ignore.get(key);
-    if (!ig || G.W.t > ig.until) { ig = { miss: b.rnd() < lv.mistakes * (hz.s.anim.k === 'piston' || (b.nf.get(b.ni) || 0) >= 2 ? 0.5 : 1.6), until: G.W.t + 1.2 }; b.ignore.set(key, ig); }
-    if (!ig.miss) {
-      if (hz.low && hz.tau <= 0.26 + lv.skill * 0.06) { if (b.jumpT <= 0) jump(b, 0.55); }
-      else if (hz.high && lv.skill > 0.6 && b.rnd() < 0.5) { if (hz.tau < 0.3) { dive(b); } }
-      else if (!hz.low && hz.s.anim.k === 'piston' && G.W.solids[p.gr]?.belt) {   // on a backwards belt waiting loses ground: dodge to the far side
-        mx = (-Math.sign(hz.s.x) || 1) * 0.8; mz = 0.6;
+  // hazards nearby (sweepers, hammers, punchers, balls, spike traps): ask the look-ahead whether walking on is safe;
+  // if not, pick the first safe option: jump over, wait, back off, or step aside
+  if (grounded && (st.mode === 'race' || st.mode === 'crown') && hazardNear(G, p)) {
+    if ((think || !b.safe || G.W.t > b.safe.until) && (canPlan(G) || !b.safe)) {
+      const mistake = b.rnd() < lv.mistakes * 0.06;
+      const opts = [];
+      const fl = Math.hypot(mx, mz);
+      let ux = mx / (fl || 1), uz = mz / (fl || 1);
+      if (fl <= 0.05) { const rl = Math.hypot(tx - p.x, tz - p.z); if (rl > 0.1) { ux = (tx - p.x) / rl; uz = (tz - p.z) / rl; } else { ux = 0; uz = 1; } }
+      if (fl > 0.05) { opts.push(['go', mx, mz, false]); opts.push(['jump', ux, uz, true]); for (const d of [0.15, 0.3, 0.45]) opts.push(['gojump', ux, uz, true, d]); }
+      const inLava = G.W.lavas?.some((L) => p.x > L.x0 && p.x < L.x1 && p.z > L.z0 && p.z < L.z1 && p.y < L.floor + 0.4);   // on a lava pit floor: never stand around
+      if (!inLava) opts.push(['wait', 0, 0, false]);
+      if (!inLava) opts.push(['back', -ux * 0.6, -uz * 0.6, false]); opts.push(['left', -uz * 0.7 + ux * 0.15, ux * 0.7 + uz * 0.15, false]); opts.push(['right', uz * 0.7 + ux * 0.15, -ux * 0.7 + uz * 0.15, false]);
+      let pick = mistake ? opts[0] : null, best = null, bestT = -1;
+      for (const o of opts) {
+        if (pick || (budget <= 0 && best)) break;
+        if (!o[3] && (o[1] || o[2]) && groundAt(G.W, p.x + o[1] * 1.2, p.z + o[2] * 1.2, p.y - 0.7, p.y + 0.55) < 0 && o[0] !== 'go') continue;
+        const r = lookAhead(G, p, o[3] ? { mx: o[1], mz: o[2], jump: true, jumpAt: o[4] || 0, hold: 0.5, T: 1.6 + (o[4] || 0), stand: 0.25, minY: p.y - 1.2 } : { mx: o[1], mz: o[2], walk: true, edgeFail: o[0] !== 'go', T: (o[0] === 'wait' ? 0.75 : 0.55) + lv.skill * 0.25 });
+        if (r.ok) pick = o; else if ((r.t || 0) > bestT) { bestT = r.t || 0; best = o; }
       }
-      else if (!hz.low) {            // wait / back off, but never backwards off an edge
-        const bx = -mx * 0.6, bz = -mz * 0.6;
-        if (groundAt(G.W, p.x + bx * 1.4, p.z + bz * 1.4, p.y - 0.7, p.y + 0.55) >= 0) { mx = bx; mz = bz; } else { mx = mz = 0; }
-      }
+      if (!pick) pick = best || opts[0];      // nothing fully safe: the option that stays safe the longest
+      b.safe = { k: pick[0], mx: pick[1], mz: pick[2], until: G.W.t + 0.2 + (pick[4] || 0), jumped: false, at: G.W.t + (pick[4] || 0) };
     }
-  }
+    const sf = b.safe;
+    if (sf.k === 'gojump') {
+      if (G.W.t >= sf.at && !sf.jumped && b.jumpT <= 0) { jump(b, 0.5, 'gojump'); sf.jumped = true; b.flight = { mx: sf.mx, mz: sf.mz, t0: G.W.t }; }
+      mx = sf.mx; mz = sf.mz;
+    }
+    else if (sf.k === 'jump') { if (!sf.jumped && b.jumpT <= 0) { jump(b, 0.5, 'hazJump'); sf.jumped = true; b.flight = { mx: sf.mx, mz: sf.mz, t0: G.W.t }; } mx = sf.mx; mz = sf.mz; }
+    else if (sf.k !== 'go') { mx = sf.mx; mz = sf.mz; }
+  } else b.safe = null;
   // stuck: jump, then try another way
   const moved = Math.hypot(p.x - b.lx, p.z - b.lz); b.lx = p.x; b.lz = p.z;
   if ((mx || mz) && moved < dt * 1.2 && grounded) b.stuck += dt; else b.stuck = Math.max(0, b.stuck - dt * 2);
-  if (b.stuck > 0.7 && b.jumpT <= 0) { jump(b, 0.35); }
+  if (b.stuck > 0.7 && b.jumpT <= 0 && (think || b.stuck > 1.5)) {
+    const fl = Math.hypot(mx, mz) || 1;
+    if (!hazardNear(G, p) || (canPlan(G) && lookAhead(G, p, { mx: mx / fl, mz: mz / fl, jump: true, hold: 0.35, T: 1.3, stand: 0.2, minY: p.y - 1.2 }).ok)) jump(b, 0.35, 'stuck');
+  }
   if (b.stuck > 2.4) { b.stuck = 0; b.offs.clear(); b.lane = null; if (b.door) { b.tried.add(b.door.d); b.door = null; } b.errA = (b.rnd() * 2 - 1) * 0.6; b.wander = null; b.goal = -1; }
   // dive across the finish line
   if (st.mode === 'race' && st.finishZ != null && !b.finDive && grounded && p.z > st.finishZ - 3.4 && p.z < st.finishZ - 1 && b.rnd() < 0.4 + lv.skill * 0.5) { b.finDive = true; dive(b); }
@@ -124,7 +185,7 @@ function raceTarget(G, p, b) {
     const n = R[b.ni]; if (!n) return { tx: p.x, tz: p.z + 5 };
     if (n.crown) {
       const c = st.crown, d = Math.hypot(c.x - p.x, c.z - p.z);
-      if (d < 1.7 && p.gr >= 0 && b.jumpT <= 0) jump(b, 0.4);
+      if (d < 1.7 && p.gr >= 0 && b.jumpT <= 0) jump(b, 0.4, 'crown');
       return { tx: c.x, tz: c.z, tsolid: -1 };
     }
     let arrived = false;
@@ -165,9 +226,13 @@ function raceTarget(G, p, b) {
       const near = p.z > n.z - 2.6;
       const cross = Math.max(0.15, (n.z + 0.8 - p.z) / C.RUN);
       const lined = Math.abs(gx(0) - p.x) < 0.42 && Math.abs(gx(cross) - p.x) < 0.75;
-      if (near && !lined) return { tx: gx(lead) + err, tz: n.z - 2.0, tsolid: -1 };
-      if (!near) return { tx: gx(lead + 0.3), tz: n.z - 2.0, tsolid: -1 };
-      b.gapErr = null;
+      if (near && !lined) return { tx: gx(lead) + err, tz: n.z - 2.3, tsolid: -1 };
+      if (!near) return { tx: gx(lead + 0.3), tz: n.z - 2.3, tsolid: -1 };
+      // check the crossing with the look-ahead before committing to it
+      const cx = gx(cross * 0.7) - p.x, cz = n.z + 2.2 - p.z, cl = Math.hypot(cx, cz) || 1;
+      const r = lookAhead(G, p, { mx: cx / cl, mz: cz / cl, T: cross + 0.45 });
+      if (!r.ok && b.rnd() > b.level.mistakes * 0.1) return { tx: gx(lead) + err, tz: n.z - 2.3, tsolid: -1 };
+      b.gapErr = null; b.commit = { mx: cx / cl, mz: cz / cl, until: G.W.t + cross + 0.3 };
       return { tx: gx(cross * 0.7), tz: n.z + 2.2, tsolid: -1 };
     }
     b.dropOK = n.rock != null;
@@ -352,6 +417,87 @@ function leapPlan(G, p, si, tx, tz, careful = false) {
   return { gap, ax, az, dy: P.y + s.hy - p.y, ok };
 }
 
+// ---------------------------------------------------------------- look-ahead
+// Runs the real player physics forward on a copy of the bot against the future poses of every platform and hazard
+// (moving platforms, lifts, blinking tiles, hammers, sweepers, balls, spikes), then puts the world back exactly as it
+// was. plan: {mx, mz, jump, hold, dive, T, stand, minY, accept(gr, q)}. Returns {ok, knocked, fell, landed, t}.
+const SDT = 1 / 60;
+let simCount = 0;
+// look-ahead budget per game frame (simulated steps, shared by every bot), so planning never causes a hitch:
+// when it's used up, the remaining bots keep their current decision and plan on a later frame
+const BUDGET = 420;
+let budget = BUDGET, budgetT = -1;
+const canPlan = (G) => { if (G.W.t !== budgetT) { budgetT = G.W.t; budget = BUDGET; } return budget > 0; };
+export const botSimStats = () => simCount;
+function lookAhead(G, p, plan) {
+  simCount++;
+  const W = G.W, t0 = W.t, dyn0 = W.dyn.slice(), dh = W.doorHit, fh = W.fakeHit; W.doorHit = null; W.fakeHit = null;
+  const q = { ...p, grab: null, gby: null, hang: -1, hl: p.hl ? [...p.hl] : p.hl };
+  const inp = { mx: plan.mx, mz: plan.mz, jh: false, j: q.lj, d: q.ld, g: false };
+  const T = plan.T ?? 1.6, minY = plan.minY ?? p.y - 2.2, startGr = p.gr;
+  let air = false, dived = false, landT = -1, res = null;
+  for (let k = 1; k * SDT <= T + 1e-6; k++) {
+    const t = k * SDT;
+    setPoses(W, t0 + t - SDT, SDT);            // the real step that follows this decision runs at the current world time
+    const jk = 1 + Math.round((plan.jumpAt || 0) / SDT);
+    if (plan.jump && k === jk) inp.j = (q.lj + 1) & 255;
+    inp.jh = !!plan.jump && k >= jk && t - (jk - 1) * SDT < (plan.hold ?? 0.5);
+    if (plan.dive && air && !dived && !q.dive && q.vy < (plan.diveVy ?? 1.2)) { inp.d = (q.ld + 1) & 255; dived = true; }
+    if (landT >= 0) { inp.mx = plan.after ? plan.after[0] : 0; inp.mz = plan.after ? plan.after[1] : 0; }
+    const ev = stepPlayer(q, inp, SDT, W); budget--;
+    if (q.tumble) { res = { ok: false, knocked: true, t }; break; }
+    if ((ev & EV.FELL) || q.y < minY || q.y < W.killY + 1) { res = { ok: false, fell: true, t }; break; }   // includes lava
+    if (q.gr < 0) air = true;
+    if (plan.walk && q.gr < 0 && !plan.jump) { res = plan.edgeFail ? { ok: false, fell: true, t } : { ok: true, edge: true, t }; break; }
+    if (ev & EV.BOUNCE) {            // a trampoline: the bounce is the landing
+      const pad = groundAt(W, q.x, q.z, q.y - 1.0, q.y + 0.3);
+      res = (!plan.accept || plan.accept(pad >= 0 ? pad : -1, q, startGr)) ? { ok: true, landed: pad, t, bounce: true } : { ok: false, wrong: true, t }; break;
+    }      // walked to an edge: the leap logic takes it from here
+    if (air && q.gr >= 0 && landT < 0) {
+      landT = t;
+      if (plan.accept && !plan.accept(q.gr, q, startGr)) { res = { ok: false, wrong: true, landed: q.gr, t }; break; }
+      if (!plan.stand) { res = { ok: true, landed: q.gr, t }; break; }
+      plan.lt = t;
+    }
+    if (landT >= 0 && t - landT >= plan.stand) { res = { ok: q.gr >= 0, landed: q.gr, t, lt: landT }; break; }
+  }
+  if (!res) res = plan.jump ? { ok: false, timeout: true } : { ok: true, t: T };
+  setPoses(W, t0, G.dt || SDT); W.dyn.set(dyn0); W.doorHit = dh; W.fakeHit = fh;
+  return res;
+}
+// try a few jumps toward (ax, az): straight at it and a little to either side, with and without a dive
+function planLeap(G, p, b, si, ax, az, careful) {
+  const W = G.W, base = Math.atan2(ax - p.x, az - p.z), tgt = W.solids[si];
+  // small platform (lift, raft, stepping stone) with someone already on it or about to land there: wait for it to clear
+  const small = tgt.shape === 'cyl' ? tgt.r < 2.4 : tgt.hx * tgt.hz < 5.5;
+  if (small && G.players) for (const q of G.players) {
+    if (q === p || q.id === p.id) continue;
+    if (q.gr === si) return null;
+    if (q.gr < 0 && Math.hypot(q.x - tgt.x, q.z - tgt.z) < 3.2 && q.y > tgt.y - 1) return null;
+  }
+  const accept = (gr, q, g0) => gr >= 0 && gr !== g0 && (gr === si || (W.solids[gr].y + W.solids[gr].hy > tgt.y + tgt.hy - 0.6 && q.z > p.z + 0.6)) && !W.solids[gr].noStand;
+  const minY = Math.min(p.y, tgt.y + tgt.hy) - 1.6;
+  const offs = careful ? [0, 0.12, -0.12] : [0, 0.15, -0.15, 0.32, -0.32];
+  for (const dive of [false, true]) for (const o of offs) {
+    if (budget <= 0) return null;
+    const a = base + o, mx = Math.sin(a), mz = Math.cos(a);
+    const r = lookAhead(G, p, { mx, mz, jump: true, hold: 0.5, dive, T: 2.2, stand: 0.4, after: [mx * 0.15, mz * 0.15], minY, accept });
+    if (r.ok) return { mx, mz, dive, t: r.t, land: r.landed, lt: r.lt, bounce: !!r.bounce };
+  }
+  return null;
+}
+
+// anything that can knock us within reach soon (moving hitters, balls, timed spikes)?
+function hazardNear(G, p) {
+  for (const s of G.W.moving) {
+    if (!s.hit) continue;
+    const r = (s.br || Math.max(s.hx || 0, s.hz || 0, s.r || 0)) + 4.5;
+    if (Math.abs(s.x - p.x) < r && Math.abs(s.z - p.z) < r && Math.abs(s.y - p.y) < 9) return true;
+    if (s.anim.k === 'roll' && Math.abs(s.x - p.x) < 4 && s.z > p.z - 2 && s.z < p.z + 14) return true;
+  }
+  for (const i of G.st.spikes || []) { const s = G.W.solids[i]; if (Math.abs(s.x - p.x) < s.hx + 2.5 && Math.abs(s.z - p.z) < s.hz + 2.5) return true; }
+  return false;
+}
 // first moving hitter that will overlap us soon
 function hazard(G, p, mx, mz, lv) {
   const look = [0.12, 0.24, 0.36, 0.5], longLook = [0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 1.05];
@@ -448,7 +594,7 @@ function dashTarget(G, p, b, think) {
   // jump low blocks just before they reach us
   for (const s of row) if (s.hy <= 0.6 && Math.abs(s.x - p.x) < s.hx + C.R + 0.3) {
     const gap = (s.z - s.hz) - (p.z + C.R), spd = Math.abs(s.anim.v[2]);
-    if (gap > 0 && gap < 0.5 + spd * 0.16 && p.gr >= 0 && b.jumpT <= 0) jump(b, 0.45);
+    if (gap > 0 && gap < 0.5 + spd * 0.16 && p.gr >= 0 && b.jumpT <= 0) jump(b, 0.45, 'dash');
   }
   return { tx: b.dashX ?? p.x, tz: Math.max(homeZ - 2, Math.min(homeZ + 2, p.z)) };
 }
