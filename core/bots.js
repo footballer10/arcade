@@ -10,7 +10,12 @@ export const BOT_LEVELS = {
   easy: { key: 'easy', label: 'Easy', reaction: 0.45, aimError: 0.5, skill: 0.45, mistakes: 0.3 },
   normal: { key: 'normal', label: 'Normal', reaction: 0.25, aimError: 0.25, skill: 0.7, mistakes: 0.12 },
   hard: { key: 'hard', label: 'Hard', reaction: 0.12, aimError: 0.1, skill: 0.92, mistakes: 0.04 },
+  // Extreme reports key 'hard' so games written before it existed treat it as (at least) Hard; games check
+  // `level.tier === 'extreme'` (or `level.rank >= 3`) to switch on their own extreme-only bot behaviour.
+  extreme: { key: 'hard', label: 'Extreme', reaction: 0.05, aimError: 0.03, skill: 1, mistakes: 0 },
 };
+// tier = the level's own name (easy | normal | hard | extreme); rank = 0..3 for "at least this hard" checks
+Object.entries(BOT_LEVELS).forEach(([tier, lv], i) => { lv.tier = tier; lv.rank = i; });
 
 export function makeBot(players, freeColor) {
   const used = new Set(players.map((p) => p.name));

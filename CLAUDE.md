@@ -85,7 +85,7 @@ Don't add your own in-game controls panels at the start; the loading screen deli
 | `audio`, `settings`, `quality()` | shared sound engine (`audio.sfx` bus, `tone`, `burst`, `play`), saved settings, graphics preset |
 | `avatar` | `build(player)`, `hat(kind, color)`, `dispose(obj)` |
 | `three` | `createRenderer()` (quality-aware, auto-disposed), `dispose(obj, keepSet)`, `applyQuality(renderer, light)` |
-| `bots` | `{ level: {key, reaction, aimError, skill, mistakes}, list, Brain }` — the host runs bots with your own AI |
+| `bots` | `{ level: {key, tier, rank, reaction, aimError, skill, mistakes}, list, Brain }` — the host runs bots with your own AI. Tiers: easy (rank 0), normal (1), hard (2), extreme (3). Extreme reports `key: 'hard'` for older code; check `level.tier === 'extreme'` / `level.rank >= 3` for extreme-only behaviour (near-perfect play, no deliberate mistakes, smart tactics). |
 | `frame(fn(dt, now))`, `tick(fn(dt))` | render loop / 60 Hz sim tick that keeps running in background tabs |
 | `setTimeout`, `setInterval`, `listen(target, type, fn)`, `onCleanup(fn)` | auto-cleared on stop |
 | `on(event, fn)` | `'go'` (shared countdown done: start now), `'hostchange'` `{amHost, hostId, oldHost}`, `'join'` (id loaded mid-round: send them a full sync), `'leave'` (id), `'rejoin'`, `'resize'`, `'settings'` |
