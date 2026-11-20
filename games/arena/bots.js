@@ -2,10 +2,13 @@
 import { ARENA_R, OBSTACLES, HOLES, MAP, sweeperAngle, inBush, BOMB_RANGE, WELL_RANGE, TELEPORT_MAX, BOMB_R, PLAYER_R } from './sim.js';
 
 export const BOT_NAMES = ['Bolt', 'Nova', 'Rex', 'Pixel', 'Juno', 'Tank', 'Zip', 'Echo', 'Fang', 'Mochi', 'Ziggy', 'Blip'];
+// Reaction/accuracy toned down a notch across the board (bots were sweeping new/casual players, especially at
+// the default "Normal" level): slower think cycles, wider aim error, less eager specials/dashes, and a shorter
+// sight range for power-ups/cubes so they don't out-scale a human just by having perfect map awareness.
 export const BOT_LEVELS = {
-  easy:   { label: 'Easy',   think: [0.2, 0.32], aimErr: 0.55, lead: 0.3, dashP: 0.02, spP: 0.25, calm: 0.55, cover: false, flank: 0.0 },
-  normal: { label: 'Normal', think: [0.1, 0.18], aimErr: 0.3,  lead: 0.7, dashP: 0.05, spP: 0.5,  calm: 0.4,  cover: true,  flank: 0.5 },
-  hard:   { label: 'Hard',   think: [0.05, 0.09], aimErr: 0.12, lead: 1.0, dashP: 0.1, spP: 0.85, calm: 0.2,  cover: true,  flank: 0.7 },
+  easy:   { label: 'Easy',   think: [0.32, 0.48], aimErr: 0.8,  lead: 0.1, dashP: 0.01,  spP: 0.12, calm: 0.85, cover: false, flank: 0.0, puRange: 3.5 },
+  normal: { label: 'Normal', think: [0.18, 0.28], aimErr: 0.5,  lead: 0.45, dashP: 0.03, spP: 0.32, calm: 0.6,  cover: true,  flank: 0.3, puRange: 5.5 },
+  hard:   { label: 'Hard',   think: [0.08, 0.14], aimErr: 0.22, lead: 0.85, dashP: 0.07, spP: 0.6,  calm: 0.35, cover: true,  flank: 0.55, puRange: 7 },
 };
 const RANGE = { blaster: 8, brawler: 1.7, trickster: 1.5, bomber: 7, ranger: 12, frost: 4.5, ram: 1.6, hook: 2.6 };
 const SHOT_SPEED = { blaster: 24, ranger: 30, frost: 20 };
@@ -121,7 +124,7 @@ export function botInput(sim, p, dt) {
   // power-ups nearby
   for (const u of sim.pu) {
     const d = Math.hypot(u.x - p.x, u.z - p.z);
-    if (d < 7 && (!best || d < bd || !engage)) { mx += (u.x - p.x) / d * 1.5; mz += (u.z - p.z) / d * 1.5; break; }
+    if (d < L.puRange && (!best || d < bd || !engage)) { mx += (u.x - p.x) / d * 1.5; mz += (u.z - p.z) / d * 1.5; break; }
   }
 
   // dodge incoming bolts

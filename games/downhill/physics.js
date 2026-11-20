@@ -26,6 +26,8 @@ export const PHYS = {
   FLIP_LIM: 0.95,    // max over/under-rotation on a flip (~55°)
   GRAB_MIN: 0.3,     // seconds a grab must be held to count
   MIN_TRICK_AIR: 0.75, // a flat-ground ollie can't reach this, a kicker can
+  GRAB_REPEAT: 0.6,  // every earlier use of the same grab multiplies its value by this (variety pays)
+  GRAB_FLOOR: 0.15,  // a grab never drops below this share of its value
 };
 const TWO_PI = Math.PI * 2;
 export const GRAB_KEYS = ['R', 'F', 'T', 'G', 'C', 'V'];
@@ -41,7 +43,7 @@ export function newEntity(id, cls, x, z, course) {
     id, cls, x, z, y: course.groundH(x, z), h: 0, v: 0, vy: 0, air: false, airT: 0,
     spin: 0, flip: 0, state: 'ride', wipeT: 0, ghostT: 0, jumpCD: 0, boostT: 0,
     pushX: 0, pushZ: 0, finished: false, finishTime: 0, tuck: false, lean: 0, msg: null, msgId: 0,
-    stance: 0, grab: 0, gt: [0, 0, 0, 0, 0, 0], airSwitch: false, grind: -1, grindT: 0, slideAng: 0, gpts: 0, gname: 0,
+    stance: 0, grab: 0, gt: [0, 0, 0, 0, 0, 0], gu: [0, 0, 0, 0, 0, 0], airSwitch: false, grind: -1, grindT: 0, slideAng: 0, gpts: 0, gname: 0,
     // style + party
     score: 0, bestPts: 0, bestName: '', lastTrick: '', tricks: 0, butterT: 0, butterCD: 0,
     item: 0, itemCD: 0, shieldT: 0, hitT: 0, fireId: 0, dropId: 0, pickups: 0, rankFrac: 0.5, handicap: 1,
@@ -87,16 +89,19 @@ export function trickName(e, half, flips) {
   return parts.join(' ');
 }
 
+// How much a grab is still worth: 1 when fresh, shrinking each time you've already landed it this race
+export const grabValue = (e, i) => Math.max(PHYS.GRAB_FLOOR, PHYS.GRAB_REPEAT ** (e.gu ? e.gu[i] : 0));
+
 // speed-boost score (small numbers) and style points (big numbers) for the current air
 function trickScore(e, half, flips) {
   let s = Math.abs(half) + Math.abs(flips) * 3;
-  for (const t of e.gt) if (t >= PHYS.GRAB_MIN) s += 1 + Math.min(1, t);
+  e.gt.forEach((t, i) => { if (t >= PHYS.GRAB_MIN) s += (1 + Math.min(1, t)) * grabValue(e, i); });
   if (e.airSwitch && (half || flips)) s += 0.5;
   return s + e.gpts;
 }
 function stylePoints(e, half, flips, airT) {
   let pts = Math.abs(half) * 100 + Math.abs(flips) * 450, kinds = (half ? 1 : 0) + (flips ? 1 : 0);
-  for (const t of e.gt) if (t >= PHYS.GRAB_MIN) { pts += 150 + Math.min(1.5, t) * 200; kinds++; }
+  e.gt.forEach((t, i) => { if (t >= PHYS.GRAB_MIN) { pts += (150 + Math.min(1.5, t) * 200) * grabValue(e, i); kinds++; } });
   if (e.gpts > 0) { pts += e.gpts * 160; kinds++; }
   if (e.airSwitch && (half || flips)) pts += 100;
   if (pts > 0) pts += Math.min(3, airT) * 60;
@@ -122,7 +127,15 @@ function land(e, P, airT) {
   if (e.gname && name.endsWith(' to')) name = name.slice(0, -3);
   const real = airT >= PHYS.MIN_TRICK_AIR || e.gpts > 0;
   const score = real ? trickScore(e, half, flips) : 0;
-  let pts = real ? stylePoints(e, half, flips, airT) : 0;
+  // The grab is an add-on: score the trick without it, then add the grab bonus on top. Repeating a trick only
+  // halves the no-grab part, and repeating a grab only shrinks its own bonus, so a grab never scores less than none.
+  const bare = { ...e, gt: [0, 0, 0, 0, 0, 0] };
+  const baseName = trickName(bare, half, flips).replace(/ to$/, '');
+  const ptsBase = real ? stylePoints(bare, half, flips, airT) : 0;
+  const ptsGrab = real ? Math.max(0, stylePoints(e, half, flips, airT) - ptsBase) : 0;
+  let pts = 0;
+  const held = []; e.gt.forEach((t, i) => { if (t >= PHYS.GRAB_MIN) held.push(i); });
+  const stale = held.some((i) => grabValue(e, i) < 0.5);
   e.spin = 0; e.flip = 0; e.grab = 0; e.gt = [0, 0, 0, 0, 0, 0]; e.gpts = 0; e.gname = 0;
   if (q < 0) { e.stance = 0; wipeout(e, holding && Math.abs(rs) < PHYS.SPIN_LIM ? 'STILL GRABBING!' : Math.abs(rf) > PHYS.FLIP_LIM ? 'OVER-ROTATED!' : 'BAD LANDING!', true); return; }
   // ride away in the direction you landed (sketchy landings keep their angle)
@@ -131,13 +144,14 @@ function land(e, P, airT) {
   e.v *= 1 - 0.18 * (1 - q);
   const label = q > 0.85 ? 'PERFECT' : q > 0.5 ? 'CLEAN' : 'SKETCHY';
   if (score > 0) {
-    const repeat = name && name === e.lastTrick;
-    pts = Math.round(pts * (q > 0.85 ? 1.2 : q > 0.5 ? 1 : 0.5) * (repeat ? 0.5 : 1) / 10) * 10;
-    e.lastTrick = name; e.score += pts; e.tricks++;
+    const repeat = !!baseName && baseName === e.lastTrick;
+    pts = Math.round((ptsBase * (repeat ? 0.5 : 1) + ptsGrab) * (q > 0.85 ? 1.2 : q > 0.5 ? 1 : 0.5) / 10) * 10;
+    for (const i of held) e.gu[i]++;   // landed: this grab's bonus is smaller next time
+    e.lastTrick = baseName; e.score += pts; e.tricks++;
     if (pts > e.bestPts) { e.bestPts = pts; e.bestName = name; }
     const boost = Math.min(15, P.landBoost + score * P.trickBoost) * (0.25 + 0.75 * q * q);
     e.v = Math.min(PHYS.VMAX, e.v + boost); e.boostT = Math.max(e.boostT, 0.4 + 0.15 * score * q);
-    say(e, `${name || 'Air'} · ${label}${repeat ? ' (repeat)' : ''}  +${pts} pts  +${Math.round(boost * 3.6)} km/h`, q > 0.5);
+    say(e, `${name || 'Air'} · ${label}${repeat ? ' (repeat)' : stale ? ' (stale grab)' : ''}  +${pts} pts  +${Math.round(boost * 3.6)} km/h`, q > 0.5);
   } else if (airT >= 1.0 && q > 0.5) {
     const boost = P.landBoost * q;
     e.v = Math.min(PHYS.VMAX, e.v + boost); e.score += 50;

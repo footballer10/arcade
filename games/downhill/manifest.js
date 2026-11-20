@@ -6,8 +6,8 @@ export const manifest = {
   howTo: [
     "Race everyone down the mountain. First to the finish line wins (Trick Battle: most style points wins).",
     "Steer with A / D, hold W to tuck and go faster, S to brake.",
-    "Jump off kickers and spin, flip or grab in the air. Land straight to get a speed boost.",
-    "Ride through ? boxes for items (rocket, snowball, shield) and use them with E or a click.",
+    "Jump off kickers and spin, flip or grab in the air. Land straight to get a speed boost. Mix up your grabs: each one is worth less every time you repeat it.",
+    "Ride through ? boxes for items (rocket, snowball, shield, ice trap, balloon) and use them with E or a click.",
   ],
   minPlayers: 2,
   maxPlayers: 8,

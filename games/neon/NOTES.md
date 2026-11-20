@@ -98,6 +98,30 @@ The first real human playtest found three bugs bot simulation never would have s
   way to the edge, not 90%+), 16 units of advance warning where the wall opens early, and a violet chevron trail
   on the ground pointing at the opening.
 
+## Shortcuts: reachable but still bad (second pass)
+Fixing reachability above just exposed two worse problems underneath, both now fixed:
+- **Three of the four shortcuts silently killed you.** `buildShortcut()`'s curving connector section (the part
+  that actually peels away from the main track) only got walls when a track's `sc` entry set `walls: true` —
+  Inferno had it, Sunset/Helix/Harbor didn't. With no wall, any ship that drifted even slightly off-centre
+  through the curve had nowhere to recover and fell straight off into a 1.25 s respawn. Confirmed by simulation:
+  a bot forced to always take Sunset's shortcut hit `d` past the lane's edge and fell almost every time. Fixed
+  by giving every shortcut `walls: true`.
+- **Bots threw away their own racing line once on a shortcut.** `botInput()` computed a perfectly good
+  corner-aware steering target (`dT`) for wherever the ship currently is, main track or shortcut alike — then
+  unconditionally overwrote it with "just aim near the centre" the moment `sh.path !== 0`. That's what let bots
+  (and would let a less attentive human) wander into the now-walled edge instead of steering through the curve.
+  Fixed by letting the shortcut lane keep the same corner-aware `dT` the main track gets, and by letting bots
+  drift on a shortcut's own corners too (the drift decision used to require `sh.path === 0`, so a shortcut's
+  bends never got the boost a same-shaped main-track corner would).
+- **Three of the four shortcuts weren't actually faster.** Raw distance saved isn't the same as time saved: a
+  shortcut's own curves (and the respawn-prone connector above) could cost more than the distance it cut.
+  Measured with same-skill bots forced to always/never take each one, 3-lap total: Sunset and Harbor came out
+  *slower* overall, Helix and Inferno were faster. Fixed by widening Sunset's and Harbor's lanes, flattening
+  their humps, and — mainly for Harbor, whose margin was only 15 units — extending how much of the main track
+  each one bypasses. All four now save real time when taken well: Sunset +1 s, Harbor +0.3-0.5 s (deliberately
+  modest: the track's whole identity is outright speed on the main route), Helix +4.5-5 s, Inferno +8-9 s per
+  3-lap race (12-trial averages, hard-skill bots, no mixed-skill drafting).
+
 ## Considered and cut (phase 2)
 - **Weapons / items** (shells, mines): the brief is pure speed and skill, and items would dilute the drift economy.
 - **Rocket start** at the countdown: the hub owns the countdown, so a fair timing window would need a /core change.

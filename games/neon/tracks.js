@@ -40,7 +40,7 @@ export const TRACKS = {
       ['turn', 90, 45, { bank: 12 }],
       ['close', {}],
     ],
-    sc: [{ a: [11, 0.02], b: [12, 0.5], side: 1, lift: 7, hump: 14, hw: 5.5 }],
+    sc: [{ a: [11, 0.02], b: [13, 0.08], side: 1, lift: 7, hump: 7, hw: 6.5, walls: true }],
   },
   helix: {
     name: 'Helix Heights', desc: 'A loop, a corkscrew and a big jump. Hold on.',
@@ -67,7 +67,7 @@ export const TRACKS = {
       ['turn', 90, 60, { bank: 10 }],
       ['close', {}],
     ],
-    sc: [{ a: [9, 0.0], b: [16, 0.85], side: -1, lift: 5, hump: 12, hw: 4.5 }],
+    sc: [{ a: [9, 0.0], b: [16, 0.85], side: -1, lift: 5, hump: 12, hw: 4.5, walls: true }],
   },
   harbor: {
     name: 'Hyperloop Harbor', desc: 'Flat-out speed: a half-pipe tube, a monster jump and a spiral drop.',
@@ -85,7 +85,7 @@ export const TRACKS = {
       ['turn', 90, 70, { bank: 12 }],
       ['close', {}],
     ],
-    sc: [{ a: [7, 0.02], b: [8, 0.6], side: 1, lift: 6, hump: 20, hw: 5 }],
+    sc: [{ a: [7, 0.02], b: [8, 0.85], side: 1, lift: 6, hump: 10, hw: 6, walls: true }],
   },
   inferno: {
     name: 'Inferno Interchange', desc: 'Technical: chicanes for long drift chains and two hairpins.',
