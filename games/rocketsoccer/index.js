@@ -459,6 +459,9 @@ export async function start(ctx) {
   // ---------------------------------------------------------------- camera
   const cam = { pos: new THREE.Vector3(0, 40, -90), look: new THREE.Vector3(), dir: new THREE.Vector3(0, 0, 1), fov: 72 };
   if (myTeam === 1) { cam.pos.z = 90; cam.dir.z = -1; }
+  // The camera's 'up' follows the surface you drive on: on walls and the roof it rolls with the car, so a roof looks
+  // like a floor (and A/D still steer the way they look); on the ground and in the air it is plain world-up.
+  const camUp = new THREE.Vector3(0, 1, 0), WORLD_UP = new THREE.Vector3(0, 1, 0), _wantUp = new THREE.Vector3(), _cu = new THREE.Vector3(), _hd = new THREE.Vector3(), _fw = new THREE.Vector3(), _to = new THREE.Vector3();
   let introT = 0;
   function keepInside(p) {
     const g = [0, 0, 0], d = sdArena(A, p.x, p.y, p.z, g);
@@ -466,6 +469,7 @@ export async function start(ctx) {
     if (p.y < 1) p.y = 1;
   }
   function updateCamera(dt, now) {
+    camera.up.set(0, 1, 0);
     const k = 1 - Math.exp(-dt * 10);
     let pos = _v, look = _u, fov = 72;
     if (replay) {
@@ -484,26 +488,34 @@ export async function start(ctx) {
       cam.pos.copy(pos); cam.look.copy(look);
     } else if (myIdx >= 0 && W.cars[myIdx].demo <= 0) {
       const p = dispPos[myIdx], c = W.cars[myIdx];
-      let hx, hz;
-      if (ballCam && view.ball.root.visible) { hx = ballPos.x - p.x; hz = ballPos.z - p.z; }
-      else {
-        _q.copy(dispQ[myIdx]); const f = new THREE.Vector3(0, 0, 1).applyQuaternion(_q);
-        hx = f.x; hz = f.z;
-        if (Math.hypot(hx, hz) < 0.35) { hx = c.vx; hz = c.vz; }
-        if (Math.hypot(hx, hz) < 0.5) { hx = cam.dir.x; hz = cam.dir.z; }
-      }
-      const hl = Math.hypot(hx, hz) || 1; hx /= hl; hz /= hl;
-      const dk = 1 - Math.exp(-dt * (ballCam ? 7 : 5));
-      cam.dir.x += (hx - cam.dir.x) * dk; cam.dir.z += (hz - cam.dir.z) * dk; cam.dir.y = 0; cam.dir.normalize();
+      // 1. which way is "up" for the camera
+      _q.copy(dispQ[myIdx]); const carUp = _cu.set(0, 1, 0).applyQuaternion(_q);
+      const wall = c.gnd ? 1 - Math.max(0, Math.min(1, (carUp.y - 0.2) / 0.6)) : 0;   // 0 on the floor / in the air, 1 on a wall or the roof
+      _wantUp.copy(WORLD_UP).lerp(carUp, wall);
+      if (_wantUp.lengthSq() < 1e-4) _wantUp.copy(carUp);
+      _wantUp.normalize();
+      _q.setFromUnitVectors(camUp, _wantUp); _q2.identity().slerp(_q, 1 - Math.exp(-dt * (c.gnd ? 5 : 3)));
+      camUp.applyQuaternion(_q2).normalize();
+      // 2. which way the camera looks along that surface
+      _fw.set(0, 0, 1).applyQuaternion(dispQ[myIdx]);
+      if (ballCam && view.ball.root.visible) _hd.subVectors(ballPos, p); else _hd.copy(_fw);
+      _hd.addScaledVector(camUp, -_hd.dot(camUp));
+      if (_hd.length() < 0.35 && !(ballCam && view.ball.root.visible)) { _hd.set(c.vx, c.vy, c.vz); _hd.addScaledVector(camUp, -_hd.dot(camUp)); }
+      if (_hd.length() < 0.5) { _hd.copy(cam.dir); _hd.addScaledVector(camUp, -_hd.dot(camUp)); }
+      _hd.normalize();
+      cam.dir.addScaledVector(camUp, -cam.dir.dot(camUp)).normalize();
+      const turn = Math.atan2(camUp.dot(_fw.crossVectors(cam.dir, _hd)), cam.dir.dot(_hd));   // shortest way round, also through 180 degrees
+      cam.dir.applyAxisAngle(camUp, turn * (1 - Math.exp(-dt * (ballCam ? 7 : 5)))).normalize();
       const sp = speedOf(c);
       const dist = 10 + sp * 0.06, hgt = 4.2;
-      pos.set(p.x - cam.dir.x * dist, p.y + hgt, p.z - cam.dir.z * dist);
+      pos.copy(p).addScaledVector(cam.dir, -dist).addScaledVector(camUp, hgt);
       if (ballCam && view.ball.root.visible) {
-        const to = new THREE.Vector3().subVectors(ballPos, p); const tl = to.length() || 1;
-        const lift = Math.max(0, Math.min(0.6, to.y / tl));
-        pos.y += lift * 3;
-        look.copy(p).addScaledVector(to, Math.min(1, 6 / tl)); look.y += 0.5;
-      } else look.set(p.x + cam.dir.x * 6, p.y + 0.8, p.z + cam.dir.z * 6);
+        _to.subVectors(ballPos, p); const tl = _to.length() || 1;
+        const lift = Math.max(0, Math.min(0.6, _to.dot(camUp) / tl));
+        pos.addScaledVector(camUp, lift * 3);
+        look.copy(p).addScaledVector(_to, Math.min(1, 6 / tl)).addScaledVector(camUp, 0.5);
+      } else look.copy(p).addScaledVector(cam.dir, 6).addScaledVector(camUp, 0.8);
+      camera.up.copy(camUp);
       keepInside(pos);
       const glide = goT >= 0 && goT < 1.6 ? Math.pow(Math.min(1, 0.08 + goT / 1.6), 2) : 1;   // swoop down from the intro shot
       if (goT >= 0) goT += dt;
