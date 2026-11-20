@@ -127,7 +127,13 @@ function land(e, P, airT) {
   if (e.gname && name.endsWith(' to')) name = name.slice(0, -3);
   const real = airT >= PHYS.MIN_TRICK_AIR || e.gpts > 0;
   const score = real ? trickScore(e, half, flips) : 0;
-  let pts = real ? stylePoints(e, half, flips, airT) : 0;
+  // The grab is an add-on: score the trick without it, then add the grab bonus on top. Repeating a trick only
+  // halves the no-grab part, and repeating a grab only shrinks its own bonus, so a grab never scores less than none.
+  const bare = { ...e, gt: [0, 0, 0, 0, 0, 0] };
+  const baseName = trickName(bare, half, flips).replace(/ to$/, '');
+  const ptsBase = real ? stylePoints(bare, half, flips, airT) : 0;
+  const ptsGrab = real ? Math.max(0, stylePoints(e, half, flips, airT) - ptsBase) : 0;
+  let pts = 0;
   const held = []; e.gt.forEach((t, i) => { if (t >= PHYS.GRAB_MIN) held.push(i); });
   const stale = held.some((i) => grabValue(e, i) < 0.5);
   e.spin = 0; e.flip = 0; e.grab = 0; e.gt = [0, 0, 0, 0, 0, 0]; e.gpts = 0; e.gname = 0;
@@ -138,10 +144,10 @@ function land(e, P, airT) {
   e.v *= 1 - 0.18 * (1 - q);
   const label = q > 0.85 ? 'PERFECT' : q > 0.5 ? 'CLEAN' : 'SKETCHY';
   if (score > 0) {
-    const repeat = name && name === e.lastTrick;
-    pts = Math.round(pts * (q > 0.85 ? 1.2 : q > 0.5 ? 1 : 0.5) * (repeat ? 0.5 : 1) / 10) * 10;
-    for (const i of held) e.gu[i]++;   // landed: this grab is worth less next time
-    e.lastTrick = name; e.score += pts; e.tricks++;
+    const repeat = !!baseName && baseName === e.lastTrick;
+    pts = Math.round((ptsBase * (repeat ? 0.5 : 1) + ptsGrab) * (q > 0.85 ? 1.2 : q > 0.5 ? 1 : 0.5) / 10) * 10;
+    for (const i of held) e.gu[i]++;   // landed: this grab's bonus is smaller next time
+    e.lastTrick = baseName; e.score += pts; e.tricks++;
     if (pts > e.bestPts) { e.bestPts = pts; e.bestName = name; }
     const boost = Math.min(15, P.landBoost + score * P.trickBoost) * (0.25 + 0.75 * q * q);
     e.v = Math.min(PHYS.VMAX, e.v + boost); e.boostT = Math.max(e.boostT, 0.4 + 0.15 * score * q);
