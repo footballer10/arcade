@@ -15,6 +15,8 @@ tunable('downhill', [
     SPIN_LIM:      { value: 1.25, label: 'Landing forgiveness: spins (rad)', min: 0.4, max: 1.6 },
     FLIP_LIM:      { value: 0.95, label: 'Landing forgiveness: flips (rad)', min: 0.3, max: 1.6 },
     GRAB_MIN:      { value: 0.3,  label: 'Min grab hold (s)', min: 0.05, max: 1 },
+    GRAB_REPEAT:   { value: 0.6,  label: 'Repeat grab value (x per earlier use)', min: 0.2, max: 1 },
+    GRAB_FLOOR:    { value: 0.15, label: 'Lowest repeat grab value', min: 0, max: 0.6 },
     MIN_TRICK_AIR: { value: 0.75, label: 'Min airtime for a trick (s)', min: 0.2, max: 2 },
   } },
   { target: CLASSES.ski, group: 'Skier', items: {

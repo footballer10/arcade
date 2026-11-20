@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import './tuning.js';
 import { makeCourse, mulberry32, MAPS, MAP_IDS } from './course.js';
-import { CLASSES, newEntity, stepEntity, bump, botInput, newBrain, sanitizeInput, packInput, trickName, landingPreview, GRAB_KEYS, ITEMS, snowballHit, iceHit } from './physics.js';
+import { CLASSES, newEntity, stepEntity, bump, botInput, newBrain, sanitizeInput, packInput, trickName, landingPreview, grabValue, GRAB_KEYS, ITEMS, snowballHit, iceHit } from './physics.js';
 import { createRenderer, buildCourse, disposeGroup, makeRider, poseRider, COLORS, Spray, makeMinimap, Trails, AirGuide, buildItemBoxes, spinItemBoxes, Snowballs, IcePatches } from './render.js';
 import { sfx, setRide, shutdown as audioShutdown } from './audio.js';
 import { AdaptiveDelay } from '../../core/interp.js';
@@ -124,8 +124,8 @@ export async function start(ctx) {
   }
   const FULL_KEYS = ['x', 'y', 'z', 'h', 'v', 'vy', 'airT', 'spin', 'flip', 'wipeT', 'ghostT', 'jumpCD', 'boostT', 'pushX', 'pushZ', 'finishTime', 'lean', 'stance', 'grab', 'grind', 'grindT', 'slideAng', 'gpts', 'gname',
     'score', 'bestPts', 'bestName', 'lastTrick', 'tricks', 'butterT', 'butterCD', 'item', 'itemCD', 'shieldT', 'hitT', 'fireId', 'pickups', 'rankFrac'];
-  function packFull(e) { return [...FULL_KEYS.map((k) => e[k]), (e.air ? 1 : 0) | (e.state === 'wipe' ? 2 : 0) | (e.finished ? 4 : 0) | (e.tuck ? 8 : 0) | (e.airSwitch ? 16 : 0), e.gt]; }
-  function applyFull(e, a) { FULL_KEYS.forEach((k, i) => { e[k] = a[i]; }); const f = a[FULL_KEYS.length]; e.air = !!(f & 1); e.state = (f & 2) ? 'wipe' : 'ride'; e.finished = !!(f & 4); e.tuck = !!(f & 8); e.airSwitch = !!(f & 16); e.gt = Array.isArray(a[FULL_KEYS.length + 1]) ? a[FULL_KEYS.length + 1].slice(0, 6) : [0, 0, 0, 0, 0, 0]; }
+  function packFull(e) { return [...FULL_KEYS.map((k) => e[k]), (e.air ? 1 : 0) | (e.state === 'wipe' ? 2 : 0) | (e.finished ? 4 : 0) | (e.tuck ? 8 : 0) | (e.airSwitch ? 16 : 0), e.gt, e.gu]; }
+  function applyFull(e, a) { FULL_KEYS.forEach((k, i) => { e[k] = a[i]; }); const f = a[FULL_KEYS.length]; e.air = !!(f & 1); e.state = (f & 2) ? 'wipe' : 'ride'; e.finished = !!(f & 4); e.tuck = !!(f & 8); e.airSwitch = !!(f & 16); e.gt = Array.isArray(a[FULL_KEYS.length + 1]) ? a[FULL_KEYS.length + 1].slice(0, 6) : [0, 0, 0, 0, 0, 0]; e.gu = Array.isArray(a[FULL_KEYS.length + 2]) ? a[FULL_KEYS.length + 2].slice(0, 6) : [0, 0, 0, 0, 0, 0]; }
   // Client-side prediction: rewind to the host's state for my rider, replay unacknowledged inputs.
   function reconcile(me, full, ack) {
     const r = S.race, e = me.e;
@@ -457,7 +457,7 @@ export async function start(ctx) {
     } else live.style.opacity = 0;
     if (S.help && me) {
       const e = me.e;
-      for (let i = 0; i < 6; i++) helpEls[i]?.classList.toggle('on', e.grab === i + 1);
+      for (let i = 0; i < 6; i++) { helpEls[i]?.classList.toggle('on', e.grab === i + 1); if (helpEls[i]) helpEls[i].style.opacity = (0.4 + 0.6 * grabValue(e, i)).toFixed(2); }
       q('dh-help').classList.toggle('air', e.air || e.grind >= 0);
     }
     if (rt > 8) q('dh-hint').textContent = '';
