@@ -538,8 +538,32 @@ export function distToCup(hole, x, z) {
 }
 
 // Bot shot planner: simulate candidate shots against static geometry, pick the best
-export function planShot(hole, ball, t0, skill = 1, budget = 1) {
+// Simulates one shot (same physics as a real one) and scores where it ends up. Lower is better.
+function scoreShot(hole, ball, t0, a, p, ex) {
   const sim = { ...ball };
+  sim.sunk = false; sim.out = false; sim.fx = null; sim.frozen = 0;
+  const s = shotSpeed(hole, p), dt = 1 / 90;
+  sim.vx = Math.cos(a) * s; sim.vz = Math.sin(a) * s;
+  let tt = 0, ev = null, near = Infinity, blocked = false;
+  for (; tt < 7; tt += dt) {
+    ev = stepBall(hole, sim, t0 + tt, dt);
+    if (ex) {
+      for (const m of ex.avoid) if (Math.hypot(sim.x - m[0], sim.z - m[1]) < 0.55) near = 0;
+      for (const o of ex.others) if (Math.hypot(sim.x - o[0], sim.z - o[1]) < 0.34) blocked = true;
+    }
+    if (ev || isResting(sim)) break;
+  }
+  let cost;
+  if (ev === 'sunk') cost = -100 + tt;
+  else if (ev) cost = 500;
+  else cost = distToCup(hole, sim.x, sim.z) + (isResting(sim) ? 0 : 2);
+  if (ex) { if (near === 0) cost += 4; if (blocked && ev !== 'sunk') cost += 1.5; }
+  return cost;
+}
+
+// Picks an angle and power for a bot shot. ex (Extreme bots only) = { avoid: [[x,z]] mines, others: [[x,z]] balls }: adds a
+// second, fine search around the best coarse shots and steers around mines and other balls; noise is tiny.
+export function planShot(hole, ball, t0, skill = 1, budget = 1, ex = null) {
   const n = hole.tiles.length; const cur = tileAt(hole, ball.x, ball.z); const ci = cur ? cur.i : 0;
   const targets = [[hole.cup.x, hole.cup.z]];
   for (let i = ci; i < Math.min(n - 1, ci + 3); i++) targets.push(hole.exits[i]);
@@ -553,27 +577,27 @@ export function planShot(hole, ball, t0, skill = 1, budget = 1) {
   for (let i = 0; i < (budget >= 1 ? 8 : 3); i++) angles.push(Math.random() * Math.PI * 2);
   const powers = budget >= 1 ? [0.12, 0.2, 0.3, 0.42, 0.56, 0.72, 0.88, 1.0] : [0.15, 0.3, 0.5, 0.75, 1.0];
   let best = null, bestCost = Infinity;
-  const dt = 1 / 90;
+  const top = [];
   for (const a of angles) for (const p of powers) {
-    Object.assign(sim, ball); sim.sunk = false; sim.out = false; sim.fx = null; sim.frozen = 0;
-    const s = shotSpeed(hole, p);
-    sim.vx = Math.cos(a) * s; sim.vz = Math.sin(a) * s;
-    let cost = 0, tt = 0, ev = null;
-    for (; tt < 7; tt += dt) {
-      ev = stepBall(hole, sim, t0 + tt, dt);
-      if (ev || isResting(sim)) break;
-    }
-    if (ev === 'sunk') cost = -100 + tt;
-    else if (ev) cost = 500;
-    else cost = distToCup(hole, sim.x, sim.z) + (isResting(sim) ? 0 : 2);
-    cost += Math.random() * 0.3;
+    let cost = scoreShot(hole, ball, t0, a, p, ex);
+    if (!ex) cost += Math.random() * 0.3;
     if (cost < bestCost) { bestCost = cost; best = { a, p }; }
+    if (ex) { top.push({ a, p, cost }); }
+  }
+  if (ex) {
+    top.sort((x, y) => x.cost - y.cost);
+    const seeds = [];
+    for (const c of top) { if (seeds.length >= 3) break; if (!seeds.some((q) => Math.abs(q.a - c.a) < 0.04 && Math.abs(q.p - c.p) < 0.1)) seeds.push(c); }
+    for (const sd of seeds) for (const da of [-0.03, -0.02, -0.01, -0.005, 0, 0.005, 0.01, 0.02, 0.03]) for (const fp of [0.93, 0.96, 0.98, 1, 1.02, 1.04, 1.07]) {
+      const p = Math.min(1, sd.p * fp), a = sd.a + da;
+      const cost = scoreShot(hole, ball, t0, a, p, ex);
+      if (cost < bestCost) { bestCost = cost; best = { a, p }; }
+    }
+    return { a: best.a + (Math.random() * 2 - 1) * 0.006, p: Math.min(1, best.p * (1 + (Math.random() * 2 - 1) * 0.008)) };
   }
   const noise = (1 - skill) * 0.15 + 0.03;
   return { a: best.a + (Math.random() * 2 - 1) * noise, p: Math.min(1, best.p * (1 + (Math.random() * 2 - 1) * noise)) };
 }
-
-// Play the hole with a solo bot (no timer, no opponents). Returns strokes or null if it failed.
 export function botRun(hole, skill = 0.8) {
   const tee = hole.tees[0];
   const b = makeBall('par', tee.x, tee.z, tee.y, hole);
