@@ -6,22 +6,28 @@ import { C, CLASSES, clamp, tierOf } from './physics.js';
 
 export function newBrain(level, rnd = Math.random) {
   const sk = level.skill ?? 0.7;
-  // Difficulty is deliberately exaggerated well beyond the raw core skill number (0.45/0.7/0.92): with the same
-  // flawless, instant-reaction line-following every tier gets from the formulas below, "easy" and "hard" bots
-  // used to finish within a few seconds of each other -- not actually easy. Top speed, cornering caution, drift
-  // willingness and steering sharpness all now spread much further apart by tier.
-  const T = sk > 0.85 ? 2 : sk > 0.55 ? 1 : 0;   // 0 easy, 1 normal, 2 hard
+  // Difficulty is deliberately exaggerated well beyond the raw core skill number: with the same flawless,
+  // instant-reaction line-following every tier gets from the formulas below, "easy" and "hard" bots used to
+  // finish within a few seconds of each other -- not actually easy. Top speed, cornering caution, drift
+  // willingness and steering sharpness all spread much further apart by tier. Extreme (level.tier === 'extreme')
+  // is identified explicitly rather than by its raw skill number (which the core level object sets to 1, the
+  // same bucket Hard's 0.92 would otherwise round into) and pushes every one of these further still, plus two
+  // tactics Hard doesn't bother with: holding a marginal drift a bit longer to chain into the next bend, and
+  // tucking into a rival's draft on a straight instead of just chasing position. Still the same physics and
+  // inputs as a player -- no extra speed, no seeing through walls, just better execution.
+  const T = level.tier === 'extreme' ? 3 : sk > 0.85 ? 2 : sk > 0.55 ? 1 : 0;   // 0 easy, 1 normal, 2 hard, 3 extreme
   return {
-    level, rnd, sk,
+    level, rnd, sk, T,
     think: 0, noise: 0, noiseT: 0,
-    tierGoal: [1, 2, 3][T],
-    speedCap: [0.72, 0.88, 0.99][T],                 // fraction of top speed they allow themselves
-    steerGain: [0.55, 0.82, 1.05][T],                // how sharply they correct toward the ideal line
-    cornerCaution: [0.5, 0.22, 0][T],                // extra margin before they lift/brake into a corner
-    boostMin: [72, 42, 20][T],                       // meter % before they spend it
-    driftK: [0.021, 0.015, 0.0105][T],               // curvature that makes them bother drifting
-    scChance: [0.04, 0.32, 0.8][T],                  // chance to take a shortcut each lap
-    bailChance: [0.012, 0.004, 0.0008][T],           // per-frame chance to bail out of a held drift early
+    tierGoal: [1, 2, 3, 3][T],
+    speedCap: [0.72, 0.88, 0.99, 1][T],               // fraction of top speed they allow themselves
+    steerGain: [0.55, 0.82, 1.05, 1.32][T],           // how sharply they correct toward the ideal line
+    cornerCaution: [0.5, 0.22, 0, -0.3][T],           // extra margin before they lift/brake into a corner (negative: later, harder braking)
+    boostMin: [72, 42, 20, 3][T],                     // meter % before they spend it
+    driftK: [0.021, 0.015, 0.0105, 0.0072][T],        // curvature that makes them bother drifting
+    scChance: [0.04, 0.32, 0.8, 1][T],                // chance to take a shortcut each lap
+    bailChance: [0.012, 0.004, 0.0008, 0][T],         // per-frame chance to bail out of a held drift early
+    patience: [1.2, 1.4, 1.6, 2.8][T],                // seconds to hold a drift past the exit, hoping to chain
     scPlan: new Map(), lapSeen: -1,
     holdDrift: false, wobble: 0, lineBias: (rnd() * 2 - 1) * 2.5,
   };
@@ -67,13 +73,21 @@ export function botInput(sh, br, env, out = {}) {
   else dT = 0;
   dT += br.lineBias + br.noise;
   // traffic: pick a side to pass a ship just ahead in our lane
+  let passing = false;
   if (env.others) for (const o of env.others) {
     if (o === sh || o.path !== sh.path || o.ghost || o.out || o.resp > 0) continue;
     const ahead = o.prog - sh.prog;
     if (ahead > 0 && ahead < 10 + v * 0.35 && Math.abs(o.d - dT) < 3) {
       const side = o.d > 0 ? -1 : 1;
-      dT = o.d + side * 3.6; break;
+      dT = o.d + side * 3.6; passing = true; break;
     }
+  }
+  // extreme: tuck into a rival's draft on a straight rather than just holding the racing line -- free top speed
+  // and meter (core/physics.js's own slipstream), so it's not cheating, just noticing the opportunity
+  if (br.T >= 3 && !passing && !kC && env.others) for (const o of env.others) {
+    if (o === sh || o.path !== sh.path || o.ghost || o.out || o.resp > 0) continue;
+    const ahead = o.prog - sh.prog;
+    if (ahead > 4 && ahead < 26 && Math.abs(o.d - sh.d) < 6) { dT = o.d; break; }
   }
   // shortcut plan (decided once per lap)
   const lap = Math.floor(sh.prog / tr.main.L);
@@ -129,7 +143,7 @@ export function botInput(sh, br, env, out = {}) {
     const tier = tierOf(sh.dch);
     br.dT = (br.dT || 0) + 1 / 60;
     // hold through the corner we're in; let go as it straightens out (or flips the other way: chain!)
-    const ending = (kHere * dir < 0.004 && kNear * dir < (kd - ka) * 0.6) || (kNear * dir < (kd - ka) * 0.5 && kFar * dir < (kd - ka) * 0.75 && (tier >= 1 || br.dT > 1.6));
+    const ending = (kHere * dir < 0.004 && kNear * dir < (kd - ka) * 0.6) || (kNear * dir < (kd - ka) * 0.5 && kFar * dir < (kd - ka) * 0.75 && (tier >= 1 || br.dT > br.patience));
     const dPred = sh.d + vR * 0.2;
     const wallNear = br.dT > 0.25 && (-dPred * dir > (dir > 0 ? hwL : hwR) - 1.4 || dPred * dir > (dir > 0 ? hwR : hwL) - 1.0);
     const fullTier = tier >= br.tierGoal && Math.abs(kFar) < br.driftK * 0.7;

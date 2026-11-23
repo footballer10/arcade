@@ -13,7 +13,9 @@ export { manifest } from './manifest.js';
 
 const SEND_HZ = 20;
 const FIXED = 1 / 60;
-const DIFFS = { easy: { name: 'Easy bots', h: 1.22, trick: 0.6 }, normal: { name: 'Normal bots', h: 1.07, trick: 1 }, hard: { name: 'Hard bots', h: 0.97, trick: 1.25 } };
+const DIFFS = { easy: { name: 'Easy bots', h: 1.22, trick: 0.6 }, normal: { name: 'Normal bots', h: 1.07, trick: 1 }, hard: { name: 'Hard bots', h: 0.97, trick: 1.25 },
+  // Extreme gets no drag handicap and no rubber-banding: it wins by driving better, with the same physics as a player
+  extreme: { name: 'Extreme bots', h: 1, trick: 4, ext: true } };
 const fmtTime = (t) => { if (t == null) return 'DNF'; const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s.toFixed(1).padStart(4, '0')}`; };
 const ordinal = (n) => n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th');
 
@@ -106,6 +108,7 @@ export async function start(ctx) {
     const r = S.race?.opts || opts;
     ent.brain = newBrain(mulberry32(Math.floor(rnd() * 1e9)), ent.info.cls);
     ent.brain.trickProb = Math.min(0.95, ent.brain.trickProb * DIFFS[r.diff].trick); ent.e.handicap = DIFFS[r.diff].h;
+    if (DIFFS[r.diff].ext) { ent.brain.ext = true; ent.brain.skill = 1; }
   }
   function removeEnt(id) {
     const r = S.race; if (!r) return;
@@ -286,7 +289,8 @@ export async function start(ctx) {
     for (const ent of list) {
       const e = ent.e;
       if (ent.bot) {
-        e.handicap = DIFFS[r.opts.diff].h + Math.max(-1, Math.min(1, (e.z - refZ) / 160)) * 0.08;
+        e.handicap = DIFFS[r.opts.diff].h + (ent.brain.ext ? 0 : Math.max(-1, Math.min(1, (e.z - refZ) / 160)) * 0.08);
+        ent.brain.threatBehind = ent.brain.ext && list.some((o) => o !== ent && e.z - o.e.z > 3 && e.z - o.e.z < 35 && Math.abs(o.e.x - e.x) < 5);
         ent.brain.targetAhead = list.some((o) => o !== ent && o.e.z - e.z > 4 && o.e.z - e.z < 45 && Math.abs(o.e.x - e.x - Math.sin(e.h) * (o.e.z - e.z)) < 3.5);
       }
       if (e.fireId !== ent.lastFire) {
@@ -581,7 +585,7 @@ export async function start(ctx) {
   ctx.tick(() => { if (document.hidden) tick(false); });   // background tabs: keep simulating + sending
 
   // ---------------------------------------------------------------- party hooks
-  const opts = { gmode: ctx.options.gmode, items: ctx.options.items !== 'off', diff: ctx.bots.level.key };
+  const opts = { gmode: ctx.options.gmode, items: ctx.options.items !== 'off', diff: ctx.bots.level.tier || ctx.bots.level.key };
   const map = MAP_IDS.includes(ctx.options.map) ? ctx.options.map : ctx.rng(0xd0).pick(MAP_IDS);
   const list = ctx.players.map((p) => ({ id: p.id, name: p.name, cls: ctx.picks[p.id]?.cls === 'board' ? 'board' : 'ski', bot: p.isBot, color: p.colorHex, hat: p.hat }));
   startRace(ctx.seed, list, map, opts);
