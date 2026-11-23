@@ -2,6 +2,13 @@
 // players see: pick a safe, cool, uncrowded platform they can reach, run and jump to it, air-dash to save a
 // short jump, and shove anyone standing close to an edge. ctx.bots.level tunes reaction time, aim, planning
 // horizon (how far ahead they read the lava) and how often they fumble a jump.
+//
+// EXTREME (level.tier === 'extreme' / level.rank >= 3; key still reports 'hard' for older checks) plays like a
+// very sharp human on the same body and the same limits — no extra speed, no seeing through anything, same
+// cooldowns as a player. It gets confident (not inflated) jump judgment, a touch of routing sense (prefers a
+// landing that leads somewhere, not a dead end), an offensive dash to close on a vulnerable target just outside
+// shove range, and smarter lava-bomb spirits (full flight-time lead, and aiming for whoever a hit would actually
+// finish, not a random target).
 import { C, ST_CRUMBLE, ST_GONE, lavaAt, jumpReach } from './world.js';
 
 const TAU = Math.PI * 2;
@@ -22,7 +29,21 @@ function occOf(w, id, self) { let n = 0; for (const o of w.players) if (o !== se
 
 // how much of the true physics reach a bot of this skill THINKS it has when picking a target: >1 means it
 // overestimates (commits to jumps that are really a bit too far and falls short), <1 means it plays safe.
-const reachMargin = (L) => 1.3 - 0.53 * L.skill;
+const reachMargin = (L) => (L.rank >= 3 ? 0.9 : 1.3 - 0.53 * L.skill);
+
+// EXTREME: a cheap "does this lead anywhere?" count — how many other safe platforms are reachable on from s —
+// so it avoids stranding itself on a dead end, the way a player who thinks a step ahead would. Capped and only
+// run for extreme bots (it's an O(n) scan per candidate, so only worth it for the tier that needs the edge).
+function branchFactor(w, s) {
+  let n = 0;
+  for (let j = 0; j < w.S.length; j++) {
+    const q = w.S[j]; if (q === s || !q.solid) continue;
+    const dh = q.top - s.top; if (Math.abs(dh) > 1.6) continue;
+    const gap = Math.hypot(q.x - s.x, q.z - s.z) - q.r - s.r * 0.8;
+    if (gap <= jumpReach(dh) * 0.85) { n++; if (n >= 4) break; }
+  }
+  return n;
+}
 
 function scorePlat(w, me, s, i, b, cur) {
   const L = b.lvl, look = 0.8 + L.skill * 6;
@@ -42,6 +63,7 @@ function scorePlat(w, me, s, i, b, cur) {
   const occ = occOf(w, s.id, me);
   sc -= occ * (s.kind === 'pumice' ? 4 : 1.6);
   if (!cur) sc -= Math.hypot(s.x - me.x, s.z - me.z) * 0.12;
+  if (L.rank >= 3 && !cur) sc += branchFactor(w, s) * 0.15;
   return sc + (b.brain.rnd() - 0.5) * (1 - L.skill) * 4.5;
 }
 
@@ -63,7 +85,7 @@ export function botThink(w, me, b, dt) {
       const s = S[i];
       if (s === cur || !standable(w, s, i)) continue;
       const dh = s.top - fromY;
-      if (dh > 1.5) continue;
+      if (dh > (L.rank >= 3 ? 2.0 : 1.5)) continue;
       const gap = Math.max(0, Math.hypot(s.x - me.x, s.z - me.z) - s.r - (cur ? cur.r * 0.8 : 0));
       const reach = jumpReach(dh) * reachMargin(L);
       if (gap > reach) continue;
@@ -82,7 +104,7 @@ export function botThink(w, me, b, dt) {
     if (best >= 0 && bs > curScore) { if (b.target !== best) { b.target = best; b.aimOff = (b.brain.rnd() * 2 - 1) * L.aimError * 0.8; b.fumble = b.brain.mistake(); b.jumpK = 0.42 + b.brain.rnd() * 0.25; } }
     else if (cur) b.target = cur.id;
     // ---- shove someone who is close and near an edge (or just close, if hard)
-    b.prey = null;
+    b.prey = null; b.dashAttack = false;
     if (me.shoveCd <= 0 && me.stun <= 0) {
       for (const o of w.players) {
         if (o === me || !o.alive) continue;
@@ -90,11 +112,34 @@ export function botThink(w, me, b, dt) {
         if (d > C.SHOVE_R + 0.6 || Math.abs(o.y - me.y) > 1.2) continue;
         // someone squaring up to me: shove first (quick bots win these exchanges)
         const facing = (Math.sin(o.face) * (me.x - o.x) + Math.cos(o.face) * (me.z - o.z)) / (d || 1);
-        if (facing > 0.5 && d < C.SHOVE_R + 0.3 && b.brain.rnd() < L.skill * 0.55) { b.prey = o; break; }
+        const counterP = L.rank >= 3 ? 0.85 : L.skill * 0.55;
+        if (facing > 0.5 && d < C.SHOVE_R + 0.3 && b.brain.rnd() < counterP) { b.prey = o; break; }
         const oc = o.gr >= 0 ? S[o.gr] : null;
         const edge = !oc || Math.hypot(o.x - oc.x, o.z - oc.z) > oc.r - 0.6;
-        if (b.brain.rnd() < (edge ? L.skill * 0.6 : L.skill * 0.12)) { b.prey = o; break; }
+        const edgeP = L.rank >= 3 ? 0.9 : L.skill * 0.6, awayP = L.rank >= 3 ? 0.3 : L.skill * 0.12;
+        if (b.brain.rnd() < (edge ? edgeP : awayP)) { b.prey = o; break; }
       }
+    }
+    // EXTREME: nobody in plain shove range, but someone vulnerable (near their own edge, or already airborne)
+    // sits just inside dash range — close the gap with an attacking dash instead of just watching them go by.
+    // Same dash everyone has (speed, cooldown, one-time use in the air); it just chooses to use it offensively.
+    if (L.rank >= 3 && !b.prey && cur && me.dashCd <= 0 && me.stun <= 0) {
+      let best = null, bd = 1e9;
+      for (const o of w.players) {
+        if (o === me || !o.alive) continue;
+        const d = Math.hypot(o.x - me.x, o.z - me.z);
+        if (d <= C.SHOVE_R + 0.6 || d > C.DASH_V * C.DASH_T + 1.0 || Math.abs(o.y - me.y) > 1.1) continue;
+        const oc = o.gr >= 0 ? S[o.gr] : null;
+        if (!oc) continue;                                             // only lunge at someone standing on solid ground
+        const vulnerable = Math.hypot(o.x - oc.x, o.z - oc.z) > oc.r - 0.5;
+        if (!vulnerable) continue;
+        // only commit if the dash itself actually lands us on THEIR platform (not short, into the lava)
+        const a = Math.atan2(o.x - me.x, o.z - me.z);
+        const ax = me.x + Math.sin(a) * C.DASH_V * C.DASH_T, az = me.z + Math.cos(a) * C.DASH_V * C.DASH_T;
+        if (Math.hypot(ax - oc.x, az - oc.z) > oc.r - 0.2) continue;
+        if (d < bd) { bd = d; best = o; }
+      }
+      if (best && b.brain.rnd() < 0.85) { b.prey = best; b.dashAttack = true; }
     }
   }
   // ---- steer
@@ -103,7 +148,11 @@ export function botThink(w, me, b, dt) {
   if (b.prey && b.prey.alive) { gx = b.prey.x; gz = b.prey.z; }
   else if (T) { gx = T.x; gz = T.z; }
   let dx = gx - me.x, dz = gz - me.z, d = Math.hypot(dx, dz);
-  if (T && T === cur && !b.prey) {
+  if (b.dashAttack && b.prey && b.prey.alive && me.gr >= 0) {
+    // commit to the lunge: face the target and dash the instant it's off cooldown
+    const a = Math.atan2(dx, dz); inp.mx = Math.sin(a); inp.mz = Math.cos(a);
+    if (me.dashCd <= 0 && me.stun <= 0) { inp.d++; b.dashAttack = false; }
+  } else if (T && T === cur && !b.prey) {
     // stay near the middle of the platform we're on
     const k = d > 0.5 ? 1 : d / 0.5;
     const a = Math.atan2(dx, dz); inp.mx = Math.sin(a) * k * 0.8; inp.mz = Math.cos(a) * k * 0.8;
@@ -176,7 +225,25 @@ export function ghostThink(w, me, b, dt) {
   b.ghostWait = 2 + (1 - L.skill) * 4 + b.brain.rnd() * 3;
   const alive = w.players.filter((o) => o.alive);
   if (!alive.length) return null;
-  const o = alive[Math.floor(b.brain.rnd() * alive.length)];
-  const lead = C.BOMB_T * L.skill * 0.8, err = L.aimError * 4;
+  let o;
+  if (L.rank >= 3) {
+    // EXTREME: go for whoever a hit would actually finish — standing near their own platform's rim, or
+    // already airborne over the drop, or on ground that's heating up and about to give way under them.
+    // Everything here is on-screen state any player could read, not hidden intent.
+    let best = null, bestSc = -1e9;
+    for (const q of alive) {
+      const qc = q.gr >= 0 ? w.S[q.gr] : null;
+      const rim = qc ? Math.min(1, Math.hypot(q.x - qc.x, q.z - qc.z) / Math.max(0.1, qc.r)) : 1;
+      const heat = qc && qc.kind === 'basalt' ? (w.st[qc.id] || 0) / 100 : 0;
+      const sc = rim * 1.4 + heat * 0.7 + b.brain.rnd() * 0.3;
+      if (sc > bestSc) { bestSc = sc; best = q; }
+    }
+    o = best;
+  } else {
+    o = alive[Math.floor(b.brain.rnd() * alive.length)];
+  }
+  // EXTREME leads by the bomb's full flight time (the correct constant-velocity pursuit lead); weaker spirits
+  // lead by less of it and jitter their aim more.
+  const lead = L.rank >= 3 ? C.BOMB_T : C.BOMB_T * L.skill * 0.8, err = L.aimError * 4;
   return { x: o.x + o.vx * lead + (b.brain.rnd() * 2 - 1) * err, z: o.z + o.vz * lead + (b.brain.rnd() * 2 - 1) * err };
 }

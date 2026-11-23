@@ -91,3 +91,32 @@ The climb can't go on forever: no new rock after 95 s, so a round ends by ~110�
 - Verified: headless jump-physics test still 300/300; 8000-level connectivity sweep still 0% disconnected; balance
   script still averages ~73-80 s rounds with easy clearly worst and hard modestly ahead of normal (not dominant);
   full test suite (e2e, memory, migration, solo, party) and the tuning portal's drift check all pass.
+
+## Extreme bot difficulty (2026-11-23)
+`ctx.bots.level` now has a 4th tier (`tier: 'extreme'`, `rank: 3`, `key` still reports `'hard'` for older checks;
+`reaction: 0.05, aimError: 0.03, skill: 1, mistakes: 0`). Since `bots.js` already reads `L.skill/L.reaction/L.aimError`
+straight from `ctx.bots.level` (no local easy/normal/hard lookup table to extend), most formulas already sharpen on
+their own at skill 1 — the real work was fixing one formula that broke at the extreme, and adding a few genuinely
+smarter, same-physics tactics (all gated on `L.rank >= 3`):
+- `reachMargin()` used `1.3 - 0.53*skill` for jump judgment; at skill 1 that's *more* timid than Hard's skill-0.92
+  value, not less. Extreme now gets its own confident, tested value (0.9) instead of running off the end of a
+  formula built for 0–0.92.
+- Extreme also considers jumps up to 2.0 m of climb (other tiers cap at 1.5) — physics headroom (max reachable
+  height is ~2.3 m) that a sharp player would actually use.
+- A light "does this lead anywhere?" bonus when picking a landing spot, so it doesn't strand itself on a dead end.
+- An offensive dash: when nobody's in shove range but someone vulnerable is just inside dash range **and** the
+  dash would land Extreme on solid ground (checked before committing — an earlier version skipped this check and
+  dashed itself into the lava chasing people, which made Extreme the *worst* tier until fixed), it lunges in with
+  the same dash every player has.
+- Shove probabilities get their own high, decisive values instead of just topping out the shared `skill*k` formula.
+- Volcano-spirit (lava bomb) targeting: full bomb-flight-time lead (correct pursuit prediction, not partial), and
+  targets whoever a hit would actually finish (near their platform's rim, already airborne, or standing on hot
+  ground) instead of a random living player — all from on-screen state, nothing hidden.
+No new speed, reach, cooldowns or information beyond any player's — same `stepPlayer`, same `C.*` limits.
+
+**Verified:** headless bot-vs-bot, 3 Extreme vs 3 Hard, 200 rounds: Extreme won 121 (60.5%) to Hard's 77 (38.5%).
+8-way ladder (2 of each tier, 80 rounds): Extreme has the best average placement and ties for most round wins.
+Performance: 7 Extreme bots average 0.02–0.04 ms per 60 Hz host tick (headroom to spare). The lobby's "💀 Extreme"
+option was confirmed (Playwright) to actually reach the game as `ctx.bots.level = {tier:'extreme', rank:3, key:'hard', skill:1}`.
+`node e2e.mjs lava` and `node memory.mjs lava` both pass; easy/hard/normal formulas are untouched for rank < 3
+(confirmed byte-identical in a diff) and the existing balance/connectivity sweeps still show no regression.
