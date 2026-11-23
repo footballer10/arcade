@@ -74,7 +74,9 @@ export async function start(ctx) {
   ctx.on('resize', () => renderer.resize());
 
   // ---------------------------------------------------------------- roster (party players → arena roster numbers)
-  const level = ctx.bots.level.key;
+  // ctx.bots.level reports key:'hard' for Extreme too (so older code still treats it as at least Hard); arena has
+  // its own Extreme tier in bots.js, selected via tier/rank rather than key.
+  const level = ctx.bots.level.tier === 'extreme' ? 'extreme' : ctx.bots.level.key;
   const opts = { map: ctx.options.map, mut: MUTATORS[ctx.options.mut] ? ctx.options.mut : 'none', wins: Math.max(2, Math.min(3, +ctx.options.wins || WINS_TO_WIN)) };
   const lobby = ctx.players.map((p, n) => ({ id: p.id, n, name: p.name, char: CHARS[ctx.picks[p.id]?.char] ? ctx.picks[p.id].char : 'blaster', isBot: p.isBot, color: p.color, hat: p.hat }));
   const rosterByN = new Map(lobby.map((p) => [p.n, p]));

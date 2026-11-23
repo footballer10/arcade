@@ -1,5 +1,5 @@
 // AI bots. They produce the same input objects humans send.
-import { ARENA_R, OBSTACLES, HOLES, MAP, sweeperAngle, inBush, BOMB_RANGE, WELL_RANGE, TELEPORT_MAX, BOMB_R, PLAYER_R } from './sim.js';
+import { ARENA_R, OBSTACLES, HOLES, BUSHES, MAP, sweeperAngle, inBush, BOMB_RANGE, WELL_RANGE, TELEPORT_MAX, BOMB_R, PLAYER_R } from './sim.js';
 
 export const BOT_NAMES = ['Bolt', 'Nova', 'Rex', 'Pixel', 'Juno', 'Tank', 'Zip', 'Echo', 'Fang', 'Mochi', 'Ziggy', 'Blip'];
 // Reaction/accuracy toned down a notch across the board (bots were sweeping new/casual players, especially at
@@ -9,6 +9,11 @@ export const BOT_LEVELS = {
   easy:   { label: 'Easy',   think: [0.32, 0.48], aimErr: 0.8,  lead: 0.1, dashP: 0.01,  spP: 0.12, calm: 0.85, cover: false, flank: 0.0, puRange: 3.5 },
   normal: { label: 'Normal', think: [0.18, 0.28], aimErr: 0.5,  lead: 0.45, dashP: 0.03, spP: 0.32, calm: 0.6,  cover: true,  flank: 0.3, puRange: 5.5 },
   hard:   { label: 'Hard',   think: [0.08, 0.14], aimErr: 0.22, lead: 0.85, dashP: 0.07, spP: 0.6,  calm: 0.35, cover: true,  flank: 0.55, puRange: 7 },
+  // ctx.bots.level 'extreme' (tier/rank, key still reports 'hard'). A sharp human, not a cheat: same reaction floor
+  // as Hard's think loop just runs tighter, aim is close to perfect, and it uses specials/dashes the instant they're
+  // off cooldown and useful — but it still can't see through walls or move faster than any other player. The
+  // extreme-only tactics below (telegraph dodging, bush retreats, finishing a low-HP target) live in botInput().
+  extreme: { label: 'Extreme', think: [0.045, 0.07], aimErr: 0.06, lead: 1.0, dashP: 0.18, spP: 0.95, calm: 0.15, cover: true, flank: 0.75, puRange: 999, extreme: true },
 };
 const RANGE = { blaster: 8, brawler: 1.7, trickster: 1.5, bomber: 7, ranger: 12, frost: 4.5, ram: 1.6, hook: 2.6 };
 const SHOT_SPEED = { blaster: 24, ranger: 30, frost: 20 };
@@ -46,6 +51,19 @@ export function botInput(sim, p, dt) {
     const score = d - (1 - q.hp / q.maxHp) * 3 - edge * L.flank;
     if (score < bestScore) { bestScore = score; best = q; bd = d; }
   }
+  if (L.extreme && best) {
+    // A sharp player always takes a free kill: switch off the positional "best" target onto any other visible,
+    // already-in-range enemy on death's door, instead of sticking to whoever scored best on distance/edge/hp.
+    let finish = null, fd = 1e9;
+    for (const q of sim.players.values()) {
+      if (q === p || q === best || !q.alive || q.falling) continue;
+      const d = Math.hypot(q.x - p.x, q.z - p.z);
+      if (d > 4 && q.hitT <= 0 && inBush(q.x, q.z)) continue;
+      if (q.hp / q.maxHp > 0.2 || d > RANGE[p.char] + 2) continue;
+      if (d < fd) { fd = d; finish = q; }
+    }
+    if (finish) { best = finish; bd = fd; }
+  }
 
   let mx = 0, mz = 0;
   let wantDash = false, dashDir = null;
@@ -58,9 +76,15 @@ export function botInput(sim, p, dt) {
   let engage = best && (bd < 4 || (bd < 14 && m.calm <= 0));
 
   if (best && hurt && L.cover) {
-    // retreat behind the obstacle that best blocks the attacker
+    // retreat behind the obstacle that best blocks the attacker (extreme: a bush beats a wall when it's closer —
+    // vanishing from sight entirely is strictly better than just blocking line of sight)
     const cover = findCover(p, best, zr);
-    if (cover) { const [cx, cz] = norm(cover.x - p.x, cover.z - p.z); const d = Math.hypot(cover.x - p.x, cover.z - p.z); if (d > 0.5) { mx += cx * 1.6; mz += cz * 1.6; } }
+    let tgt = cover, td = cover ? Math.hypot(cover.x - p.x, cover.z - p.z) : Infinity;
+    if (L.extreme) {
+      const bush = findBush(p, best, zr);
+      if (bush) { const d2 = Math.hypot(bush.x - p.x, bush.z - p.z); if (d2 < td) { tgt = bush; td = d2; } }
+    }
+    if (tgt) { const [cx, cz] = norm(tgt.x - p.x, tgt.z - p.z); if (td > 0.5) { mx += cx * 1.6; mz += cz * 1.6; } }
     else { const [ax, az] = norm(p.x - best.x, p.z - best.z); mx += ax; mz += az; }
     aimAt(p, best, inp, m, L);
     inp.atk = ranged ? clearShot(p, best) : bd < 2.5;
@@ -125,6 +149,20 @@ export function botInput(sim, p, dt) {
   for (const u of sim.pu) {
     const d = Math.hypot(u.x - p.x, u.z - p.z);
     if (d < L.puRange && (!best || d < bd || !engage)) { mx += (u.x - p.x) / d * 1.5; mz += (u.z - p.z) / d * 1.5; break; }
+  }
+
+  // extreme: back off from a visible wind-up (Brawler's slam, Blaster's blast, Ram's stampede) — the same tell a
+  // sharp human reacts to on-screen, just read from state instead of an animation frame.
+  if (L.extreme) {
+    for (const q of sim.players.values()) {
+      if (q === p || !q.alive || q.falling) continue;
+      if (q.slamT <= 0 && q.blastT <= 0 && q.chargeT <= 0) continue;
+      const dx = p.x - q.x, dz = p.z - q.z, d = Math.hypot(dx, dz);
+      const danger = q.chargeT > 0 ? 8 : 5.5; // Ram's stampede reaches further than a slam or blast
+      if (d < 0.01 || d >= danger) continue;
+      mx += (dx / d) * 2.4; mz += (dz / d) * 2.4;
+      if (p.dashCd <= 0 && d < 3) { wantDash = true; dashDir = [dx / d, dz / d]; }
+    }
   }
 
   // dodge incoming bolts
@@ -223,6 +261,19 @@ function findCover(p, enemy, zr) {
     if (!safeSpot(x, z, zr, 1.5)) continue;
     const d = Math.hypot(x - p.x, z - p.z);
     if (d < bd && d < 12) { bd = d; best = { x, z }; }
+  }
+  return best;
+}
+
+// Extreme only: the nearest bush that's actually far enough from the attacker to hide in (bushes only hide you
+// from enemies more than 3.5 m away — ducking into one right next to the attacker achieves nothing).
+function findBush(p, enemy, zr) {
+  let best = null, bd = 1e9;
+  for (const b of BUSHES) {
+    if (Math.hypot(b.x - enemy.x, b.z - enemy.z) < 3.6) continue;
+    if (!safeSpot(b.x, b.z, zr, 0.5)) continue;
+    const d = Math.hypot(b.x - p.x, b.z - p.z);
+    if (d < bd && d < 12) { bd = d; best = { x: b.x, z: b.z }; }
   }
   return best;
 }
