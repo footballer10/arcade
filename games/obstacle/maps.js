@@ -352,7 +352,7 @@ export const MAPS = {
     mark(B, plat(B, 0, 0, 90.5, 3.4, 1.5, 'floor'), 91.4, 0.3);
     lane(B, [93], 0, 3, 1.4);
     for (const dz of [96, 102.5, 109, 115.5]) slideWall(B, dz, 0, 7);
-    lane(B, [117.5], 0, 3, 1.4);
+    lane(B, [116.5], 0, 1.2, 1.2);
     cp(B, 0, 0, 120.5, 3.5, 2.5);
     B.node({ x: 0, y: 0, z: 122.2, w: 0.8 });
     for (let i = 0; i < 5; i++) { const m = mover(B, 0, 0, 125.6 + i * 5.1, 1.7, 1.5, [r2(B, 3.4, 4.4), 0, 0], r2(B, 1.1, 1.4), 'rock'); B.node({ sid: m.idx, leap: true, y: 0 }); }

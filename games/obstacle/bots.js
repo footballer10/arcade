@@ -9,7 +9,7 @@ export function makeBot(Brain, level, rnd = Math.random) {
   return { brain: new Brain(level, rnd), level, rnd, ni: 0, offs: new Map(), lane: null, door: null, tried: new Set(), inp: { mx: 0, mz: 0, jh: false, j: 0, d: 0, g: false },
     nf: new Map(), stuck: 0, lx: 0, lz: 0, jumpT: 0, diveArm: false, ignore: new Map(), goal: -1, goalT: 0, wander: null, wanderT: 0, lastRs: -1, finDive: false, prey: null, leapT: 0 };
 }
-export function resetBot(b) { b.nf?.clear(); b.pad = null; b.alt = null; b.ni = 0; b.offs.clear(); b.lane = null; b.door = null; b.tried.clear(); b.goal = -1; b.wander = null; b.finDive = false; b.diveArm = false; b.ignore.clear(); b.prey = null; b.flight = null; b.safe = null; b.edgeWait = 0; b.commit = null; }
+export function resetBot(b) { b.nf?.clear(); b.pad = null; b.alt = null; b.ni = 0; b.offs.clear(); b.lane = null; b.door = null; b.tried.clear(); b.goal = -1; b.wander = null; b.finDive = false; b.diveArm = false; b.ignore.clear(); b.prey = null; b.flight = null; b.safe = null; b.edgeWait = 0; b.commit = null; b.chain = null; b.chainCool = 0; b.planAt = 0; }
 
 const TMP = {}, TMP2 = {}, TMP3 = {};
 const jump = (b, hold = 0.32, why = '') => { b.inp.j++; b.jumpT = hold; b.inp.jh = true; b.jumpWhy = why; };   // held from the press itself, or the jump comes out short
@@ -22,11 +22,12 @@ export function botThink(G, p, b, dt) {
   const think = b.brain.ready(dt);
   if (p.rs !== b.lastRs) {          // respawned: remember where we fell (to get careful there), then find our place again
     if (b.lastRs >= 0) { b.nf.set(b.ni, (b.nf.get(b.ni) || 0) + 1); b.offs.clear(); b.lane = null; b.pad = null; b.alt = null; b.gate = null; }
-    b.lastRs = p.rs; b.ni = 0; b.door = null; b.stuck = 0; b.flight = null; b.safe = null; b.edgeWait = 0; b.commit = null;
+    b.lastRs = p.rs; b.ni = 0; b.door = null; b.stuck = 0; b.flight = null; b.safe = null; b.edgeWait = 0; b.chain = null; b.chainCool = 0; b.commit = null;
   }
   if (b.diveArm && p.gr < 0 && p.vy < 1.2 && !p.dive) { b.diveArm = false; dive(b); }
   if (p.gr >= 0) b.diveArm = false;
-  if (isDown(p) || p.hang >= 0) { inp.mx = inp.mz = 0; return inp; }
+  const chaining = isExtreme(lv) && !!b.chain && G.W.t < b.chain.end && !p.tumble;      // an Extreme dive-chain in progress keeps control through the belly slide
+  if ((isDown(p) && !(chaining && p.slide && p.gr >= 0)) || p.hang >= 0) { inp.mx = inp.mz = 0; return inp; }
   // a ground move the look-ahead approved (e.g. through a moving gap): follow through
   if (b.commit) {
     if (G.W.t < b.commit.until && !p.tumble) { inp.mx = b.commit.mx; inp.mz = b.commit.mz; return inp; }
@@ -49,6 +50,24 @@ export function botThink(G, p, b, dt) {
   let mx = dist > 0.25 ? dx : 0, mz = dist > 0.25 ? dz : 0;
   const err = (b.errA ??= (b.rnd() * 2 - 1) * lv.aimError * 0.25);
   if (mx || mz) { const c = Math.cos(err), s = Math.sin(err); [mx, mz] = [mx * c + mz * s, -mx * s + mz * c]; }
+  // Extreme: dive-chain across open ground when the look-ahead says the whole chain is safe
+  if (isExtreme(lv) && st.mode === 'race' && !b.flight && !b.commit && (mx || mz)) {
+    b.chainCool -= dt;
+    const node = st.route[b.ni];
+    const follow = (c) => { chainInput(p, inp); inp.mx = c.mx; inp.mz = c.mz; return inp; };
+    const grounded0 = p.gr >= 0;
+    // re-plan every half second (or start from standing); if no new safe plan exists, finish the last verified one
+    if ((!b.chain || G.W.t >= b.chain.replan) && chainNode(node) && b.chainCool <= 0 && dist > 3.2 && !p.tumble && ((grounded0 && p.down <= 0) || chaining) && canPlan(G) && !(grounded0 && crowded(G, p, mx, mz))) {
+      const pl = planChain(G, p, mx, mz, nextSpecialZ(G, b) - 2.5);
+      if (pl) { b.chain = { mx: pl.mx, mz: pl.mz, replan: G.W.t + 0.45, end: G.W.t + pl.H }; b.safe = null; return follow(b.chain); }
+      b.chainCool = 0.25;
+    }
+    if (b.chain) {
+      if (G.W.t < b.chain.end && !p.tumble && !(grounded0 && p.down <= 0 && crowded(G, p, b.chain.mx, b.chain.mz, 1.8))) return follow(b.chain);
+      b.chain = null;
+    }
+  }
+  if (isDown(p)) { inp.mx = inp.mz = 0; return inp; }
   // edge: no ground ahead -> leap if the target is in reach, otherwise wait
   const grounded = p.gr >= 0;
   if (grounded && (mx || mz)) {
@@ -78,8 +97,9 @@ export function botThink(G, p, b, dt) {
       if (lp && tsi >= 0 && !mistake && lp.gap < 7 && lp.dy < 1.8) {
         // look-ahead: only jump when a simulated jump lands (and stays) safely; otherwise wait at the edge
         b.edgeWait = (b.edgeWait || 0) + dt;
-        if ((think || b.leapT < -0.3) && canPlan(G)) {
-          const pl = planLeap(G, p, b, tsi, lp.ax, lp.az, careful);
+        if ((think || b.leapT < -0.3) && G.W.t >= (b.planAt || 0) && canPlan(G)) {
+          b.planAt = G.W.t + (isExtreme(lv) ? 0.1 : 0.05);
+          const pl = planLeap(G, p, b, tsi, lp.ax, lp.az, careful, isExtreme(lv) && b.edgeWait > 2.5);
           if (pl) {
             const e = (b.rnd() - 0.5) * lv.aimError * 0.32, c = Math.cos(e), sn = Math.sin(e);
             mx = pl.mx * c + pl.mz * sn; mz = -pl.mx * sn + pl.mz * c;
@@ -88,7 +108,7 @@ export function botThink(G, p, b, dt) {
             inp.mx = mx; inp.mz = mz; return inp;
           }
         }
-        if (b.edgeWait < 5 + lv.skill * 4) { mx = mz = 0; }
+        if (b.edgeWait < 5 + lv.skill * 4 || isExtreme(lv)) { mx = mz = 0; }       // Extreme never jumps blind: it waits for a window the look-ahead approves
         else if (lp.ok && lp.gap <= reach) { jump(b, 0.5, 'leapFallback'); b.leapT = 0.4; b.edgeWait = 0; const l = Math.hypot(lp.ax - p.x, lp.az - p.z) || 1; mx = (lp.ax - p.x) / l; mz = (lp.az - p.z) / l; }
         else { mx = mz = 0; }
       }
@@ -436,24 +456,28 @@ function lookAhead(G, p, plan) {
   const inp = { mx: plan.mx, mz: plan.mz, jh: false, j: q.lj, d: q.ld, g: false };
   const T = plan.T ?? 1.6, minY = plan.minY ?? p.y - 2.2, startGr = p.gr;
   let air = false, dived = false, landT = -1, res = null;
-  for (let k = 1; k * SDT <= T + 1e-6; k++) {
+  for (let k = 1; k * SDT <= T + (plan.drive ? 1.6 : 0) + 1e-6; k++) {
     const t = k * SDT;
     setPoses(W, t0 + t - SDT, SDT);            // the real step that follows this decision runs at the current world time
+    if (plan.drive) plan.drive(q, inp, t);
     const jk = 1 + Math.round((plan.jumpAt || 0) / SDT);
-    if (plan.jump && k === jk) inp.j = (q.lj + 1) & 255;
-    inp.jh = !!plan.jump && k >= jk && t - (jk - 1) * SDT < (plan.hold ?? 0.5);
-    if (plan.dive && air && !dived && !q.dive && q.vy < (plan.diveVy ?? 1.2)) { inp.d = (q.ld + 1) & 255; dived = true; }
-    if (landT >= 0) { inp.mx = plan.after ? plan.after[0] : 0; inp.mz = plan.after ? plan.after[1] : 0; }
+    if (!plan.drive && plan.jump && k === jk) inp.j = (q.lj + 1) & 255;
+    if (!plan.drive) inp.jh = !!plan.jump && k >= jk && t - (jk - 1) * SDT < (plan.hold ?? 0.5);
+    if (!plan.drive && plan.dive && air && !dived && !q.dive && q.vy < (plan.diveVy ?? 1.2)) { inp.d = (q.ld + 1) & 255; dived = true; }
+    if (!plan.drive && landT >= 0) { inp.mx = plan.after ? plan.after[0] : 0; inp.mz = plan.after ? plan.after[1] : 0; }
     const ev = stepPlayer(q, inp, SDT, W); budget--;
     if (q.tumble) { res = { ok: false, knocked: true, t }; break; }
     if ((ev & EV.FELL) || q.y < minY || q.y < W.killY + 1) { res = { ok: false, fell: true, t }; break; }   // includes lava
     if (q.gr < 0) air = true;
     if (plan.walk && q.gr < 0 && !plan.jump) { res = plan.edgeFail ? { ok: false, fell: true, t } : { ok: true, edge: true, t }; break; }
+    if ((ev & EV.BOUNCE) && plan.drive) { res = { ok: false, bounce: true, t }; break; }      // a chain never rides trampolines
     if (ev & EV.BOUNCE) {            // a trampoline: the bounce is the landing
       const pad = groundAt(W, q.x, q.z, q.y - 1.0, q.y + 0.3);
       res = (!plan.accept || plan.accept(pad >= 0 ? pad : -1, q, startGr)) ? { ok: true, landed: pad, t, bounce: true } : { ok: false, wrong: true, t }; break;
     }      // walked to an edge: the leap logic takes it from here
-    if (air && q.gr >= 0 && landT < 0) {
+    if (plan.drive && W.lavas && W.lavas.some((L) => q.x > L.x0 - 1 && q.x < L.x1 + 1 && q.z > L.z0 - 1 && q.z < L.z1 + 1 && q.y < L.floor + 2.5)) { res = { ok: false, lava: true, t }; break; }   // never chain into a lava pit
+    if (plan.drive && t >= T && q.gr >= 0 && !q.slide && !q.dive && q.down <= 0) { res = { ok: true, t, x: q.x, z: q.z }; break; }   // scripted run, then braking: safe if we come to rest on the ground
+    if (!plan.drive && air && q.gr >= 0 && landT < 0) {
       landT = t;
       if (plan.accept && !plan.accept(q.gr, q, startGr)) { res = { ok: false, wrong: true, landed: q.gr, t }; break; }
       if (!plan.stand) { res = { ok: true, landed: q.gr, t }; break; }
@@ -461,16 +485,16 @@ function lookAhead(G, p, plan) {
     }
     if (landT >= 0 && t - landT >= plan.stand) { res = { ok: q.gr >= 0, landed: q.gr, t, lt: landT }; break; }
   }
-  if (!res) res = plan.jump ? { ok: false, timeout: true } : { ok: true, t: T };
+  if (!res) res = plan.jump || plan.drive ? { ok: false, timeout: true } : { ok: true, t: T };
   setPoses(W, t0, G.dt || SDT); W.dyn.set(dyn0); W.doorHit = dh; W.fakeHit = fh;
   return res;
 }
 // try a few jumps toward (ax, az): straight at it and a little to either side, with and without a dive
-function planLeap(G, p, b, si, ax, az, careful) {
+function planLeap(G, p, b, si, ax, az, careful, ignoreOcc = false) {
   const W = G.W, base = Math.atan2(ax - p.x, az - p.z), tgt = W.solids[si];
   // small platform (lift, raft, stepping stone) with someone already on it or about to land there: wait for it to clear
   const small = tgt.shape === 'cyl' ? tgt.r < 2.4 : tgt.hx * tgt.hz < 5.5;
-  if (small && G.players) for (const q of G.players) {
+  if (small && !ignoreOcc && G.players) for (const q of G.players) {
     if (q === p || q.id === p.id) continue;
     if (q.gr === si) return null;
     if (q.gr < 0 && Math.hypot(q.x - tgt.x, q.z - tgt.z) < 3.2 && q.y > tgt.y - 1) return null;
@@ -483,6 +507,54 @@ function planLeap(G, p, b, si, ax, az, careful) {
     const a = base + o, mx = Math.sin(a), mz = Math.cos(a);
     const r = lookAhead(G, p, { mx, mz, jump: true, hold: 0.5, dive, T: 2.2, stand: 0.4, after: [mx * 0.15, mz * 0.15], minY, accept });
     if (r.ok) return { mx, mz, dive, t: r.t, land: r.landed, lt: r.lt, bounce: !!r.bounce };
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------- Extreme: dive-chaining
+// Jump, dive in the air, pop out of the belly slide with a hop and dive again. Same inputs a player has, and it covers
+// ground about 60% faster than running. The same input function drives the look-ahead and the real bot, so what the
+// simulation says is what happens. Used only when the simulated chain is safe (no fall, no knock-down) all the way.
+const CHAIN_DIVE_VY = 3;
+function chainInput(q, inp) {
+  inp.jh = false;
+  if (q.gr >= 0) {
+    if (q.slide && q.down > 0.02) { inp.j++; inp.jh = true; }                    // pop out of the slide with a hop
+    else if (q.down <= 0 && !isDown(q)) { inp.j++; inp.jh = true; }              // jump
+  } else if (!q.dive && q.diveOk && q.vy < CHAIN_DIVE_VY && !isDown(q)) inp.d++; // dive
+  else inp.jh = q.vy > 0 && !q.dive;
+}
+const isExtreme = (lv) => lv.tier === 'extreme' || lv.rank >= 3;
+// route nodes where a fast, fixed-direction chain is welcome (open ground); precise nodes keep the careful logic
+const chainNode = (n) => !!n && n.sid == null && n.sidAlts == null && n.padAlts == null && n.door == null && n.gates == null && n.rock == null && !n.tip && n.slideGap == null && !n.crown && !n.leap && !n.exact;
+const chainDrive = (T, mx, mz) => (q, inp, t) => { if (t <= T) chainInput(q, inp); else { inp.jh = false; inp.mx = 0; inp.mz = 0; } };
+// another player close ahead (or beside): a dive into them is a collision the look-ahead can't see
+function crowded(G, p, mx, mz, r = 2.8) {
+  for (const q of G.players || []) {
+    if (q.id === p.id || q.gr == null) continue;
+    const dx = q.x - p.x, dz = q.z - p.z, d = Math.hypot(dx, dz);
+    if (d < r && (d < 1.2 || (dx * mx + dz * mz) / (d || 1) > -0.4) && Math.abs(q.y - p.y) < 2) return true;
+  }
+  return false;
+}
+// z of the next route element that needs the careful logic (pads, rocks, gates, doors, tiles, leaps): chains stop short of it
+function nextSpecialZ(G, b) {
+  const R = G.st.route;
+  for (let i = b.ni; i < R.length; i++) {
+    const n = R[i];
+    if (chainNode(n)) continue;
+    if (n.crown) return Infinity;
+    return n.z ?? G.W.solids[n.sid ?? n.sidAlts?.[0] ?? n.padAlts?.[0] ?? 0]?.z ?? Infinity;
+  }
+  return Infinity;
+}
+function planChain(G, p, mx, mz, zlim = Infinity) {
+  const base = Math.atan2(mx, mz);
+  for (const H of [1.25, 0.7]) for (const o of H > 1 ? [0, 0.14, -0.14, 0.3, -0.3] : [0, 0.2, -0.2]) {
+    if (budget <= 0) return null;
+    const a = base + o, dx = Math.sin(a), dz = Math.cos(a);
+    const r = lookAhead(G, p, { mx: dx, mz: dz, drive: chainDrive(H, dx, dz), T: H, minY: p.y - 1.3 });
+    if (r.ok && r.z < zlim) return { mx: dx, mz: dz, H };
   }
   return null;
 }
