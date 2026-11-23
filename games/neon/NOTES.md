@@ -77,6 +77,17 @@ and rarely attempt shortcuts; hard bots do all of this aggressively. (Earlier tu
 within a few seconds of each other — the AI drove the same near-flawless line at every skill level and only the
 top-speed cap differed by ~5%.)
 
+**Extreme** (`ctx.bots.level.tier === 'extreme'`, reports `key: 'hard'` so it's at least Hard to older code) pushes
+the same knobs further still — full speed cap, sharper steering, later/harder braking into corners, almost no
+boost-meter hoarding, drifts gentler corners, always takes a planned shortcut — plus two tactics Hard doesn't do:
+holds a marginal drift longer (`patience`) hoping to chain into the next bend, and tucks into a rival's draft on a
+straight instead of just holding its racing line (`core/physics.js`'s own slipstream — not a new mechanic, just
+noticing the opportunity). No extra speed, no seeing through walls, no shortcuts around physics: same `step()` as
+a player. In mixed 6-ship races (3 extreme + 3 hard, same track, drafting/blocking each other, 20 trials/track)
+extreme averages 2.9-3.1st place to hard's 3.9-4.2nd across all four tracks; same-tier 8-bot fields finish
+1.3-3.1s faster per 3-lap race than an equivalent all-hard field, with equal or better fall/wall counts (not more
+reckless, just more precise).
+
 ## Human playtest fixes
 The first real human playtest found three bugs bot simulation never would have surfaced, all fixed:
 - **Jump gaps had a false floor just before the real lip.** `gapAt()`'s bucket index (`floor(s/path.ds)`) didn't
