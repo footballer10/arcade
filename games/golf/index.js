@@ -17,6 +17,7 @@ const BALL_VIS = 1.25;   // balls are drawn a little larger than their physics r
 const STEP = 1 / 240, HOLE_END_SECS = 6, INTRO_SECS = 3.0, PODIUM_SECS = 4.5;
 const ITEM_RESPAWN = { normal: 12, chaos: 4 };
 const BOT_SKILL = { easy: [0.2, 0.45], normal: [0.55, 0.9], hard: [0.92, 1] };
+const PLAN_LEAD = 0.3;   // Extreme bots plan in a worker for a shot this many seconds ahead, so movers are predicted for the moment it is taken
 const CSS = `
 .golf-sb{border-collapse:separate;border-spacing:0;background:rgba(10,20,80,.35);border:3px solid var(--ink);border-radius:12px;overflow:hidden;margin:8px auto}
 .golf-sb th{background:var(--ink);padding:5px 8px;font-weight:400}.golf-sb td{padding:4px 8px;text-align:center;text-shadow:var(--stroke)}.golf-sb td.n{text-align:left;white-space:nowrap}
@@ -31,12 +32,13 @@ const CSS = `
 export async function start(ctx) {
   const { net, ui } = ctx;
   const esc = ui.esc;
+  const EXTREME = ctx.bots.level.tier === 'extreme';   // key stays 'hard' for Extreme, so everything else treats it as Hard
   const o = ctx.options;
   // ---------------------------------------------------------------- state
   const S = {
     isHost: net.isHost, myId: ctx.myId,
     opts: { mode: o.mode === 'speed' ? 'speed' : 'classic', holes: Math.max(1, Math.min(9, parseInt(o.holes) || 3)), time: parseInt(o.time) || 60, items: ['normal', 'chaos', 'off'].includes(o.items) ? o.items : 'normal', mods: o.mods !== 'off', bots: ctx.bots.level.key },
-    players: ctx.players.map((p) => { const [a, b] = BOT_SKILL[ctx.bots.level.key] || BOT_SKILL.normal; return { id: p.id, name: p.name, bot: p.isBot, color: p.colorCss, scores: [], bonus: [], tags: [], stats: { ko: 0, splash: 0, ace: 0, first: 0, items: 0 }, skill: a + Math.random() * (b - a) }; }),
+    players: ctx.players.map((p) => { const [a, b] = EXTREME ? [1, 1] : BOT_SKILL[ctx.bots.level.key] || BOT_SKILL.normal; return { id: p.id, name: p.name, bot: p.isBot, color: p.colorCss, scores: [], bonus: [], tags: [], stats: { ko: 0, splash: 0, ace: 0, first: 0, items: 0 }, skill: a + Math.random() * (b - a) }; }),
     phase: 'waiting', holeIdx: 0, seed: ctx.seed >>> 0, hole: null,
     sim: null, csim: null, pick: [], mines: [], awards: [], timeLeft: 60, ht: 0,
     pred: { strokes: -1, until: 0 }, shotLock: 0, introUntil: 0, introFrom: null, introArm: false,
@@ -186,8 +188,8 @@ export async function start(ctx) {
     const hole = prep.hole;
     const bs = new Map();
     S.players.forEach((p, i) => { const t = hole.tees[i % hole.tees.length]; const b = C.makeBall(p.id, t.x, t.z, t.y, hole); if (p.gone) b.out = true; bs.set(p.id, b); });
-    S.sim = { hole, balls: bs, t: 0, acc: 0, timeLeft: S.opts.time, first: null, endDelay: 0, snapAcc: 0, intro: INTRO_SECS + 0.3, bot: new Map(), mines: [], order: [], bonus: new Map(), ko: new Map(), pick: hole.pickups.map(() => ({ on: true, t: 0 })) };
-    S.players.forEach((p) => { if (p.bot) S.sim.bot.set(p.id, 0.6 + Math.random() * 2); });
+    S.sim = { hole, balls: bs, t: 0, acc: 0, timeLeft: S.opts.time, first: null, endDelay: 0, snapAcc: 0, intro: INTRO_SECS + 0.3, bot: new Map(), plan: new Map(), mines: [], order: [], bonus: new Map(), ko: new Map(), pick: hole.pickups.map(() => ({ on: true, t: 0 })) };
+    S.players.forEach((p) => { if (p.bot) S.sim.bot.set(p.id, EXTREME ? 0.2 + Math.random() * 0.4 : 0.6 + Math.random() * 2); });
     S.holeIdx = idx;
     if (S.phase !== 'waiting') S.phase = 'playing';
     net.toAll(holeMsg());
@@ -311,22 +313,54 @@ export async function start(ctx) {
       }
     }
   }
+  // Extreme power-up play: the same items, used at the right moment (never needs information a player doesn't have).
+  function extremeItem(id, b, others, dCup, shotTime) {
+    const it = b.item, hole = S.sim.hole; if (!it) return;
+    const dOf = (q) => C.distToCup(hole, q.x, q.z);
+    if (it === 3) { if (others.some((q) => Math.hypot(q.x - b.x, q.z - b.z) < 4.2 && dOf(q) < dCup + 1)) useItem(id); }
+    else if (it === 6) { if (others.some((q) => dOf(q) < dCup - 3.5)) useItem(id); }
+    else if (it === 7) { if (!C.isResting(b) && !b.air && dCup > 9 && Math.hypot(b.vx, b.vz) < 3.5) useItem(id); }
+    else if (!shotTime) return;
+    else if (it === 9) { if (others.length) useItem(id); }
+    else if (it === 4) { if (dCup < 10) useItem(id); }
+    else if (it === 8) { if (dCup < 12 && others.some((q) => dOf(q) > dCup)) useItem(id); }
+    else useItem(id);   // big, sticky, ghost: always worth it right before a shot
+  }
+  function planRequest(p, b, arr) {
+    const sim = S.sim, t0 = sim.t + PLAN_LEAD;
+    const ex = { avoid: sim.mines.map((m) => [m.x, m.z]), others: arr.filter((q) => q !== b && !q.sunk && !q.out).map((q) => [q.x, q.z]) };
+    const pend = { t0, at: sim.t, x: b.x, z: b.z, res: null };
+    sim.plan.set(p.id, pend);
+    if (worker && lastPrep) {
+      const id = ++reqId;
+      waiting.set(id, (m) => { pend.res = m.plan; });
+      worker.postMessage({ id, plan: true, seed: lastPrep.seed, idx: S.holeIdx, opt: lastPrep.opt, ball: { ...b }, t0, skill: 1, ex, phys: { ...C.PHYS } });
+    } else pend.res = C.planShot(sim.hole, b, t0, 1, 1, ex);
+  }
   function botTick(dt, arr) {
     const sim = S.sim;
     for (const p of S.players) {
       if (!p.bot) continue;
-      const b = sim.balls.get(p.id); if (!b || b.sunk || b.out) continue;
+      const b = sim.balls.get(p.id); if (!b || b.sunk || b.out) { sim.plan.delete(p.id); continue; }
       const others = arr.filter((q) => q !== b && !q.sunk && !q.out);
       const dCup = C.distToCup(sim.hole, b.x, b.z);
-      if (b.item === 3 && others.some((q) => Math.hypot(q.x - b.x, q.z - b.z) < 3.2)) useItem(p.id);
+      if (EXTREME) extremeItem(p.id, b, others, dCup, false);
+      else if (b.item === 3 && others.some((q) => Math.hypot(q.x - b.x, q.z - b.z) < 3.2)) useItem(p.id);
       else if (b.item === 9 && others.length && Math.random() < dt * 0.6) useItem(p.id);
       else if (b.item === 6 && others.some((q) => C.distToCup(sim.hole, q.x, q.z) < dCup - 6)) useItem(p.id);
       else if (b.item === 7 && !C.isResting(b) && !b.air && dCup > 9 && Math.hypot(b.vx, b.vz) < 3 && Math.random() < dt * 1.5) useItem(p.id);
+      const pend = sim.plan.get(p.id);
+      if (pend) {   // an Extreme shot is being planned in the worker: fire it when it is ready and the moment has come
+        if (b.frozen > 0 || !C.isResting(b) || Math.hypot(b.x - pend.x, b.z - pend.z) > 0.03 || sim.t - pend.at > 5) { sim.plan.delete(p.id); sim.bot.delete(p.id); }
+        else if (pend.res && sim.t >= pend.t0) { applyShot(p.id, pend.res.a, pend.res.p); sim.plan.delete(p.id); sim.bot.delete(p.id); }
+        continue;
+      }
       if (b.frozen > 0) continue;
       if (!C.isResting(b)) { sim.bot.delete(p.id); continue; }
-      if (!sim.bot.has(p.id)) sim.bot.set(p.id, 0.8 + Math.random() * 1.4);
+      if (!sim.bot.has(p.id)) sim.bot.set(p.id, EXTREME ? 0.15 + Math.random() * 0.3 : 0.8 + Math.random() * 1.4);
       const w = sim.bot.get(p.id) - dt; sim.bot.set(p.id, w);
       if (w <= 0) {
+        if (EXTREME) { extremeItem(p.id, b, others, dCup, true); planRequest(p, b, arr); continue; }
         if ([1, 2, 5, 8].includes(b.item) || (b.item === 4 && dCup < 8)) useItem(p.id);
         const sh = C.planShot(sim.hole, b, sim.t + 0.05, p.skill, S.opts.bots === 'easy' ? 0.5 : 1); applyShot(p.id, sh.a, sh.p); sim.bot.delete(p.id);
       }
@@ -811,7 +845,7 @@ export async function start(ctx) {
       b.lastX = b.x; b.lastY = b.y; b.lastZ = b.z; C.applyEffects(b, S.hole);
       bs.set(p.id, b);
     }
-    S.sim = { hole: S.hole, balls: bs, t: S.csim?.t || 0, acc: 0, timeLeft: S.timeLeft, first: null, endDelay: 0, snapAcc: 0, intro: Math.max(0, (S.introUntil - performance.now()) / 1000), bot: new Map(), mines: S.mines.map(([x, y, z]) => ({ x, y, z, owner: null, arm: 0 })), order: [], bonus: new Map(), ko: new Map(), pick: S.hole.pickups.map((_, i) => ({ on: S.pick[i] !== 0, t: ITEM_RESPAWN[S.opts.items] || 12 })), phaseTimer: Math.max(1, (S.boardEndsAt - performance.now()) / 1000) };
+    S.sim = { hole: S.hole, balls: bs, t: S.csim?.t || 0, acc: 0, timeLeft: S.timeLeft, first: null, endDelay: 0, snapAcc: 0, intro: Math.max(0, (S.introUntil - performance.now()) / 1000), bot: new Map(), plan: new Map(), mines: S.mines.map(([x, y, z]) => ({ x, y, z, owner: null, arm: 0 })), order: [], bonus: new Map(), ko: new Map(), pick: S.hole.pickups.map((_, i) => ({ on: S.pick[i] !== 0, t: ITEM_RESPAWN[S.opts.items] || 12 })), phaseTimer: Math.max(1, (S.boardEndsAt - performance.now()) / 1000) };
     S.csim = null;
     if (S.phase === 'matchEnd') ctx.setTimeout(finishMatch, 1500);
     else if (S.phase === 'holeEnd' && S.holeIdx + 1 >= S.opts.holes) { S.phase = 'matchEnd'; S.awards = makeAwards(); ctx.setTimeout(finishMatch, 1500); }
