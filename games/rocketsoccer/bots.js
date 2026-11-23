@@ -66,6 +66,8 @@ function prediction(W, b, key) {
 // flip), jump (lofted poke), angle (clip the ball off-centre), wait (hang back a beat, then go). Everyone also
 // reacts to the whistle a little late (more on easy). Others: grab a pad on either side, drop back to goal, trail
 // the taker through midfield, or (rarely) challenge for the ball as well.
+// Extreme (ctx.bots.level.tier === 'extreme' / rank >= 3): a very good human who never errs. Same physics and limits.
+const isX = (lv) => lv.tier === 'extreme' || lv.rank >= 3;
 const KP0 = { plan: 'flip', hit: 'flip', flipAt: 8.5, flipX: 0, boost: true, wait: 0, side: 0 };
 function wpick(rnd, items) { let r = rnd() * items.reduce((a, x) => a + x[1], 0); for (const [v, w] of items) { if ((r -= w) <= 0) return v; } return items[0][0]; }
 function pickKickoff(W, i, bot, role) {
@@ -74,7 +76,8 @@ function pickKickoff(W, i, bot, role) {
   bot.kpN = W.kickN || 0;
   const sgn = () => (rnd() < 0.5 ? -1 : 1);
   if (role === 'attack') {
-    kp.plan = wpick(rnd, [['flip', 2.2 * (0.4 + sk)], ['diag', 1.6 * (0.3 + sk)], ['drive', 1.2 + (1 - sk) * 1.5], ['jump', 0.7], ['angle', 1.0], ['wait', 1.0 + (1 - sk) * 0.5]]);
+    kp.plan = isX(lv) ? wpick(rnd, [['flip', 3], ['diag', 2]]) : wpick(rnd, [['flip', 2.2 * (0.4 + sk)], ['diag', 1.6 * (0.3 + sk)], ['drive', 1.2 + (1 - sk) * 1.5], ['jump', 0.7], ['angle', 1.0], ['wait', 1.0 + (1 - sk) * 0.5]]);
+    if (isX(lv)) { kp.flipAt = 8 + rnd() * 1.5; kp.wait = 0; }
     if (kp.plan === 'diag') { kp.hit = 'flip'; kp.flipX = sgn(); }
     else if (kp.plan === 'drive') kp.hit = 'drive';
     else if (kp.plan === 'jump') kp.hit = 'jump';
@@ -82,7 +85,8 @@ function pickKickoff(W, i, bot, role) {
     else if (kp.plan === 'wait') { kp.wait += 0.3 + rnd() * 0.45; kp.hit = rnd() < 0.6 ? 'flip' : 'drive'; if (kp.hit === 'flip' && rnd() < 0.4) kp.flipX = sgn(); }
     if (lv.skill < 0.5 && kp.hit === 'flip' && rnd() < 0.5) kp.hit = 'drive';   // easy bots rarely flip
   } else {
-    kp.plan = wpick(rnd, [['padA', 2], ['padB', 2], ['goal', 1.5], ['follow', 1.5 * (0.5 + sk)], ['challenge', 0.4 + 0.8 * sk]]);
+    kp.plan = isX(lv) ? wpick(rnd, [['padA', 2], ['padB', 2], ['goal', 1]]) : wpick(rnd, [['padA', 2], ['padB', 2], ['goal', 1.5], ['follow', 1.5 * (0.5 + sk)], ['challenge', 0.4 + 0.8 * sk]]);
+    if (isX(lv)) kp.wait = 0;
     kp.px = (kp.plan === 'padB' ? -1 : 1) * (c.x < 0 ? -1 : 1) * (0.35 + rnd() * 0.25);   // pad column as a fraction of the half-width
     if (kp.plan === 'challenge') { kp.hit = rnd() < 0.5 ? 'flip' : 'drive'; kp.wait += rnd() * 0.25; }
   }
@@ -108,10 +112,10 @@ function plan(W, i, bot, role) {
   }
   // a defender pushes up to challenge when the ball is in our third
   const ballOwnD = Math.abs(b.z - ownZ);
-  if (role === 'defend' && ballOwnD < A.L * 0.55) role = bot.mode = 'attack';
+  if (role === 'defend' && ballOwnD < A.L * (isX(lv) ? 0.62 : 0.55)) role = bot.mode = 'attack';
   if (role === 'support') {
     // shadow: between the ball and our goal, a third of the field back
-    const low = c.boost < 35 && lv.skill > 0.5;
+    const low = c.boost < (isX(lv) ? 55 : 35) && lv.skill > 0.5;
     if (low) {   // nearest big pad on our half
       let best = null, bd = 1e9;
       for (let p = 0; p < A.pads.length; p++) { const pd = A.pads[p]; if (!pd.big || W.pads[p] > 0 || (pd.z - ownZ) * dir > A.L * 1.1) continue; const d = Math.hypot(pd.x - c.x, pd.z - c.z); if (d < bd) { bd = d; best = pd; } }
@@ -120,7 +124,11 @@ function plan(W, i, bot, role) {
     bot.tx = clamp(b.x * 0.5, -A.W + 6, A.W - 6); bot.tz = clamp(b.z - dir * A.L * 0.42, -A.L + 8, A.L - 8); bot.ty = 0; bot.wantBoost = false; return;
   }
   if (role === 'defend') {
-    bot.tx = clamp(b.x * 0.35, -A.GW + 3, A.GW - 3); bot.tz = ownZ + dir * 4; bot.ty = 0; bot.wantBoost = Math.hypot(c.x - bot.tx, c.z - bot.tz) > 30; return;
+    let gx = b.x * 0.35;
+    if (isX(lv)) {   // stand where the ball is about to cross the goal line (or where it will be, shadowing it)
+      for (const q of prediction(W, b, lv.reaction)) if (Math.abs(q.z - ownZ) < 4 && q.y < W.A.GH) { gx = q.x; break; }
+    }
+    bot.tx = clamp(gx, -A.GW + 3, A.GW - 3); bot.tz = ownZ + dir * 4; bot.ty = 0; bot.wantBoost = Math.hypot(c.x - bot.tx, c.z - bot.tz) > 30; return;
   }
   // ATTACK: find the first predicted ball position we can reach in time
   const P = prediction(W, b, lv.reaction);
@@ -136,8 +144,23 @@ function plan(W, i, bot, role) {
     if (need <= p.t + 0.05) { tgt = p; break; }
   }
   if (!tgt) tgt = P[P.length - 1] || { x: b.x, y: b.y, z: b.z, t: 0 };
+  if (isX(lv) && c.boost < 30 && tgt.t > 1.4) {   // the ball is a while away: grab the nearest ready pad on the way
+    let best = null, bd = 28;
+    for (let p = 0; p < A.pads.length; p++) { const pd = A.pads[p]; if (W.pads[p] > 0) continue; const d = Math.hypot(pd.x - c.x, pd.z - c.z) - (pd.big ? 6 : 0); if (d < bd && (pd.z - c.z) * dir > -12) { bd = d; best = pd; } }
+    if (best) { bot.tx = best.x; bot.tz = best.z; bot.ty = 0; bot.wantBoost = false; bot.lined = false; bot.sx = null; return; }
+  }
   // where to send it: the far side of the goal, plus aim error
-  const aimX = clamp(-tgt.x * 0.25 + bot.err * A.GW * 1.4, -A.GW * 0.7, A.GW * 0.7);
+  let aimX = clamp(-tgt.x * 0.25 + bot.err * A.GW * 1.4, -A.GW * 0.7, A.GW * 0.7);
+  if (isX(lv)) {   // pick the corner furthest from every opponent standing near their goal
+    let bestX = aimX, bestD = -1;
+    for (const cx of [-A.GW * 0.72, -A.GW * 0.35, A.GW * 0.35, A.GW * 0.72]) {
+      let md = 1e9;
+      for (const o of W.cars) if (o.team !== c.team && o.demo <= 0 && Math.abs(o.z - oppZ) < 30) md = Math.min(md, Math.abs(o.x - cx));
+      if (md === 1e9) md = Math.abs(cx + tgt.x * 0.3);   // nobody home: go cross-field
+      if (md > bestD) { bestD = md; bestX = cx; }
+    }
+    aimX = bestX + bot.err * A.GW * 0.3;
+  }
   let sx = aimX - tgt.x, sz = oppZ + dir * 2 - tgt.z; const sl = Math.hypot(sx, sz) || 1; sx /= sl; sz /= sl;
   // clearing from our own corner: just hit it up-field and away from the middle of our goal
   if (Math.abs(tgt.z - ownZ) < A.L * 0.35) { sx = clamp(tgt.x / A.W, -0.6, 0.6); sz = dir; const l2 = Math.hypot(sx, sz); sx /= l2; sz /= l2; }
@@ -187,7 +210,7 @@ export function botInput(W, i, bot, role) {
   const kp = bot.kp || KP0;
   if (kp.wait > 0 && Math.hypot(W.ball.x, W.ball.z) < 0.5 && Math.hypot(W.ball.vx, W.ball.vz) < 0.5) { kp.wait -= 1 / 60; return out; }   // reacting to the whistle / hanging back
   bot.think -= 1 / 60;
-  if (bot.think <= 0) { bot.think = 0.3 * (0.7 + bot.rnd() * 0.6); plan(W, i, bot, role); }
+  if (bot.think <= 0) { bot.think = (isX(lv) ? 0.12 : 0.3) * (0.7 + bot.rnd() * 0.6); plan(W, i, bot, role); }
   const sp = len3(c.vx, c.vy, c.vz);
   // upside down on the roof: bots don't know how to play from there, so they hop off and land on their wheels
   if (c.gnd && qrot(c, 0, 1, 0, upv)[1] < -0.25) { out.jump = true; return out; }
@@ -254,7 +277,7 @@ export function botInput(W, i, bot, role) {
   // corner speed: slow down for tight turns instead of overshooting into the walls
   const aa = Math.abs(ang);
   if (thr < 0 && c.gnd && aa > 0.3 && !(att && bot.lined)) {
-    const allowed = 9 + 30 * Math.max(0, 1 - aa / 1.3) + dist * (0.25 + 0.2 * lv.skill);
+    const allowed = (9 + 30 * Math.max(0, 1 - aa / 1.3) + dist * (0.25 + 0.2 * lv.skill)) * 1;
     if (sp > allowed + 5) thr = 1; else if (sp > allowed) thr = 0;
   }
   out.x = Math.abs(steer) > 0.18 ? Math.sign(steer) : 0; out.y = thr > 0.3 ? 1 : thr < -0.3 ? -1 : 0;

@@ -99,3 +99,12 @@ kickoff at a spread of angles instead of always straight.
 - **Camera:** its "up" follows the surface you drive on (on walls and the roof it rolls with the car; on the floor
   and in the air it is plain world-up). The roof looks like a floor, so A/D steer the way they look.
 - **Bots** hop off the roof if they end up there.
+
+## Extreme bots (`level.tier === 'extreme'`)
+The extreme numbers alone (reaction 0.05, no mistakes) did not beat Hard, because Hard is limited by tactics. Extreme
+adds: shots aimed at the goal corner furthest from every opponent near their goal; defenders that stand where the
+ball will cross the goal line and step up sooner; detours to the nearest ready boost pad when low and the ball is
+a while away; support cars refuel earlier; only the best kickoff plans (front flip / diagonal dodge, no hesitation);
+re-planning every 0.12 s instead of 0.3 s. Same physics and limits as everyone (the ball is seen with a 0.08 s delay).
+Tried and dropped (made it worse): dodge-flipping into every shot, faster corner speed.
+Bot-vs-bot, 128 matches 2v2: Extreme 190 goals to Hard's 138, Extreme won 59%. 8 extreme bots cost 0.03 ms/tick.
