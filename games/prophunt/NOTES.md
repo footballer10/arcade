@@ -156,3 +156,20 @@ play the host's own player. `__prophunt.stats` counts snapshots, finds and taunt
   disguise. The seeker bots hear a point up to ~3 m off and check at most ~4 objects around each taunt.
   Balance with this (30 games per level, 360 hiders): found 34% / 45% / 49% (easy / normal / hard), ~5-6 wrong bonks per
   seeker per round, no one faints.
+
+## Extreme bots (`ctx.bots.level.tier === 'extreme'`, key stays 'hard')
+A very good human who never slips, under the same rules as everyone else (line of sight, normal and sprint speed,
+a human field of view; sniff readings are rounded to 2 m like the label a player sees).
+- **Hider:** prefers spots hidden from the room's entrances and centre and away from doors, strictly avoids copying a
+  neighbouring object, never bolts (a slow prop can't outrun anyone), taunts only when every seeker is far, out of the
+  room and not looking this way (never a dare), and spends the forced-taunt clock at the safest moment.
+- **Seeker:** triangulates from up to 4 sniffs (each = where I stood + the distance) and uses them to pick rooms and rank
+  suspects; plans rooms by real route length and splits the map with teammates (shared "rooms covered"); inspects 5
+  well-spread spots per room instead of random ones; reads taunts at full strength (checks up to 6 objects near one);
+  1.4 rad field of view; lingers briefly and sprints between spots; slightly lower approach threshold, and a close-up
+  re-check that is a little stricter than Normal so wasted bonks stay near Hard's.
+- **Headless results** (3 Extreme vs 3 Hard bots per match, 80 matches): Extreme wins 58-22, avg score 448 vs 389, finds
+  245 vs 149 hiders; vs Normal 30-10 (40 matches). Per role: extreme seekers find ~48% vs Hard 41% (about 6.7 wrong
+  bonks per round vs 6.3); extreme hiders are found ~22% vs Hard 41%. Hard vs Hard control splits 21-19.
+- **Host cost:** about 0.2 ms per sim step with 8 Extreme bots (budget 16.7 ms); the occasional round-start spikes
+  (level generation, first routes) are the same size for Hard.

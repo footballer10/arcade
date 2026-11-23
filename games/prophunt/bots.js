@@ -8,6 +8,10 @@
 // wrong rotation, duplicates of a nearby object, wobbling or moving objects, places a taunt came from. They check
 // the nearest suspect first, sweep room by room, use the sniff when unsure, get more desperate as time runs out and
 // more careful after a wrong bonk. Perception noise, patience and reaction time come from ctx.bots.level.
+// EXTREME (level.tier === 'extreme'): plays like a very good human who never slips, with the same rules as everyone else.
+// Hiders pick spots that the room entrances can't see, never copy a neighbouring object, never bolt and taunt only when
+// safe. Seekers triangulate with several sniffs, sweep by shortest route, split rooms with their teammates, space their
+// inspection spots out, read taunts at full strength and sprint between rooms. No x-ray, no extra speed.
 import { KINDS } from './props.js';
 import { navPath, lineOfSight, roomAt, kindBox, rayBox } from './level.js';
 import { findPath } from './nav.js';
@@ -83,10 +87,11 @@ export class Walker {
 export function makeBrain(id, sim, level, Brain) {
   const B = new Brain(level);
   const rnd = Math.random;
-  const st = { mode: 'start', walker: new Walker(), slot: null, kind: -1, rot: 0, panicT: 0, nextTaunt: 2 + rnd() * 9, bold: rnd(), look: 0, seen: new Map(), visited: new Set(), cycles: 0, target: null, aimT: 0, rechecked: false, thr: 1.5, checked: new Set(), sniffHint: null, sniffT: -99, inspect: [], fled: 0, curScore: 0, approach: null, chaseT: 0, pause: 0, sweep: 1, glanceT: 0, glance: null, coolT: 0, lastHp: 100, cue: 0, cueH: null, cueUsed: new Map() };
+  const st = { mode: 'start', walker: new Walker(), slot: null, kind: -1, rot: 0, panicT: 0, nextTaunt: 2 + rnd() * 9, bold: rnd(), look: 0, seen: new Map(), visited: new Set(), cycles: 0, target: null, aimT: 0, rechecked: false, thr: 1.5, checked: new Set(), sniffHint: null, sniffT: -99, inspect: [], fled: 0, curScore: 0, approach: null, chaseT: 0, pause: 0, sweep: 1, glanceT: 0, glance: null, coolT: 0, lastHp: 100, cue: 0, cueH: null, cueUsed: new Map(), sniffs: [] };
   const lv = level;
-  const noise = { easy: 1.05, normal: 0.8, hard: 0.5 }[lv.key] ?? 0.8;
-  const sharp = 0.35 + 0.65 * lv.skill;   // how well tells are noticed
+  const X = lv.tier === 'extreme' || lv.rank >= 3;      /* extreme-only behaviour (its `key` is still 'hard') */
+  const noise = X ? 0.2 : { easy: 1.05, normal: 0.8, hard: 0.5 }[lv.key] ?? 0.8;
+  const sharp = X ? 1 : 0.35 + 0.65 * lv.skill;   // how well tells are noticed
   const p = () => sim.players.get(id);
 
   // ------------------------------------------------------------------ hider: where would a person hide?
@@ -96,6 +101,17 @@ export function makeBrain(id, sim, level, Brain) {
     const claimed = new Set([...sim.brains.values()].map((b) => b.claim).filter(Boolean));
     return L.slots.filter((s) => s.decoy == null && s.reach && !claimed.has(s) && !used.has(Math.round(s.x * 4) + ',' + Math.round(s.z * 4)) && s.kinds.some((k) => L.present.includes(k)));
   }
+  // Extreme hider: how well hidden is this spot from the room's entrances? (cached per level, shared by all hiders)
+  function concealment(L, s) {
+    const cache = (L._conceal ||= new Map()); if (cache.has(s)) return cache.get(s);
+    const rm = L.rooms[s.room], tgt = [s.x, s.y + 0.35, s.z];
+    let v = lineOfSight(L, [rm.x, 1.5, rm.z], tgt) ? -1.2 : 1.6;      /* seen from the middle of the room? */
+    for (const d of rm.doors) {
+      if (lineOfSight(L, [d.x, 1.5, d.z], tgt)) v -= 1.5;               /* seen from a doorway: a seeker walking past sees it */
+      if (Math.hypot(d.x - s.x, d.z - s.z) < 2.2) v -= 2;               /* right next to the door */
+    }
+    cache.set(s, v); return v;
+  }
   function chooseSpot(far) {
     const L = sim.level, me = p();
     const seekR = L.rooms[L.seekRoom];
@@ -103,7 +119,7 @@ export function makeBrain(id, sim, level, Brain) {
     const mates = [...sim.brains.values()].filter((b) => b !== brain && b.claim).map((b) => b.claim);
     const others = [...sim.players.values()].filter((q) => q.id !== id && q.role === 'H' && q.alive);
     const opts = freeSlots(L).map((s) => {
-      let w = rnd() * 2.5;
+      let w = rnd() * (X ? 0.8 : 2.5);
       const dSeek = far ? Math.min(30, ...seekers.map((q) => Math.hypot(q.x - s.x, q.z - s.z))) : Math.hypot(s.x - seekR.x, s.z - seekR.z);
       w += Math.min(14, dSeek) * (far ? 0.45 : 0.3);
       if (!far && s.room === L.seekRoom) w -= 5;                                   // never right where the seekers start
@@ -116,14 +132,15 @@ export function makeBrain(id, sim, level, Brain) {
       return { s, w };
     });
     opts.sort((a, b) => b.w - a.w);
-    const top = opts.slice(0, 4); const pick = top[Math.floor(rnd() * rnd() * top.length)]?.s;   // usually the best, sometimes the 2nd..4th
+    if (X) { for (const o of opts.slice(0, 12)) o.w += concealment(L, o.s); opts.sort((a, b) => b.w - a.w); }   /* visibility rays only for the best-ranked spots: keeps the host frame cheap */
+    const top = opts.slice(0, 4); const pick = (X ? top[rnd() < 0.15 ? 1 : 0] || top[0] : top[Math.floor(rnd() * rnd() * top.length)])?.s;   // usually the best, sometimes the 2nd..4th
     if (!pick) return false;
     st.slot = pick; brain.claim = pick;
     const fit = pick.kinds.filter((k) => L.present.includes(k));
     if (B.mistake() && rnd() < 0.6) st.kind = L.present[Math.floor(rnd() * L.present.length)];   // a careless hider picks something odd
     else {
-      const ko = fit.map((k) => { let w = 1 + rnd(); for (const d of L.decoys) if (d.k === k && Math.hypot(d.x - pick.x, d.z - pick.z) < 2.2) w -= 2.2; if (KINDS[k].size[1] > 1.2) w -= 0.3; return { k, w }; }).sort((a, b) => b.w - a.w);
-      st.kind = ko[Math.floor(rnd() * rnd() * Math.min(2, ko.length))].k;     // avoid copying the object right next to you
+      const ko = fit.map((k) => { let w = 1 + rnd(); for (const d of L.decoys) if (d.k === k && Math.hypot(d.x - pick.x, d.z - pick.z) < 2.2) w -= X ? 8 : 2.2; if (KINDS[k].size[1] > 1.2) w -= 0.3; return { k, w }; }).sort((a, b) => b.w - a.w);
+      st.kind = ko[X ? 0 : Math.floor(rnd() * rnd() * Math.min(2, ko.length))].k;     // avoid copying the object right next to you
     }
     st.rot = pick.free ? Math.round(rnd() * 8) * (Math.PI / 4) : pick.ry + (B.mistake() ? Math.PI / 4 : 0);
     // raised spot: first walk to a clear floor spot right next to it (nothing taller in between), then hop up slowly
@@ -182,15 +199,15 @@ export function makeBrain(id, sim, level, Brain) {
       const ready = sim.t - me.lastTaunt >= R.TAUNT_CD;
       if (ready) {
         const sameRoom = nearS && roomAt(sim.level, nearS.x, nearS.z) === roomAt(sim.level, me.x, me.z);
-        const safe = near > 9 && !sameRoom;
+        const safe = X ? near > 12 && !sameRoom && !(nearS && Math.cos(angDiff(Math.atan2(me.x - nearS.x, me.z - nearS.z), nearS.yaw)) > 0.3) : near > 9 && !sameRoom;
         // a seeker who is close but looking away is a dare worth taking (bold players only)
-        const dare = st.bold > 0.7 && near > 3.5 && near < 7 && nearS && Math.cos(angDiff(Math.atan2(me.x - nearS.x, me.z - nearS.z), nearS.yaw)) < 0.2;
+        const dare = !X && st.bold > 0.7 && near > 3.5 && near < 7 && nearS && Math.cos(angDiff(Math.atan2(me.x - nearS.x, me.z - nearS.z), nearS.yaw)) < 0.2;
         const want = lv.key === 'easy' ? st.nextTaunt <= 0 : (safe && st.nextTaunt <= 0) || (dare && st.nextTaunt <= 0);
         // the forced-taunt clock is about to run out: choose the least bad moment instead of being forced mid-stare
-        const urgent = me.fz < 9 && (near > 5 || me.fz < 2.5);
-        if (want || urgent) { it.acts.push({ a: 'taunt' }); st.nextTaunt = (lv.key === 'easy' ? 10 : 14) + rnd() * 20; }
+        const urgent = X ? (me.fz < 7 && near > 8) || me.fz < 2 : me.fz < 9 && (near > 5 || me.fz < 2.5);
+        if (want || urgent) { it.acts.push({ a: 'taunt' }); st.nextTaunt = X ? 24 + rnd() * 14 : (lv.key === 'easy' ? 10 : 14) + rnd() * 20; }
       }
-      if (nearS && near < 2.3 && me.locked) {
+      if (!X && nearS && near < 2.3 && me.locked) {      /* extreme never bolts: a slow prop can't outrun anyone */
         const facing = Math.cos(angDiff(Math.atan2(me.x - nearS.x, me.z - nearS.z), nearS.yaw)) > 0.85;
         st.panicT += dt;
         if (facing && st.panicT > 1.2 && st.fled < 1 && rnd() < dt * (0.03 + (1 - lv.skill) * 0.12)) {   // props are slow: bolting is a last resort, once per round
@@ -204,7 +221,7 @@ export function makeBrain(id, sim, level, Brain) {
   }
 
   // ------------------------------------------------------------------ seeker: what does a person notice?
-  const FOV = 1.15;                                          // half field of view (rad): you only notice what you face
+  const FOV = X ? 1.4 : 1.15;                                          // half field of view (rad): you only notice what you face
   const bandOf = (d) => (d > 7 ? 2 : d > 3.5 ? 1 : 0);        // 0 close, 1 medium, 2 far: closer = clearer
   const BAND_NOISE = [0.3, 0.6, 1.0];
   function candidates(me, eye) {
@@ -237,12 +254,20 @@ export function makeBrain(id, sim, level, Brain) {
       if (q.moving > 0) s += c.d < 9 ? 3.5 : 1.5;                 // things that move are not furniture
       else if (!q.locked && c.d < 5) s += 1.4 * lv.skill;          // wobbling
     } else if (dupNear(L, c.dc.k, c.dc.x, c.dc.y, c.dc.z, c.dc.i)) s += 0.9 * sharp * vis;
+    if (X) s += 0.9 * likOf(c.x, c.z) ** 2;                       /* fits the sniff readings */
     // a taunt heard nearby makes everything around that spot worth a look (the radius is fuzzier for weaker bots)
     let cue = 0, cueH = null;
-    for (const h of sim.heard || []) if (sim.t - h.t < 20 && (st.cueUsed.get(h.t) || 0) < 4) { /* after ~4 checks around one taunt, a person moves on */ const err = 5.2 - lv.skill * 1.9, dd = Math.hypot(h.x - c.x, h.z - c.z); if (dd < err) { const v = (0.8 + 0.75 * lv.skill) * (1 - (sim.t - h.t) / 24) * (1 - 0.6 * dd / err); /* good players use what they hear better */ if (v > cue) { cue = v; cueH = h.t; } } }
+    for (const h of sim.heard || []) if (sim.t - h.t < 20 && (st.cueUsed.get(h.t) || 0) < (X ? 6 : 4)) { /* after ~4 checks around one taunt, a person moves on */ const err = 5.2 - lv.skill * 1.9, dd = Math.hypot(h.x - c.x, h.z - c.z); if (dd < err) { const v = (0.8 + 0.75 * lv.skill) * (1 - (sim.t - h.t) / 24) * (1 - 0.6 * dd / err); /* good players use what they hear better */ if (v > cue) { cue = v; cueH = h.t; } } }
     st.cue = cue; st.cueH = cueH;
     return s + cue;
   }
+  /* how well does a spot fit what the sniffs said? (each sniff = where I stood + distance to the nearest hider) */
+  function likOf(x, z) {
+    if (!st.sniffs.length) return 0;
+    let e2 = 0; for (const q of st.sniffs) { const err = (Math.hypot(x - q.x, z - q.z) - q.d) / 2.6; e2 += err * err; }
+    return Math.exp(-0.5 * e2 / st.sniffs.length);
+  }
+  const pathLen = (L, a, b) => { const r = findPath(L, a.x, a.z, b.x, b.z); if (!r) return Math.hypot(b.x - a.x, b.z - a.z) * 1.5; let t = 0, px = a.x, pz = a.z; for (const q of r) { t += Math.hypot(q[0] - px, q[1] - pz); px = q[0]; pz = q[1]; } return t; };
   function seeker(dt) {
     const me = p(), it = { mx: 0, mz: 0, acts: [] };
     if (!me.alive || sim.phase !== 'hunt') { st.walker.goal = null; st.target = null; st.visited.clear(); st.checked.clear(); st.seen.clear(); st.cycles = 0; st.lastHp = me.hp; st.inspect = []; return it; }
@@ -255,17 +280,17 @@ export function makeBrain(id, sim, level, Brain) {
     else if (me.hp > st.lastHp) { st.coolT = 0.6; st.pause = Math.max(st.pause, 0.5); st.target = null; }
     st.lastHp = me.hp;
     // unsure what to do and the sniff is ready: use it (only when standing around, not mid-chase)
-    if (!st.target && !st.walker.goal && sim.t - me.sniffAt >= R.SNIFF_CD && sim.pt < sim.cfg.hunt - 6 && rnd() < dt * (0.4 + lv.skill)) it.acts.push({ a: 'sniff' });
+    if (!st.target && !st.walker.goal && sim.t - me.sniffAt >= R.SNIFF_CD && sim.pt < sim.cfg.hunt - (X ? 1 : 6) && (X ? sim.cfg.hunt - sim.pt > 2 : rnd() < dt * (0.4 + lv.skill))) it.acts.push({ a: 'sniff' });
     // think
     if (B.ready(dt)) {
       const hpFrac = me.hp / R.HP, elapsed = Math.max(0, Math.min(1, 1 - sim.pt / sim.cfg.hunt));
       // approach threshold: starts careful, relaxes as time runs out and after sweeping the whole map, tightens after getting hurt
-      let thr = 1.35 + (lv.key === 'easy' ? 0.4 : 0) + (1 - hpFrac) * 1.4 - elapsed * 0.8 - st.cycles * 0.2 - (sim.pt < 30 ? 0.5 : 0) + (lv.key === 'hard' ? 0.15 : 0);
+      let thr = 1.35 + (lv.key === 'easy' ? 0.4 : 0) + (1 - hpFrac) * 1.4 - elapsed * 0.8 - st.cycles * 0.2 - (sim.pt < 30 ? 0.5 : 0) + (lv.key === 'hard' && !X ? 0.15 : 0) - (X ? 0.2 : 0);
       if (hpFrac <= R.WRONG / R.HP + 0.01) thr += 3;
       else if (hpFrac <= 0.4) thr += 0.5;      // hurting: only follow strong leads
       st.thr = thr;
       let best = null, bs = -Infinity, bv = -Infinity;
-      for (const c of candidates(me, eye)) { const sc = suspicion(c); const v = sc - c.d * 0.06; if (v > bv) { bv = v; bs = sc; best = c; } }   // among equals check the nearest first
+      for (const c of candidates(me, eye)) { const sc = suspicion(c); const v = sc - c.d * (X ? 0.1 : 0.06); if (v > bv) { bv = v; bs = sc; best = c; } }   // among equals check the nearest first
       // commit to a suspect until it's been checked; only drop it for something clearly more suspicious
       const cur = st.target && !st.checked.has(st.target.key) ? st.target : null;
       if (cur && best && best.key !== cur.key && !(bs > st.curScore + 1.0)) best = null;
@@ -281,9 +306,16 @@ export function makeBrain(id, sim, level, Brain) {
       if (!st.target && !st.walker.goal && st.pause <= 0) {
         // next room to sweep: unvisited first; the sniff hint says roughly how far the nearest hider is
         const here = roomAt(L, me.x, me.z); st.visited.add(here);
-        let rooms = L.rooms.filter((r) => !st.visited.has(r.i)); if (!rooms.length) { st.visited.clear(); st.visited.add(here); st.cycles++; rooms = L.rooms.filter((r) => r.i !== here); }
+        const tv = X ? (sim._tvRound === sim.round && sim._tv ? sim._tv : ((sim._tvRound = sim.round), (sim._tv = new Set()))) : null;   /* rooms any seeker has been in */
+        if (tv) tv.add(here);
+        let rooms = L.rooms.filter((r) => !st.visited.has(r.i));
+        if (tv) { const fresh = rooms.filter((r) => !tv.has(r.i)); if (fresh.length) rooms = fresh; }   /* split the map with teammates */ if (!rooms.length) { st.visited.clear(); st.visited.add(here); st.cycles++; rooms = L.rooms.filter((r) => r.i !== here); }
         const hint = sim.t - st.sniffT < 15 ? st.sniffHint : null;
-        const score = (r) => { const d = Math.hypot(r.x - me.x, r.z - me.z); return d + (hint != null ? Math.abs(d - hint) * 0.8 : 0) + rnd() * 2; };
+        const score = (r) => {
+          if (X) { let ml = 0; if (st.sniffs.length) for (const sl of L.slots) if (sl.room === r.i) ml = Math.max(ml, likOf(sl.x, sl.z)); return (r._pl ?? Math.hypot(r.x - me.x, r.z - me.z)) - 30 * ml + rnd() * 0.5; }   /* shortest route, pulled toward where the sniffs point */
+          const d = Math.hypot(r.x - me.x, r.z - me.z); return d + (hint != null ? Math.abs(d - hint) * 0.8 : 0) + rnd() * 2;
+        };
+        if (X) { for (const r of rooms) r._pl = undefined; [...rooms].sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z)).slice(0, 4).forEach((r) => { r._pl = pathLen(L, me, r); }); }   /* exact routes for the nearest few only */
         rooms.sort((a, b) => score(a) - score(b));
         // inside the current room: visit a couple of spots next to furniture first (like a person checking around)
         if (st.inspect.length) { const q = st.inspect.shift(); st.walker.to(me, L, q[0], q[1]); }
@@ -291,10 +323,19 @@ export function makeBrain(id, sim, level, Brain) {
           const r = rooms[0];
           if (r) {
             st.walker.to(me, L, r.x, r.z);
-            const near = L.slots.filter((sl) => sl.room === r.i && Math.hypot(sl.x - r.x, sl.z - r.z) > 1.5);
+            let near = L.slots.filter((sl) => sl.room === r.i && Math.hypot(sl.x - r.x, sl.z - r.z) > 1.5);
             st.inspect = [];
-            for (let i = 0; i < 3 + Math.floor(rnd() * 3) && near.length; i++) {
-              const sl = near.splice(Math.floor(rnd() * near.length), 1)[0];
+            if (X) {   /* cover the room: pick spots far apart from each other (and from the centre), favouring what the sniffs suggest */
+              const chosen = [], ref = [[r.x, r.z]], pool = near.slice();
+              for (let i = 0; i < 5 && pool.length; i++) {
+                let bi = 0, bsc = -1;
+                pool.forEach((sl, idx) => { let dm = 1e9; for (const q of ref) dm = Math.min(dm, Math.hypot(sl.x - q[0], sl.z - q[1])); const sc = dm + 5 * likOf(sl.x, sl.z); if (sc > bsc) { bsc = sc; bi = idx; } });
+                const sl = pool.splice(bi, 1)[0]; chosen.push(sl); ref.push([sl.x, sl.z]);
+              }
+              near = chosen;
+            }
+            for (let i = 0; i < (X ? 5 : 3 + Math.floor(rnd() * 3)) && near.length; i++) {
+              const sl = X ? near.shift() : near.splice(Math.floor(rnd() * near.length), 1)[0];
               // stand ~1.3 m in front of the spot, toward the room center
               const vx = r.x - sl.x, vz = r.z - sl.z, l = Math.hypot(vx, vz) || 1, px = sl.x + vx / l * 1.3, pz = sl.z + vz / l * 1.3;
               if (walkable(L, px, pz)) st.inspect.push([px, pz]);
@@ -321,7 +362,7 @@ export function makeBrain(id, sim, level, Brain) {
             if (!walkable(L, px, pz) || !lineOfSight(L, [px, 1.45, pz], [tx, ty, tz])) continue; const dd = Math.hypot(px - me.x, pz - me.z); if (dd < bd) { bd = dd; bestP = [px, pz]; } }
           const ap = bestP || [tx, tz]; st.approach = [ap[0], ap[1], tx, tz]; st.walker.to(me, L, ap[0], ap[1]);
         }
-        const m = st.walker.step(me, dt, rnd); if (m) { it.mx = m.mx; it.mz = m.mz; it.jump = m.jump; it.sprint = t.q?.moving > 0 || (sim.pt < 25 && st.chaseT > 2); }   // sprint only after a moving prop, or when time is nearly up
+        const m = st.walker.step(me, dt, rnd); if (m) { it.mx = m.mx; it.mz = m.mz; it.jump = m.jump; it.sprint = X ? d > 3.5 : t.q?.moving > 0 || (sim.pt < 25 && st.chaseT > 2); }   // sprint only after a moving prop, or when time is nearly up
         // can't get there: let it go for now (a person would give up and look elsewhere)
         if (st.chaseT > 9) { st.checked.add(t.key); st.target = null; st.approach = null; st.walker.goal = null; }
       } else {
@@ -332,7 +373,7 @@ export function makeBrain(id, sim, level, Brain) {
           if (!st.rechecked) {
             st.rechecked = true;
             const s2 = suspicion({ ...t, d });
-            if (!(s2 > st.thr + (st.cue > 0.7 ? 0 : 0.7) || B.mistake())) { st.checked.add(t.key); st.target = null; st.pause = 0.3 + rnd() * 0.5; return it; }
+            if (!(s2 > st.thr + (st.cue > (X ? 0.8 : 0.7) ? 0 : (X ? 0.85 : 0.7)) || B.mistake())) { st.checked.add(t.key); st.target = null; st.pause = 0.3 + rnd() * 0.5; return it; }
           }
           const err = lv.aimError * 0.35;
           const yw = it.yaw + (rnd() - 0.5) * err, pt = it.pitch + (rnd() - 0.5) * err;
@@ -349,8 +390,8 @@ export function makeBrain(id, sim, level, Brain) {
     const m = st.walker.step(me, dt, rnd);
     st.look += dt;
     if (m) {
-      st.pause = 1.2 + rnd() * 1.8; st.sweep = rnd() < 0.5 ? -1 : 1;
-      it.mx = m.mx; it.mz = m.mz; it.jump = m.jump;
+      st.pause = X ? 0.6 + rnd() * 0.8 : 1.2 + rnd() * 1.8; st.sweep = rnd() < 0.5 ? -1 : 1;
+      it.mx = m.mx; it.mz = m.mz; it.jump = m.jump; it.sprint = X;   /* an extreme seeker sprints between spots */
       // glance at things on the way (head turns toward a random nearby object every so often)
       st.glanceT -= dt;
       if (st.glanceT <= 0) { st.glanceT = 0.8 + rnd() * 1.6; const c = L.decoys[Math.floor(rnd() * L.decoys.length)]; st.glance = c && Math.hypot(c.x - me.x, c.z - me.z) < 6 ? Math.atan2(c.x - me.x, c.z - me.z) : null; }
@@ -369,7 +410,10 @@ export function makeBrain(id, sim, level, Brain) {
 
   const brain = {
     claim: null,
-    onSniff(d) { st.sniffHint = d; st.sniffT = sim.t; },
+    onSniff(d) {
+      st.sniffHint = d; st.sniffT = sim.t;
+      if (X) { const me = p(); if (me) { st.sniffs.push({ x: me.x, z: me.z, d: Math.round(d / 2) * 2 }); if (st.sniffs.length > 4) st.sniffs.shift(); } }   /* the same rounded distance a human sees */
+    },
     dbg: () => ({ why: st.why, slot: st.slot && [+st.slot.x.toFixed(2), st.slot.y, +st.slot.z.toFixed(2)], stage: st.stage, path: st.walker.path.map((q) => q.map((v) => +v.toFixed(1))), pause: +st.pause.toFixed(1), mode: st.mode, target: st.target?.key, aimT: +st.aimT.toFixed(2), thr: +st.thr.toFixed(2), goal: st.walker.goal && [+st.walker.goal.x.toFixed(1), +st.walker.goal.z.toFixed(1)], stuck: +st.walker.stuck.toFixed(2) }),
     update(dt, s) { sim = s; const me = p(); if (!me) return null; return me.role === 'S' ? seeker(dt) : hider(dt); },
   };
