@@ -417,10 +417,12 @@ export function newBrain(rnd, cls) {
     shortcut: [rnd() < 0.55, rnd() < 0.55], lane: (rnd() - 0.5) * 12, laneT: 2 + rnd() * 3,
     skill: 0.9 + rnd() * 0.12, trickProb: cls === 'board' ? 0.75 : 0.4,
     trick: null, wasAir: false, rnd, avoid: 0, avoidT: 0,
+    ext: false, threatBehind: false, planT: 0, tx: null,
   };
 }
 
 export function botInput(e, br, course, dt) {
+  if (br.ext) return extremeInput(e, br, course, dt);
   const inp = { steer: 0, tuck: true, brake: false, jump: false, spin: 0, flip: 0, grab: 0 };
   if (e.state === 'wipe' || e.finished) return inp;
   if (e.item && e.itemCD <= 0) {
@@ -493,5 +495,160 @@ export function botInput(e, br, course, dt) {
   inp.tuck = Math.abs(err) < 0.25 && e.v < 50 * br.skill;
   if (e.v > 44 * br.skill + (e.boostT > 0 ? 10 : 0)) inp.tuck = false;
   if (Math.abs(err) > 0.7 && e.v > 25) inp.brake = true;
+  return inp;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Extreme bots: a very good human who never makes a mistake. Same physics, same inputs, no extra speed and no
+// seeing anything a rider couldn't (all it reads is the course layout, which every player can see, and riders near it).
+// What makes it fast: racing line (inside of bends, shortcut only when it is quick), boost pads and item boxes on
+// the line, kickers hit square with a varied, clean trick (every landing is a speed boost), grinds, items at the
+// right moment, and obstacle-free lanes picked ahead of time instead of last-second swerves.
+const EXT = {
+  SC_KINDS: { fast: false, rough: false, gap: false },  // measured in bot-vs-bot races: no shortcut beats the main line for it
+  LOOK0: 15, LOOKV: 0.6,                                // look-ahead distance = LOOK0 + LOOKV * speed
+};
+
+// Roll the rider forward with the same steering rule the bot uses and the real turn rate (a rider can't turn instantly,
+// so a line that is clear on paper still clips things at 50 m/s). Returns the distance travelled before a hit (Infinity = clear),
+// and where it ends up. `until` = stop at this z; `skipRail` = a rail we intend to ride.
+function rollout(e, course, tx, look, until, skipRail) {
+  const P = CLASSES[e.cls];
+  let x = e.x, z = e.z, h = e.h; const v = Math.max(8, e.v), dt = 0.04;
+  const rate = P.turn * (1 - Math.min(v, 55) / 150) * 0.8;
+  for (let n = 0; n < 110 && z < until; n++) {
+    const err = h - Math.atan2(tx - x, look);
+    h = Math.max(-1.75, Math.min(1.75, h - Math.max(-1, Math.min(1, err * 3)) * rate * dt));
+    x += Math.sin(h) * v * dt; z += Math.cos(h) * v * dt;
+    for (const o of course.obstaclesNear(z)) { const dx = x - o.x, dz = z - o.z, rr = o.r + 1.0; if (dx * dx + dz * dz < rr * rr) return { hit: z - e.z, x, z }; }
+    for (const r of course.railsNear(z)) { if (r !== skipRail && z > r.z0 - 1.5 && z < r.z0 + r.len + 1 && Math.abs(x - r.x) < r.w / 2 + 1.3) return { hit: z - e.z, x, z }; }
+  }
+  return { hit: Infinity, x, z, h };
+}
+
+// can we fly off this kicker and land safely? (no steering in the air: the flight is a straight line along the ramp)
+function landingClear(e, course, r, tx) {
+  const v = Math.max(18, e.v), end = r.z0 + r.len + (r.gap || 0) + (r.land || 0) * 0.4 + v * 1.9 + 8;
+  for (let z = r.z0 + r.len; z <= end; z += 3) for (const o of course.obstaclesNear(z)) { if (Math.abs(o.z - z) < 3 && Math.abs(o.x - tx) < o.r + 2.4) return false; }
+  return true;
+}
+
+// plan the line (re-planned ~8x a second): returns the x we want to be at `look` metres ahead
+function extremePlan(e, br, course) {
+  const HW = course.hw, look = EXT.LOOK0 + EXT.LOOKV * e.v, tz = e.z + look;
+  // shortcut: decide once per section (the lanes drift tens of metres apart, so flipping mid-section is a crash)
+  const sc = course.scAt(tz) || course.scAt(e.z);
+  let useSc = false;
+  if (sc) {
+    br.scPick ||= new Map();
+    if (!br.scPick.has(sc)) {
+      const nearBase = Math.abs(e.x - course.cxBase(e.z)) <= Math.abs(e.x - course.cxMain(e.z));
+      const wantBase = !!EXT.SC_KINDS[sc.kind];
+      const lateral = Math.abs(course.cxBase(e.z) - course.cxMain(e.z));
+      br.scPick.set(sc, lateral > 6 ? nearBase : wantBase);   // already committed to a lane by the time we notice: keep it
+    }
+    // whatever we planned, follow the lane we are actually on: the other one is tens of metres away across a wall
+    const dBase = Math.abs(e.x - course.cxBase(e.z)), dMain = Math.abs(e.x - course.cxMain(e.z));
+    if (Math.abs(course.cxBase(e.z) - course.cxMain(e.z)) > 12 && Math.abs(dBase - dMain) > 8) br.scPick.set(sc, dBase < dMain);
+    useSc = br.scPick.get(sc) && course.scActive(Math.max(e.z, tz - 1));
+  }
+  const cf = useSc ? course.cxBase : course.cxMain, half = useSc ? 5 : HW;
+  let base = cf(tz);
+  // inside line through bends (the outside is banked uphill and longer)
+  const d2 = cf(tz + 22) - 2 * cf(tz) + cf(tz - 22);
+  base += Math.max(-0.5, Math.min(0.5, d2 * 0.09)) * (half - 3);
+  // attractors ahead, nearest first: kicker, grind, boost pad, item box. Take the first one we can actually reach cleanly.
+  const cand = [];
+  for (const r of course.ramps) if (r.z0 > e.z + 7 && r.z0 < e.z + 85 && Math.abs(r.x - base) < half && landingClear(e, course, r, r.x)) cand.push({ x: r.x, z: r.z0, kind: 'ramp', r, until: r.z0 + 1 });
+  for (const r of course.railsNear(e.z + 40)) if (r.z0 > e.z + 10 && r.z0 < e.z + 60 && Math.abs(r.x - base) < half) cand.push({ x: r.x, z: r.z0, kind: 'rail', r, until: r.z0 + 1, rail: r });
+  for (const q of course.pads) if (q.z > e.z + 8 && q.z < e.z + 70 && Math.abs(q.x - base) < half - 1) cand.push({ x: q.x, z: q.z, kind: 'pad', until: q.z + 1 });
+  if (!e.item) for (const b of course.itemsNear(e.z + 28)) if (b.z > e.z + 8 && b.z < e.z + 55 && !course.itemHidden(b.i) && Math.abs(b.x - base) < half) cand.push({ x: b.x, z: b.z, kind: 'box', until: b.z + 1 });
+  cand.sort((p, q) => p.z - q.z);
+  let hold = null, tx = base;
+  for (const c of cand.slice(0, 4)) {
+    const res = rollout(e, course, c.x, look, c.until, c.rail);
+    // a kicker must be hit square: no steering in the air, so a crooked take-off lands metres off the line we checked
+    if (res.hit === Infinity && Math.abs(res.x - c.x) < 1.4 && (c.kind !== 'ramp' || Math.abs(res.h) < 0.09)) { hold = c; tx = c.x; break; }
+  }
+  if (!hold) { // nothing worth chasing: the cleanest lane near the ideal line
+    let bestX = base, bestHit = -1;
+    outer: for (let k = 0; k <= 18; k += 1) for (const sg of k ? [-1, 1] : [1]) {
+      const x = base + sg * k; if (Math.abs(x - cf(tz)) > half - 0.5) continue;
+      const res = rollout(e, course, x, look, e.z + look * 1.5, null);
+      if (res.hit === Infinity) { bestX = x; bestHit = Infinity; break outer; }
+      if (res.hit > bestHit) { bestHit = res.hit; bestX = x; }
+    }
+    tx = bestX;
+  }
+  br.tx = tx; br.hold = hold; br.look = look;
+}
+
+function extremeItem(e, br, course, inp) {
+  br.useT = (br.useT || 0) + 1 / 60;
+  const t = br.useT, onLip = lipNear(e, course);
+  if (e.item === 1) { if (!e.air && Math.abs(e.h) < 0.4 && e.state === 'ride' && t > 0.15) inp.use = true; }
+  else if (e.item === 2) { if (br.targetAhead || t > 14) inp.use = true; }
+  else if (e.item === 3) { if (br.threatBehind || br.targetAhead || t > 12) inp.use = true; }
+  else if (e.item === 4) { if (br.threatBehind || t > 15) inp.use = true; }
+  else if (e.item === 5) { if ((onLip && !e.air) || (t > 4 && !e.air && Math.abs(e.h) < 0.3 && e.v > 14)) inp.use = true; }
+  if (inp.use) br.useT = 0;
+}
+
+// right at the end of a kicker (to add height with a balloon)
+function lipNear(e, course) {
+  if (e.air) return false;
+  for (const r of course.ramps) { const lip = r.z0 + r.len; if (e.z > lip - Math.max(0.6, e.v * 0.04) && e.z < lip + 0.2 && Math.abs(e.x - r.x) < r.w / 2) return true; }
+  return false;
+}
+
+function extremeTrick(e, br, course, inp, dt) {
+  if (!br.wasAir) {
+    br.wasAir = true; br.trick = null;
+    const T = estimateAir(e, course);
+    if (T > PHYS.MIN_TRICK_AIR + 0.1) {
+      const P = CLASSES[e.cls], avail = T - 0.35;
+      const tr = { t: 0, T, half: 0, flips: 0, spinDir: br.rnd() < 0.5 ? -1 : 1, flipDir: br.rnd() < 0.5 ? -1 : 1, grabs: [] };
+      // rotations run side by side; leave a little margin so the landing assist only has to tidy up
+      const flipT = TWO_PI / P.flipRate * 1.08 + 0.05;
+      tr.flips = Math.min(2, Math.floor(avail / flipT));
+      tr.half = Math.min(6, Math.floor((avail - 0.1) * P.spinRate / Math.PI));
+      if (tr.flips && tr.half > 3) tr.half = 3;     // a flip plus a huge spin is a bad landing waiting to happen
+      // a chain of different grabs, freshest first (a repeated grab is worth less)
+      const order = [0, 1, 2, 3, 4, 5].sort((a, b) => grabValue(e, b) - grabValue(e, a) || br.rnd() - 0.5);
+      const win = avail - 0.1 - 0.05, n = Math.max(0, Math.min(3, Math.floor(win / 0.36)));
+      for (let k = 0; k < n; k++) tr.grabs.push({ g: order[k] + 1, from: 0.1 + k * (win / n), to: 0.1 + (k + 1) * (win / n) - 0.02 });
+      br.trick = tr;
+    }
+  }
+  const tr = br.trick; if (!tr) return;
+  tr.t += dt;
+  if (tr.half && Math.abs(e.spin) < tr.half * Math.PI - 0.05) inp.spin = tr.spinDir;
+  if (tr.flips && Math.abs(e.flip) < TWO_PI * tr.flips - 0.05) inp.flip = tr.flipDir;
+  for (const g of tr.grabs) if (tr.t >= g.from && tr.t <= g.to) inp.grab = g.g;
+  if (tr.t > tr.T - 0.3) inp.grab = 0;   // let go before touchdown
+}
+
+function extremeInput(e, br, course, dt) {
+  const inp = { steer: 0, tuck: true, brake: false, jump: false, spin: 0, flip: 0, grab: 0 };
+  if (e.state === 'wipe' || e.finished) { br.wasAir = false; return inp; }
+  if (e.item && e.itemCD <= 0) extremeItem(e, br, course, inp); else br.useT = 0;
+  if (e.grind >= 0) { br.wasAir = false; inp.tuck = false; return inp; }   // ride the rail straight, pop off at the end
+  if (e.air) { extremeTrick(e, br, course, inp, dt); return inp; }
+  if (br.wasAir) br.planT = 0;   // just landed: re-plan straight away
+  br.wasAir = false;
+  br.planT -= dt;
+  br.stuckT = (e.v < 4 && !e.air) ? (br.stuckT || 0) + dt : 0;
+  if (br.stuckT > 1.2) { // wedged against something: head for the nearest run centre and stop fighting the slope
+    br.tx = course.nearestCenter(e.x, e.z + 10); br.look = 12; br.planT = 0.4; br.scPick = null;
+    const err = e.h - Math.atan2(br.tx - e.x, 12); inp.steer = Math.max(-1, Math.min(1, err * 3)); inp.tuck = false; return inp;
+  }
+  if (br.planT <= 0 || br.tx == null) { extremePlan(e, br, course); br.planT = 0.12; }
+  const look = br.look || EXT.LOOK0;
+  // steer toward the planned x; no dithering (every bit of steering bleeds speed)
+  const desired = Math.atan2(br.tx - e.x, look), err = e.h - desired;
+  const k = Math.abs(err) < 0.02 ? 0 : 3;
+  inp.steer = Math.max(-1, Math.min(1, err * k));
+  inp.tuck = Math.abs(err) < 0.4;
+  if (Math.abs(err) > 1.1 && e.v > 30) inp.brake = true;
   return inp;
 }
