@@ -1,146 +1,73 @@
 # Party Arcade — guide for Claude Code sessions
 
-A free, static, browser **party game hub** (think Jackbox / Fall Guys): friends join one party and stay
-connected while the host switches between 3D games. Hosted on GitHub Pages at
-`https://footballer10.github.io/arcade/`. Laptop first, Chrome, keyboard + mouse.
+Free, static, browser party-game hub (Jackbox / Fall Guys style) on GitHub Pages: `https://footballer10.github.io/arcade/`.
+Friends join one party and stay connected while the host switches between 3D games. Laptop, Chrome, keyboard + mouse.
 
-**Every new game must use `/core` and must pass the checklist in [`docs/ADDING_A_GAME.md`](docs/ADDING_A_GAME.md).**
-Start from `games/_template` (Coin Grab). That template is **hidden from players**: it only appears in the lobby with `?dev=1` (used by developers and the tests). One game per session.
+## Work efficiently (usage matters)
+- Read this file and the files you change. Don't explore the whole repo; `docs/ARCHITECTURE.md` only if you change `/core` or netcode.
+- One game per chat: only edit `games/<id>/`. Change `/core` only when the task is about the hub/core.
+- Test only what you changed: a game → `cd tests && node e2e.mjs <id>` (+ `memory.mjs <id>` if you touched
+  loading/cleanup, `lag.mjs <id>` if you touched netcode). GitHub runs every test on each push to main (Actions tab), so
+  don't run the full suite yourself. `npm install` in `tests/` once if `node_modules` is missing.
+- No screenshots unless the change is visual; no extra report / notes files; short replies.
+- When done: commit, `git fetch origin main && git merge origin/main`, push to main.
 
 ## Hard rules
-- 100% free: static files on GitHub Pages; Three.js `0.160.0` and PeerJS `1.5.4` from jsDelivr via the import map in `index.html`; the public PeerJS server; free public MQTT brokers (broker.emqx.io, broker.hivemq.com, test.mosquitto.org, mqtt.eclipseprojects.io) as the connection fallback. No build step, no npm to play, no paid services, no accounts for players. The one exception (approved by the owner): a free Metered TURN account in `core/turn-config.js` (front-end-safe credential key only, never the Secret Key).
-- **Relative paths only** (the site lives under `/arcade/`). Import other core files as `../../core/x.js` from a game.
-- Never reload the page or touch the party connection from a game. Games talk only through `ctx`. Keep network traffic modest (≈20 Hz snapshots, compact data): some players are on the slower relay (~200 ms round trip, jittery).
-  Games must stay fun at that: predict your own player locally, never wait on the host for your own movement, and draw
-  others with `core/interp.js` (`SnapBuffer`, or `AdaptiveDelay` for an existing buffer) placed on the HOST's clock.
-  Never interpolate by arrival time or with a fixed "100 ms in the past": relay packets arrive bunched and late, and
-  both stutter. Correct your own player against where you were one round trip ago, not where you are now.
-  Test with `?netsim=100,30,250,4` and `node lag.mjs <id>`. `games/_template` shows the pattern.
-- Don't edit another game's folder while working on yours. Changes to `/core` must stay backward compatible with every game in `games/registry.js`, and must be re-tested with `tests/` (all games).
+- 100% free, static files. Three.js `0.160.0` and PeerJS `1.5.4` from jsDelivr (import map in `index.html`); public PeerJS
+  server; free MQTT brokers for the relay; the owner-approved Metered TURN logins in `core/turn-config.js`. No build step,
+  no paid services, no player accounts.
+- Relative paths only (site lives under `/arcade/`); games import core as `../../core/x.js`.
+- Games talk only through `ctx`; never reload the page or touch the party connection.
+- Lag: players may be on a ~200 ms relay. Predict your own player; draw others with `core/interp.js` on the host's clock
+  (see `docs/ARCHITECTURE.md`). Snapshots ≈20 Hz, compact.
+- `/core` changes must keep every game in `games/registry.js` working.
 
-## Architecture
-```
-index.html          the hub page (the only HTML page). Import map + #stage (game) + #hud (zones) + hub screens
-core/hub.js         party loop: home → lobby → (host pick | vote | shuffle) → pre-round picks → loading barrier
-                    → shared countdown → play → results (+trophies) → lobby / next shuffle game → podium
-core/net.js         PartyNet: party connection behind a transport interface; host-authoritative star; 4-letter
-                    room codes + ?room=CODE links; heartbeats + host clock sync; host migration; handover;
-                    rejoin after refresh / Wi-Fi drop; per-round game channels (makeChannel → ctx.net)
-core/transport-dual.js   the online transport every party uses: direct WebRTC and the relay tried at the same time
-                         (direct preferred); a failed join offers "Copy details" with both reasons + a server check
-core/transport-peer.js   PeerJS/WebRTC transport (reliable JSON 'ctrl' + unreliable binary 'fast' channel; public STUN +
-                         TURN logins fetched from the Metered account in core/turn-config.js)
-core/transport-rtc.js    WebRTC whose setup goes through the relay (for networks that block the PeerJS server, e.g. school)
-core/transport-relay.js  backup relay: party messages through free public MQTT brokers over wss (core/mqtt.js), for
-                         networks / managed laptops that block WebRTC. Lobby tags those players "relay"
-core/transport-local.js  BroadcastChannel transport: tabs of one browser, no internet (?net=local)
-                         A player on the relay keeps retrying the direct link and moves over mid-game when it works.
-                         Settings → "Copy connection report" shows path, ping spread, freezes and why direct failed.
-core/keepalive.js   1 s clock from a worker: heartbeats, server pings and reconnects keep running in background tabs
-                    (the host re-registers its party code and reconnects relay servers by itself; lobby shows reachability)
-core/netsim.js      ?netsim=ONEWAY,JITTER,STALL,EVERY lag simulator (e.g. 100,30,250,4 ≈ the school relay); tests/lag.mjs
-core/music.js       ctx.music(style): synthesized in-game music loops (golf, downhill, arena, stadium, snake, arcade); intensity(0..1)
-core/interp.js      SnapBuffer / AdaptiveDelay: smooth drawing of others from late, bunched snapshots (use in every game)
-core/runtime.js     builds ctx for a game, runs its frame/tick loops, and force-cleans everything on stop
-core/party state    lives in hub.js (`S`): players {id,name,color,hat,ready,trophies,wins,isBot,connected}, phase, game, results
-core/input.js       the control map (below)          core/ui.js + ui.css   theme + HUD components
-core/audio.js       one AudioContext, master/music/sfx buses   core/settings.js   volumes, sensitivity, quality
-core/avatar.js      shared player character + hats    core/rng.js   seeded RNG    core/bots.js   bot slots + difficulty
-core/palette.js     8 party colors (player.color is an index)  core/three-utils.js   renderer + dispose helpers
-games/registry.js   list of game manifests (PLAYABLE = what players see); games are loaded with import() only when a round starts
-games/<id>/         one folder per game: manifest.js, index.js (start), tuning.js (feel constants), thumb.svg, game modules
-core/tune.js        tunable(): registers a game's tuning.js values   core/portal.js   developer tuning portal (localhost only)
-tools/portal.py     local server for the portal (127.0.0.1 only; can save games/<id>/tuning.js)
-```
-Host-authoritative: the host runs the game simulation and every bot; clients send inputs and predict. If the host
-leaves, the first remaining human (join order) becomes host and the game gets `'hostchange'` — rebuild your
-authoritative state from the latest state you saw. Players who join mid-round spectate (`ctx.spectator`).
-
-## The plug-in contract
-`games/<id>/index.js` exports `manifest` (re-exported from `manifest.js`, which must import nothing) and
-`async start(ctx) → { stop(), standings?() }`.
+## Game plug-in contract
+`games/<id>/index.js` exports `manifest` (from `manifest.js`, which imports nothing) and `async start(ctx) → { stop(), standings?() }`.
 ```js
 manifest = { id, dir?, name, tagline, minPlayers, maxPlayers, teams: false|2, supportsBots, roundLengthSec,
-             howTo: ['goal', 'how to win', 'key tips'],          // 2–4 short plain sentences, shown on the pre-round screen
-             controlsHelp: [[keys, action]], thumbnail: 'games/<id>/thumb.svg',
-             picks:   [{ key, label, default, choices: [{ value, label, desc? }] }],   // every player chooses (pre-round screen)
-             options: [{ key, label, default, choices: [...] }] }                      // the host chooses
+  howTo: ['goal', 'how to win', 'key tip'],        // 2–4 short sentences for first-time players (pre-round screen)
+  controlsHelp: [[keys, action]], thumbnail: 'games/<id>/thumb.svg',
+  picks: [{ key, label, default, choices: [{ value, label, desc? }] }],   // each player chooses
+  options: [{ key, label, default, choices }] }                          // host chooses
 ```
-Every game goes through the hub's **pre-round screen**: picks/options on the left, and on the right "How to play"
-(`tagline` + `howTo`) and every key from `controlsHelp`. That is where players learn the game, so write `howTo` for
-someone who has never played: what you're trying to do, how a round is won, and the 1–2 things that matter most.
-Don't add your own in-game controls panels at the start; the loading screen deliberately shows no controls.
-
-`ctx` (see `core/runtime.js`):
-| | |
+| ctx | |
 |---|---|
-| `container` | full-screen element for your canvas / play-area overlays |
-| `players` | participants `[{id, name, color (palette index), colorHex, colorCss, hat, isBot}]`; `player(id)`, `connected(id)` |
-| `myId`, `isHost` (getter), `hostId`, `spectator`, `started` | identity and round state |
-| `seed`, `rng(salt)` | round seed from the host; `rng()` gives a seeded generator — build levels from it |
-| `options`, `picks[playerId]` | host options and per-player picks from the pre-round screen |
-| `net` | this round's channel: `toHost(msg)` (any client; host loops back), host-only `toAll(msg, self=true)`, `to(id, msg)`; unreliable binary `rawToHost(buf)`, `rawToAll(buf)`, `rawTo(id, buf)`; `onMessage((msg, from) => …)`, `onRaw((ArrayBuffer, from) => …)`, `ping()`, `now()` |
-| `input` | control map: `axis()`, `down(action)`, `presses(action)`, `key(code)`, `mouse`, `on('press'|'release'|'key'|'wheel', fn)`, `lockPointer()` |
-| `ui` | HUD: `status(html)`, `timer(sec)`, `mini(rows)`, `abilities(slots)`, `bar(f, label)`, `zone(z)`, `toast`, `banner`, `setScoreboard(fn)`, `el`, `esc` |
-| `audio`, `settings`, `quality()` | shared sound engine (`audio.sfx` bus, `tone`, `burst`, `play`), saved settings, graphics preset |
-| `avatar` | `build(player)`, `hat(kind, color)`, `dispose(obj)` |
-| `three` | `createRenderer()` (quality-aware, auto-disposed), `dispose(obj, keepSet)`, `applyQuality(renderer, light)` |
-| `bots` | `{ level: {key, tier, rank, reaction, aimError, skill, mistakes}, list, Brain }` — the host runs bots with your own AI. Tiers: easy (rank 0), normal (1), hard (2), extreme (3). Extreme reports `key: 'hard'` for older code; check `level.tier === 'extreme'` / `level.rank >= 3` for extreme-only behaviour (near-perfect play, no deliberate mistakes, smart tactics). |
-| `frame(fn(dt, now))`, `tick(fn(dt))` | render loop / 60 Hz sim tick that keeps running in background tabs |
-| `setTimeout`, `setInterval`, `listen(target, type, fn)`, `onCleanup(fn)` | auto-cleared on stop |
-| `on(event, fn)` | `'go'` (shared countdown done: start now), `'hostchange'` `{amHost, hostId, oldHost}`, `'join'` (id loaded mid-round: send them a full sync), `'leave'` (id), `'rejoin'`, `'resize'`, `'settings'` |
-| `endGame(placements, {stats, note, title})` | host only. `placements` = ids best→worst; ties as arrays: `[[a, b], c]`. `stats[id]` text shows on the results screen |
+| `container`, `players` `[{id,name,color,colorHex,colorCss,hat,isBot}]`, `player(id)`, `connected(id)` | |
+| `myId`, `isHost`, `hostId`, `spectator`, `started`, `seed`, `rng(salt)`, `options`, `picks[id]` | build levels from `rng()` |
+| `net` | `toHost(msg)`, host `toAll(msg)`, `to(id,msg)`; binary `rawToHost/rawToAll/rawTo`; `onMessage`, `onRaw`, `ping()`, `now()` (host clock) |
+| `input` | `axis()`, `down(a)`, `presses(a)`, `key(code)`, `mouse`, `on('press'…)`, `lockPointer()` |
+| `ui` | `status`, `timer`, `mini`, `abilities`, `bar`, `toast`, `banner`, `setScoreboard(fn)`, `el`, `esc` |
+| `audio`, `settings`, `quality()`, `music(style).start()` | sound buses; graphics preset; in-game music (`core/music.js` styles) |
+| `avatar.build(p)`, `avatar.hat(kind,color)`, `three.createRenderer()`, `three.dispose(obj)` | |
+| `bots.level` `{key, tier, rank, reaction, aimError, skill, mistakes}` | tiers easy/normal/hard/extreme (rank 0–3); extreme reports `key:'hard'` |
+| `teams` `{on, of(id), mates(id), names, colors}` | team mode (Red 0 / Blue 1) when the host turns it on: no friendly fire, team wins |
+| `setOut(bool)` | call when YOUR player is knocked out / back in: gives them the crowd bar (cheers, tomatoes) |
+| `crowd.chaos([{id,label}])` | host: offer chaos events; knocked-out players vote; winner arrives as `on('chaos', id)` |
+| `frame(fn)`, `tick(fn)` (60 Hz, runs in background tabs), `setTimeout`, `setInterval`, `listen`, `onCleanup` | auto-cleared on stop |
+| `on(event)` | `'go'` (start now), `'hostchange'`, `'join'`, `'leave'`, `'rejoin'`, `'resize'`, `'settings'`, `'chaos'` |
+| `endGame(placements, {stats, note, title})` | host only; ids best→worst, ties as arrays `[[a,b],c]` |
 
-**Relay trap:** `toAll(msg)` also delivers `msg` to the host's own `onMessage` (from = host). Never relay a message under the same type you are handling (e.g. client `{t:'emote'}` → host relays `{t:'emoted'}`), or the host re-broadcasts its own copy forever and the game locks up.
+**Relay trap:** `toAll(msg)` also reaches the host's own `onMessage`. Never re-broadcast under the type you're handling
+(client `{t:'emote'}` → host relays `{t:'emoted'}`), or the host loops forever.
 
-**Tuning:** every game has `games/<id>/tuning.js` listing its feel constants (speeds, jump, gravity, cooldowns,
-knockback, timings) via `tunable()`; the values there are the defaults. `index.js` imports it first, and the game reads
-those values when it uses them (not copies made at load), so the developer portal can change them live. See `docs/PORTAL.md`.
-**To change a feel constant, change it in `tuning.js`** (and keep the same number in the game's own file, e.g. `world.js`):
-tuning.js overrides the code at runtime, so a change made only in the code file is silently undone. `node portal.mjs` fails on any mismatch.
+**Tuning:** feel constants live in `games/<id>/tuning.js` (imported first by `index.js`) and override the code; change them
+there (keep the same number in the code file). `node portal.mjs` fails on a mismatch. Portal: `python3 tools/portal.py`.
 
-`standings()` (optional) returns current placements; used if the host ends the game early (otherwise no trophies).
-Trophies: 1st 5, 2nd 3, 3rd 2, everyone else 1 (ties share the higher place).
+## Controls (`core/input.js`)
+WASD/arrows move · mouse aim/look · left/right click `primary`/`secondary` · Space `jump` · Shift `boost` (only if the game
+has one) · E `use` · Q `special` · Tab scoreboard, Esc pause, Enter chat are **hub only**. Use only the actions your game
+needs; list every key in `controlsHelp`.
 
-## Control map (core/input.js) — games map their actions onto these
-| Key | Action | | Key | Action |
-|---|---|---|---|---|
-| WASD / Arrows | move (`axis()`, actions `up/down/left/right`) | | E | use item (`use`) |
-| Mouse | aim / look (`mouse`, `takeMouseDelta(sens)`) | | Q | special (`special`) |
-| Left / right click | `primary` / `secondary` | | Tab | scoreboard — **hub only** |
-| Space | jump / action (`jump`) | | Esc | pause menu — **hub only** |
-| Shift | boost / dash, *if the game has one* (`boost`) | | Enter | chat — **hub only** |
-The map says **which key to use if your game has that kind of action**. It is not a feature list: don't add a boost,
-dash, jump, item or special just because a key exists for it. Most games use only a few of these (Mini-Golf uses mouse +
-E + Space; Downhill has no boost key). Add extra keys only when the game truly needs them (e.g. Downhill grabs, emotes on
-1–4) and list every key you use in `controlsHelp`.
+## UI and style
+- HUD only in the four zones: `ui.status` (top-left), `ui.timer` (top-center), `ui.mini` (top-right), `ui.abilities`/`ui.bar`
+  (bottom-center); plus `toast`/`banner`. Never build your own menu, lobby, results or settings screen.
+- Bright cartoon look, toon shading, ink outlines; font `var(--font)` (Lilita One, bundled); palette in `core/ui.css` +
+  `core/palette.js`; building blocks `.ph-panel` `.ph-head` `.ph-well` `.ph-btn` `.count-pill`.
+- Players keep their party color; show `ctx.avatar.build(p)` or at least their hat. Respect `ctx.quality()` (low = no
+  shadows, pixel ratio 1, no post-processing).
+- Cleanup: renderer via `ctx.three.createRenderer()`; loops/timers/listeners via ctx; `stop()` disposes everything you made.
+  `node memory.mjs <id>` must return to zero.
 
-## UI / HUD rules
-- HUD goes **only** in the four zones: top-left status (`ui.status`), top-center timer (`ui.timer`), top-right mini scoreboard (`ui.mini`), bottom-center abilities/items/meters (`ui.abilities`, `ui.bar`). Toasts and banners via `ui.toast` / `ui.banner`; the countdown, pause menu, results screen and Tab scoreboard are the hub's (use `ui.setScoreboard` to add your table).
-- Never build your own menu, lobby, results or settings screen. Per-game choices go in `manifest.picks` / `options`.
-- Play-area extras that belong to the 3D world (name tags, minimap, kill feed, trick meter) may live in `ctx.container`, styled with the shared variables.
-
-## Visual style rules
-- Bright cartoon look: saturated colors, toon/flat shading, chunky shapes, dark ink outlines where possible, sunny skies.
-- One font (`var(--font)`, Lilita One, bundled in `core/fonts/`, no Google Fonts), one palette (`core/ui.css` variables + `core/palette.js`), rounded panels with 3–4 px ink borders.
-  Shared building blocks in `core/ui.css`: `.ph-panel` (+ `.purple` / `.dark`), `.ph-head` header ribbon, `.ph-well` inset area, `.ph-btn` (+ `big`/`green`/`ghost`/`danger`/`purple`/`pink`/`small`), `.ph-x` close button, `.ph-switch` toggle, `.count-pill`.
-- Players keep their party color everywhere; show the player's avatar (`ctx.avatar.build`) or at least their hat (`ctx.avatar.hat`).
-- Respect `ctx.quality()`: low = no shadows, pixel ratio 1, no post-processing.
-
-## Cleanup rules (load/unload 10× must not grow memory)
-- Create the renderer with `ctx.three.createRenderer()`; all loops via `ctx.frame` / `ctx.tick`; all timers/listeners via ctx helpers.
-- In `stop()`: dispose scenes (`ctx.three.dispose(scene, keep)`), composers/render targets, workers, audio nodes you created, and any module-level caches you filled. Never keep references to ctx after stop.
-- Module-level shared geometries/materials are fine (loaded once); per-round objects must be disposed.
-
-## How to test
-`cd tests && npm install && node run-all.mjs` (details in `tests/README.md`). Tests serve the repo, run a local
-PeerJS server and a local MQTT broker (relay), launch Chromium with 2–3 browser contexts (real WebRTC), and route the CDN to local copies.
-- `node e2e.mjs <gameId>` — create, join by link + code, ready, play to results, back to lobby, refresh-rejoin, no console errors
-- `node memory.mjs <ids…>` — 10 load/unload cycles; renderers/canvases/HUD return to zero, heap stays flat
-- `node migration.mjs <gameId>` — host closes their tab mid-game; party and game survive
-- `node party.mjs` — vote, shuffle + podium, mid-game join, host handover, kick · `node local.mjs` — BroadcastChannel tabs
-- Add a driver for your game in `tests/drivers.mjs` so the tests can play it to the end.
-- Locally by hand: `python3 -m http.server 8000` in the repo root, open `http://localhost:8000/?net=local` in two tabs.
-- Tuning portal: `python3 tools/portal.py` opens `http://localhost:8000/?portal=1` (play any game, sliders for its
-  `tuning.js`, save new defaults). Only works on localhost. Details in [`docs/PORTAL.md`](docs/PORTAL.md). `node portal.mjs` tests it.
-- Dev URL flags: `?dev=1` (show the template in the lobby), `?relay=url` (own MQTT broker; `off` = no relay), `?forcerelay=1` (skip the direct link, tests), `?net=local` (tabs, no internet), `?peer=host:port` (own PeerJS server), `?netlog=1` (net log), `?testfps=N` (tests only), `?portal=1` (tuning portal, localhost only), `?netsim=100,30,250,4` (simulate relay lag), `?forcerelay=join` (start on the relay, upgrade allowed), `?blockdirect=1` (direct link never connects, tests).
+## New game
+Copy `games/_template` (Coin Grab, hidden unless `?dev=1`) and follow `docs/ADDING_A_GAME.md`.

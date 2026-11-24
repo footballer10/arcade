@@ -1,6 +1,15 @@
 # Automated tests
 
-Not needed to play. They drive real Chromium pages with Playwright.
+Not needed to play. They drive real Chromium pages with Playwright. **GitHub runs all of them on every push to main**
+(`.github/workflows/tests.yml`, one job per game in parallel; failures email whoever pushed). Locally, run only what you changed:
+
+| You changed | Run |
+|---|---|
+| one game | `node e2e.mjs <id>` (+ `memory.mjs <id>` for loading/cleanup, `lag.mjs <id>` for netcode) |
+| a game's `tuning.js` | `node portal.mjs` |
+| hub screens / party flow | `node features.mjs` and `node party.mjs` |
+| connections (`core/net.js`, transports) | `node joinpaths.mjs`, `node upgrade.mjs`, `node hostdrop.mjs`, `node migration.mjs coingrab` |
+
 
 ```
 cd tests
