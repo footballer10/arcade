@@ -1,0 +1,48 @@
+# Runs the browser tests on every push to main (free on GitHub for public repos). If something breaks, GitHub
+# emails whoever pushed and shows a red ✗ next to the commit. One job per game, in parallel, plus the hub tests.
+name: tests
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true   # many pushes in a row: only the newest gets tested
+jobs:
+  game:
+    name: ${{ matrix.game }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        game: [golf, downhill, arena, snake, lava, neon, obstacle, floorfall, prophunt, rocketsoccer, coingrab]
+    defaults: { run: { working-directory: tests } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: tests/package-lock.json }
+      - run: npm ci && npm install --no-save playwright@1.63.0 && npx playwright install --with-deps chromium
+      - name: play ${{ matrix.game }} end to end
+        run: node e2e.mjs ${{ matrix.game }}
+      - name: load / unload 10 times (memory)
+        run: node memory.mjs ${{ matrix.game }}
+  hub:
+    name: hub + connections
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults: { run: { working-directory: tests } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: tests/package-lock.json }
+      - run: npm ci && npm install --no-save playwright@1.63.0 && npx playwright install --with-deps chromium
+      - run: node features.mjs
+      - run: node party.mjs
+      - run: node solo.mjs
+      - run: node joinpaths.mjs
+      - run: node hostdrop.mjs
+      - run: node upgrade.mjs arena
+      - run: node upgrade.mjs coingrab nopeer
+      - run: node migration.mjs coingrab
+      - run: node portal.mjs

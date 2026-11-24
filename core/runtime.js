@@ -73,6 +73,8 @@ export class GameRuntime extends Emitter {
       },
       rng: (salt = 0) => createRng((game.seed ^ salt) >>> 0),
       bots: { level, list: plist.filter((p) => p.isBot), Brain: BotBrain },
+      // Team mode (host switch in the lobby): Red (0) vs Blue (1). Games that support teams use it (no friendly fire, team wins).
+      teams: { on: !!game.teams, of: (id) => game.teams?.[id] ?? null, mates: (id) => plist.filter((q) => game.teams && q.id !== id && game.teams[q.id] === game.teams[id]).map((q) => q.id), names: ['Red', 'Blue'], colors: ['#ff5a5f', '#3ea6ff'] },
       endGame: (placements, extra = {}) => { if (!net.isHost) return; if (!rt.stopped) hub.gameEnded(game.round, placements, extra); },
       on: (type, fn) => { const off = this.on(type, fn); this.cleanups.push(off); return off; },
       setTimeout: (fn, ms) => { const id = setTimeout(() => { this.timeouts.delete(id); if (!this.stopped) fn(); }, ms); this.timeouts.add(id); return id; },
@@ -86,6 +88,10 @@ export class GameRuntime extends Emitter {
       log: (...a) => console.log(`[${manifest.id}]`, ...a),
       // in-game music (core/music.js): ctx.music('golf').start(); stops automatically when the round ends
       music: (style) => { const m = createMusic(style); this.cleanups.push(() => m.stop()); return m; },
+      // Crowd (players who are out): tell the hub when YOUR player is knocked out / back in, so you get the crowd bar
+      // (cheers, tomatoes, chaos votes). Host only: offer chaos events; the crowd's pick arrives as ctx.on('chaos', id).
+      setOut: (v) => hub.setOut?.(game.round, !!v),
+      crowd: { chaos: (options) => { if (net.isHost) hub.setChaos?.(game.round, options); } },
     };
     this._raf = 0; this._last = performance.now();
     const loop = (now) => {

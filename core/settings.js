@@ -9,6 +9,7 @@ export const DEFAULTS = {
   sens: 1,                               // mouse sensitivity multiplier 0.2..3
   quality: 'high',                       // low | med | high
   showFps: false,
+  nameFx: '', dance: 'bounce', title: '',  // cosmetics unlocked with lifetime trophies (core/profile.js)
 };
 export const QUALITY = {
   low: { pixelRatio: 1, shadows: false, shadowMap: 0, antialias: false, effects: false },
