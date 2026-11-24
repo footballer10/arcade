@@ -11,8 +11,8 @@
 import * as THREE from 'three';
 import { hex } from './palette.js';
 
-export const HATS = ['none', 'cap', 'tophat', 'crown', 'beanie', 'party', 'horns', 'halo'];
-export const HAT_LABELS = { none: 'No hat', cap: 'Cap', tophat: 'Top hat', crown: 'Crown', beanie: 'Beanie', party: 'Party hat', horns: 'Horns', halo: 'Halo' };
+export const HATS = ['none', 'cap', 'tophat', 'crown', 'beanie', 'party', 'horns', 'halo', 'propeller', 'wizard', 'viking'];
+export const HAT_LABELS = { none: 'No hat', cap: 'Cap', tophat: 'Top hat', crown: 'Crown', beanie: 'Beanie', party: 'Party hat', horns: 'Horns', halo: 'Halo', propeller: 'Propeller', wizard: 'Wizard', viking: 'Viking' };
 export const SKINS = [0xffdcc0, 0xf3c39b, 0xe0a678, 0xc68655, 0x9a6440, 0x6b4428];
 export const HAIRS = ['short', 'spiky', 'curly', 'long', 'ponytail', 'bun', 'mohawk', 'bald'];
 export const HAIR_LABELS = { short: 'Short', spiky: 'Spiky', curly: 'Curly', long: 'Long', ponytail: 'Ponytail', bun: 'Bun', mohawk: 'Mohawk', bald: 'Bald' };
@@ -69,6 +69,14 @@ export function buildHat(kind, color = 0xffffff) {
     case 'beanie': { const d = mesh(G.dome, tint, 0, -0.06, 0); d.scale.set(1.05, 0.95, 1.05); g.add(d, mesh(G.pom, M.white, 0, 0.36, 0)); break; }
     case 'party': { const c = mesh(G.cone, tint, 0, 0.25, 0); c.rotation.z = 0.15; g.add(c, mesh(G.pom, M.gold, -0.08, 0.56, 0)); break; }
     case 'horns': for (const s of [-1, 1]) { const h = mesh(G.horn, M.horn, s * 0.3, 0.05, 0); h.rotation.z = -s * 0.7; g.add(h); } break;
+    case 'propeller': {   // beanie with a little spinning propeller (it spins while the avatar moves its head)
+      const d = mesh(G.dome, tint, 0, -0.06, 0); d.scale.set(1.02, 0.8, 1.02); g.add(d, mesh(G.pom, M.gold, 0, 0.3, 0));
+      const blades = new THREE.Group(); blades.position.y = 0.36;
+      for (const s of [-1, 1]) { const b = mesh(G.gem, s > 0 ? M.red : M.blue, s * 0.16, 0, 0); b.scale.set(2.6, 0.35, 0.9); blades.add(b); }
+      g.add(blades); g.userData.spin = blades; break;
+    }
+    case 'wizard': { const b = mesh(G.brim, tint, 0, -0.02, 0); b.scale.set(1.08, 1, 1.08); const c = mesh(G.cone, tint, 0, 0.36, 0); c.scale.set(1.25, 1.35, 1.25); c.rotation.z = -0.18; g.add(b, c, mesh(G.gem, M.gold, -0.05, 0.42, 0.27)); break; }
+    case 'viking': { const d = mesh(G.dome, M.horn, 0, -0.04, 0); d.material = toon(0xb8c2d6); g.userData.ownMats.push(d.material); g.add(d, mesh(G.band, M.gold, 0, -0.02, 0)); for (const s of [-1, 1]) { const h = mesh(G.horn, M.horn, s * 0.38, 0.12, 0); h.rotation.z = -s * 1.0; g.add(h); } break; }
     case 'halo': { const h = mesh(G.halo, M.halo, 0, 0.28, 0); h.rotation.x = Math.PI / 2; h.castShadow = false; g.add(h); break; }
   }
   return g;
@@ -146,6 +154,7 @@ export function buildAvatar(player = {}) {
       arms[0].rotation.z = -0.18 - breathe * 0.04 - jump * 0.4; arms[1].rotation.z = 0.18 + breathe * 0.04 + jump * 0.4;
       head.rotation.z = Math.sin(t * 1.3) * 0.05 * (1 - run);
       head.position.y = 0.34 + breathe * 0.01;
+      if (hat.userData.spin) hat.userData.spin.rotation.y = t * 14;
     },
   };
   root.userData.setPose({ t: 0 });
@@ -159,4 +168,21 @@ export function disposeAvatar(obj) {
     for (const m of mats) if (!SHARED_MAT.has(m)) m.dispose();
   });
   obj.removeFromParent();
+}
+
+// Victory dances (unlocked with lifetime trophies; core/profile.js). Call every frame instead of setPose.
+export const DANCE_IDS = ['bounce', 'spin', 'sway', 'disco', 'flip'];
+export function dance(a, kind, t) {
+  const u = a.userData; if (!u?.rig) return;
+  u.setPose({ t });
+  const { rig, arms } = u, TAU = Math.PI * 2;
+  rig.rotation.x = 0; rig.rotation.y = 0;
+  const armsUp = (k = 1) => { arms[0].rotation.z = -0.18 - 2.3 * k; arms[1].rotation.z = 0.18 + 2.3 * k; };
+  switch (kind) {
+    case 'spin': rig.rotation.y = t * 5; rig.position.y = Math.abs(Math.sin(t * 5)) * 0.12; armsUp(0.6); break;
+    case 'sway': rig.rotation.z = Math.sin(t * 4) * 0.22; armsUp(1); arms[0].rotation.z += Math.sin(t * 8) * 0.35; arms[1].rotation.z -= Math.sin(t * 8) * 0.35; break;
+    case 'disco': { const up = Math.sin(t * 4) > 0; arms[1].rotation.z = up ? 2.7 : 0.4; arms[0].rotation.z = up ? -0.4 : -2.7; rig.rotation.y = Math.sin(t * 4) * 0.35; rig.position.y = Math.abs(Math.sin(t * 8)) * 0.06; break; }
+    case 'flip': { const ph = (t % 2.2) / 2.2; if (ph < 0.45) { const k = ph / 0.45; rig.position.y = Math.sin(k * Math.PI) * 0.9; rig.rotation.x = -k * TAU; armsUp(1); } else { rig.position.y = 0; armsUp(Math.sin((ph - 0.45) * 12) > 0 ? 1 : 0.7); } break; }
+    default: rig.position.y = Math.abs(Math.sin(t * 6)) * 0.28; armsUp(0.9);
+  }
 }

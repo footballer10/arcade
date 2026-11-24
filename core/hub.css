@@ -116,7 +116,7 @@ body.in-game { background: #111; }
 .seg .mode.on { background: linear-gradient(180deg, #fff0a0, var(--yellow) 60%, #ffb800); color: var(--ink); text-shadow: none; }
 .seg .mode:disabled { cursor: default; }
 .seg .mode:disabled:not(.on) { opacity: .75; }
-#shuffleLen { padding: 5px 10px; font-size: .95rem; }
+#shuffleLen, #playlist { padding: 5px 10px; font-size: .95rem; }
 #lobby .l-mid .game-grid { flex: 1; overflow-y: auto; min-height: 0; align-content: start; grid-auto-rows: max-content; padding: 6px 6px 10px; margin: 0 -6px; }
 .game-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(150px, 11.2vw, 230px), 1fr)); gap: 12px; }
 .game-card { position: relative; display: flex; flex-direction: column; border: 3px solid var(--ink); border-radius: 18px; overflow: hidden; cursor: pointer; background: #213; text-align: left; padding: 0;
@@ -241,3 +241,62 @@ label.ph-field input:not([type]), label.ph-field input[type=text] { flex: 1; min
   .setup-grid { height: auto; }
   .start-bar { flex-wrap: wrap; }
 }
+
+/* ---------------------------------------------------------------- profile: name styles, titles, unlocks */
+.nfx-gold { color: #ffd23f; }
+.nfx-fire { background: linear-gradient(90deg, #ffe066, #ff8c42, #ff4d5e); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-stroke: .4px var(--ink); text-shadow: none; }
+.nfx-rainbow { background: linear-gradient(90deg, #ff5f6d, #ffc371, #b6f7a6, #7cf0ff, #c3a8ff, #ff5f6d); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  -webkit-text-stroke: .4px var(--ink); text-shadow: none; animation: nfx-slide 3s linear infinite; }
+@keyframes nfx-slide { to { background-position: 200% 0; } }
+.avatar-row .name.nfx-gold { color: #ffd23f; }
+.players li .nm .ttl { display: block; font-size: .62em; line-height: 1; color: #ffe680; opacity: .95; margin-top: 1px; }
+.hats button.locked { opacity: .55; filter: grayscale(.6); }
+.hats button .lock { font-size: .7em; }
+.prof-stats { text-align: left; padding: 10px 12px; line-height: 1.45; text-shadow: var(--stroke); }
+.prof-stats .ps-big { font-size: 1.5rem; color: var(--yellow); }
+.prof-stats .ps-big small { font-size: .9rem; color: #fff; }
+#profile .ph-panel { max-height: calc(100vh - 30px); overflow-y: auto; }
+#titleSel { width: 100%; padding: 5px 8px; font-size: .95rem; }
+.dances { grid-template-columns: repeat(3, 1fr); }
+#homeStats { font-size: .9rem; padding: 3px 10px; }
+
+/* party awards on the podium */
+.pod-awards { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: 900px; margin: 0 auto 14px; }
+.award { display: flex; gap: 10px; align-items: center; text-align: left; padding: 8px 14px; border-radius: 16px; border: 3px solid var(--ink); background: var(--panel-purple);
+  box-shadow: 0 5px 0 var(--ink); text-shadow: var(--stroke); animation: ph-pop-in .5s both; min-width: 220px; }
+.award .ai { font-size: 2rem; text-shadow: none; }
+.award b { color: var(--yellow); font-weight: 400; font-size: 1.1rem; }
+@keyframes ph-pop-in { from { opacity: 0; transform: scale(.6) translateY(10px); } }
+#crownBtn { margin-top: 8px; align-self: flex-start; }
+
+/* crowd: players who are out */
+.crowd-bar { position: fixed; left: 14px; bottom: 120px; z-index: 23; padding: 8px 10px; border-radius: 16px; border: 3px solid var(--ink); background: var(--pill); text-shadow: var(--stroke); box-shadow: 0 4px 0 rgba(0,0,0,.35); }
+.crowd-bar .cb-t { font-size: .9rem; margin-bottom: 6px; }
+.crowd-bar .cb-row { display: flex; gap: 6px; align-items: center; }
+.crowd-bar button { font: 1.3rem var(--font); width: 44px; height: 40px; border-radius: 12px; border: 3px solid var(--ink); background: linear-gradient(180deg, #7ccaff, var(--blue)); cursor: pointer; box-shadow: 0 3px 0 var(--ink); }
+.crowd-bar button:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
+.crowd-bar button.tomato { background: linear-gradient(180deg, #ff8a95, var(--red)); }
+.crowd-bar .cb-sep { width: 6px; }
+.crowd-bar select { padding: 4px 6px; font-size: .9rem; max-width: 130px; }
+.cb-vote { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.cb-vote button { width: auto; height: auto; padding: 6px 10px; font-size: .95rem; color: #fff; text-shadow: var(--stroke); text-align: left; }
+.cb-vote button.sel { background: linear-gradient(180deg, #fff0a0, var(--yellow)); color: var(--ink); text-shadow: none; }
+#crowdFeed { position: fixed; left: 0; bottom: 210px; width: 360px; height: 0; z-index: 24; pointer-events: none; }
+#crowdFeed .cf { position: absolute; bottom: 0; white-space: nowrap; padding: 3px 10px; border-radius: 12px; background: var(--pill); text-shadow: var(--stroke); animation: cf-up 2.6s ease-out forwards; }
+#crowdFeed .ce { font-size: 1.4rem; text-shadow: none; }
+@keyframes cf-up { 0% { opacity: 0; transform: translateY(10px) scale(.8); } 10% { opacity: 1; transform: none; } 80% { opacity: 1; } 100% { opacity: 0; transform: translateY(-140px); } }
+#splats { position: fixed; inset: 0; z-index: 21; pointer-events: none; }
+.splat { position: absolute; width: 200px; height: 170px; opacity: .88; animation: splat-in 3.2s forwards;
+  background: radial-gradient(circle at 30% 35%, #ff6a5a 0 22%, transparent 23%), radial-gradient(circle at 62% 55%, #e8382c 0 30%, transparent 31%),
+    radial-gradient(circle at 45% 70%, #d92d22 0 18%, transparent 19%), radial-gradient(circle at 78% 30%, #ff5444 0 12%, transparent 13%),
+    radial-gradient(circle at 20% 75%, #ff7766 0 9%, transparent 10%), radial-gradient(circle at 55% 40%, #ffd5c9 0 4%, transparent 5%); filter: drop-shadow(0 4px 0 rgba(0,0,0,.3)); }
+@keyframes splat-in { 0% { opacity: 0; scale: 1.6; } 6% { opacity: .9; scale: 1; } 75% { opacity: .85; } 100% { opacity: 0; translate: 0 40px; } }
+body:not(.in-game) #crowdBar, body:not(.in-game) #crowdFeed, body:not(.in-game) #splats { display: none; }
+
+/* team mode */
+.team-box { display: flex; gap: 8px; margin-bottom: 10px; flex: none; }
+#teamsBtn.on { background: linear-gradient(180deg, #fff0a0, var(--yellow) 60%, #ffb800); color: var(--ink); text-shadow: none; }
+.ph-tag.team { cursor: default; } .ph-tag.team[data-swap] { cursor: pointer; }
+.ph-tag.team.t0 { background: #ff5a5f; color: #fff; } .ph-tag.team.t1 { background: #3ea6ff; color: #fff; }
+.team-score { display: flex; justify-content: center; align-items: center; gap: 10px; margin: 0 0 8px; padding: 6px; border-radius: 12px; background: rgba(0,0,0,.25); font-size: 1.2rem; text-shadow: var(--stroke); }
+.team-score .vs { font-size: .8rem; opacity: .7; }

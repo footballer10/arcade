@@ -28,7 +28,7 @@
     <p class="tagline">One party · lots of games · stay together between games</p>
     <div class="home-grid">
       <div class="ph-panel purple profile">
-        <div class="ph-head"><span class="ic">😎</span>You</div>
+        <div class="ph-head"><span class="ic">😎</span>You<span class="sp"></span><button class="ph-btn small purple" id="homeStats" data-open="profile" title="Lifetime stats, titles and unlocks">⭐ 0 🏆</button></div>
         <div class="pedestal"><div id="homeAvatar" class="avatar-slot"></div></div>
         <label class="ph-field name-field">Name <input id="nameIn" maxlength="14" placeholder="Your name" autocomplete="off"></label>
         <div class="pickers">
@@ -65,6 +65,7 @@
       <div class="ph-head room-head"><span class="ic">🎉</span>Party <span id="roomCode" class="ph-code big">----</span><span class="sp"></span><button id="copyLink" class="ph-btn small" title="Copy an invite link">🔗 Invite</button></div>
       <div id="netBadge" class="net-badge"></div>
       <ul id="playerList" class="ph-list players ph-well"></ul>
+      <div class="team-box"><button id="teamsBtn" class="ph-btn small" title="Split the party into Red and Blue teams for the whole session">👥 Teams: off</button><button id="teamShuffle" class="ph-btn small ghost hidden" title="Shuffle the teams">🔀 Shuffle teams</button></div>
       <div id="botCtl" class="bot-box host-only">
         <span class="bb-l">🤖 Bots</span>
         <button id="addBot" class="ph-btn small" title="Add a bot">+</button>
@@ -87,6 +88,7 @@
           <button class="mode" data-mode="vote">🗳 Everyone votes</button>
           <button class="mode" data-mode="shuffle">🔀 Shuffle</button>
         </div>
+        <select id="playlist" title="Which games the shuffle picks from"></select>
         <select id="shuffleLen"><option value="3">3 games</option><option value="5">5 games</option><option value="7">7 games</option></select>
       </div>
       <div id="gameGrid" class="game-grid"></div>
@@ -99,6 +101,7 @@
     <div class="ph-panel dark l-right">
       <div class="ph-head"><span class="ic">🏆</span>Champions</div>
       <div id="leaderboard"></div>
+      <button id="crownBtn" class="ph-btn small hidden" title="End the session with a podium and party awards">👑 Crown the champion</button>
       <div class="sub-head">💬 Chat</div>
       <div id="chatPanel" class="chat-panel ph-well"></div>
       <button id="chatOpen" class="chat-open">Say something… <kbd>Enter</kbd></button>
@@ -147,7 +150,7 @@
     <div id="resExtra" class="ph-sub res-note"></div>
     <div class="sub-head">🏆 Party standings</div>
     <div id="resStandings" class="ph-well"></div>
-    <div class="res-foot"><button id="resContinue" class="ph-btn big host-only">Continue</button><div id="resWait" class="ph-sub"></div></div>
+    <div class="res-foot"><button id="resRematch" class="ph-btn big green host-only">🔁 Rematch</button> <button id="resContinue" class="ph-btn big host-only">Continue</button><div id="resWait" class="ph-sub"></div></div>
   </div>
 </section>
 
@@ -157,6 +160,7 @@
     <div class="ph-title" id="podTitle">CHAMPION!</div>
     <div id="podiumStage" class="podium-stage"></div>
     <div id="podNames" class="pod-names"></div>
+    <div id="podAwards" class="pod-awards"></div>
     <div class="ph-row"><button id="podContinue" class="ph-btn big host-only">Back to lobby</button></div>
     <div id="podWait" class="ph-sub"></div>
   </div>
@@ -214,6 +218,13 @@
       <div class="pick-label">Hair</div><div class="hats" id="hairPick2"></div>
       <div class="pick-label">Hat</div><div class="hats" id="hatPick2"></div>
     </div>
+    <div class="sub-head">⭐ Stats &amp; unlocks</div>
+    <div id="profStats" class="prof-stats ph-well"></div>
+    <div class="pickers" style="margin-top:10px">
+      <div class="pick-label">Title</div><select id="titleSel"></select>
+      <div class="pick-label">Name style</div><div class="hats" id="fxPick"></div>
+      <div class="pick-label">Victory dance</div><div class="hats dances" id="dancePick"></div>
+    </div>
     <button class="ph-btn big" data-close style="margin-top:12px">Done</button>
   </div>
 </section>
@@ -222,6 +233,16 @@
 </section>
 <div id="reconnect" class="hidden"><div class="ph-panel yellow">📡 <span id="reconnectText">Reconnecting…</span></div></div>
 <div id="chatlog"></div>
+<div id="crowdFeed"></div>
+<div id="splats"></div>
+<div id="crowdBar" class="crowd-bar hidden">
+  <div class="cb-t">👀 You're out: cheer or heckle!</div>
+  <div class="cb-row">
+    <button data-crowd="cheer" title="Cheer">👏</button><button data-crowd="laugh" title="Laugh">😂</button><button data-crowd="fire" title="Hype">🔥</button>
+    <span class="cb-sep"></span><select id="crowdTarget" title="Who gets the tomato"></select><button data-crowd="tomato" class="tomato" title="Throw a tomato (every 6 s)">🍅</button>
+  </div>
+  <div id="crowdVote" class="cb-vote hidden"></div>
+</div>
 <div id="chatBox" class="hidden"><input id="chatIn" maxlength="120" placeholder="Say something… (Enter to send, Esc to cancel)" autocomplete="off"></div>
 <div id="fps" class="hidden"></div>
 
