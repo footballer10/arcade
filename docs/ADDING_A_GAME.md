@@ -1,51 +1,23 @@
-# Adding a game to Party Arcade
+# Adding a game
 
-One session = one game. Read `CLAUDE.md` first (contract, control map, HUD and style rules).
+One chat = one game. Rules and the `ctx` API are in `CLAUDE.md`; netcode rules in `docs/ARCHITECTURE.md`.
 
 ## Steps
-1. **Copy the template:** `cp -r games/_template games/<id>` (lowercase id, e.g. `games/bumpercars`).
-2. **Manifest** (`games/<id>/manifest.js`, no imports): delete the TEMPLATE comment, set `id`, remove `dir` (or set it to your folder), `name`,
-   `tagline`, `howTo` (2–4 short sentences: goal, how to win, key tips — shown next to the settings before every round), `minPlayers`/`maxPlayers` (party max is 8, bots count), `teams`, `supportsBots`, `roundLengthSec`
-   (aim for 1–4 minutes), `controlsHelp`, `thumbnail` (draw `thumb.svg`, 320×160, bright cartoon style), and any
-   `picks` (each player chooses, e.g. a character) / `options` (host chooses, e.g. map, rounds).
-3. **Register it:** one import + add it to `PLAYABLE` in `games/registry.js`.
-4. **Build the game in `start(ctx)`** (`games/<id>/index.js`). Keep the template's skeleton:
-   - Scene: `ctx.three.createRenderer()`, a `THREE.Scene`, a camera; resize on `ctx.on('resize')`; read `ctx.quality()`.
-   - Level: build it **only** from `ctx.rng()` / `ctx.seed` so every client gets the same world.
-   - Host simulation in `ctx.tick` (60 Hz, runs in background tabs). Clients send inputs with `ctx.net.toHost`
-     (or `rawToHost` for binary); the host broadcasts snapshots with `ctx.net.toAll` / `rawToAll` (10–20 Hz).
-     Clients predict their own player and interpolate the others.
-   - Wait for `ctx.on('go')` before starting the clock. The hub does the 3-2-1 countdown.
-   - Bots: on the host, give each `ctx.players` entry with `isBot` your AI, tuned by `ctx.bots.level`.
-   - Player looks: `ctx.avatar.build(player)` (or `ctx.avatar.hat(...)` on your own model) in the player's color.
-   - HUD only via `ctx.ui` zones; add a Tab table with `ctx.ui.setScoreboard`.
-   - Finish: host calls `ctx.endGame(placements, { stats })` once. Return `standings()` for early ends.
-   - Robustness: handle `'hostchange'` (new host rebuilds sim from the last snapshot), `'join'` (send a full sync
-     to a mid-round spectator), `'leave'` (freeze/remove that player). `ctx.spectator` players only watch.
-   - `stop()`: dispose everything you created (see cleanup rules).
-5. **Tuning:** put every number that shapes how the game feels (speeds, jump, gravity, cooldowns, knockback,
-   timings) in `games/<id>/tuning.js` (the template's file shows how) and import it first in `index.js`. Read the
-   values when you use them, not into copies at load time, so the tuning portal can change them live. See [`PORTAL.md`](PORTAL.md).
-   Later changes to those numbers go in `tuning.js` (it overrides the code); `node portal.mjs` fails if the two disagree.
-6. **Test driver:** add `<id>` to `tests/drivers.mjs` (how a fake player plays your game until results).
-7. **Run the tests** (below) and fix everything until they pass. Commit with a clear message.
+1. `cp -r games/_template games/<id>` (lowercase id). It already has the right skeleton: seeded level, host sim in
+   `ctx.tick`, client prediction, `SnapBuffer` for others, bots, HUD, music, cleanup.
+2. `manifest.js`: id, name, tagline, `howTo` (2–4 short sentences), players, `controlsHelp`, picks/options; draw `thumb.svg` (320×160).
+3. Register: one import + add to `PLAYABLE` in `games/registry.js`.
+4. Build the game. Put every feel number (speeds, jump, gravity, cooldowns, timings) in `tuning.js`.
+5. If players can be knocked out, call `ctx.setOut(true/false)` for your own player. Optional: offer chaos events with
+   `ctx.crowd.chaos([...])` and handle `ctx.on('chaos', id)`; support `ctx.teams` if the game can work in teams.
+6. Add a driver to `tests/drivers.mjs` (how a fake player plays until results) and the id to the `NEW` list in
+   `tests/run-all.mjs` (plus a `memory.mjs` entry there), so the full suite runs e2e, memory and migration for it.
+7. `cd tests && node e2e.mjs <id> && node memory.mjs <id> && node lag.mjs <id>`; fix until they pass; commit, merge main, push.
 
-## Checklist (all must be true)
-- [ ] Has a `tuning.js` with its feel constants; every slider in the tuning portal (`python3 tools/portal.py`) changes the game.
-- [ ] Lives entirely in `games/<id>/`, plus one line in `games/registry.js` and a driver in `tests/drivers.mjs`.
-- [ ] `manifest.js` imports nothing; thumbnail exists; `howTo` explains the goal, how to win and the key tips in 2–4 short sentences a first-time player understands; `controlsHelp` lists every key the game uses.
-- [ ] Uses `/core` for networking (`ctx.net`), input (`ctx.input`), HUD (`ctx.ui`), audio (`ctx.audio`), settings, bots, rng. No own PeerJS, lobby, menu, results screen, settings or mute buttons.
-- [ ] Uses only the standard control map plus clearly needed extras; never binds Tab, Esc or Enter.
-- [ ] Has only the actions its design needs: no boost/dash/jump/item added just because the control map has a key for it (the template has no dash on purpose).
-- [ ] HUD only in the four zones; bright cartoon style, shared font and palette; players in their party color (+ avatar or hat).
-- [ ] Level is generated from the seed; identical on every client.
-- [ ] Host-authoritative; works with 1 human + bots, and with 2–3 humans; bots respect `ctx.bots.level`.
-- [ ] Waits for `'go'`; calls `ctx.endGame` exactly once with valid placements; provides `standings()`.
-- [ ] Host never relays a message under the type it handles (`toAll` loops back to the host); if the game has emotes/chat-like messages, `node emotes.mjs <id>` passes.
-- [ ] Plays smoothly for a player on the relay: others drawn with `core/interp.js` on the host's clock (no arrival-time or fixed-delay interpolation), own player predicted; check `node lag.mjs <id>` and play with `?netsim=100,30,250,4`.
-- [ ] Survives host migration (`'hostchange'`) and mid-round joiners (`'join'`, `ctx.spectator`).
-- [ ] Respects graphics quality (low: no shadows / post), master/sfx volume (route sound into `ctx.audio.sfx`), mouse sensitivity if it uses mouse look.
-- [ ] `stop()` frees everything: `node memory.mjs <id>` shows 0 renderers/canvases/HUD nodes after each unload and a flat heap.
-- [ ] `node e2e.mjs <id>`, `node migration.mjs <id>` and `node memory.mjs <id>` pass with **no console errors**; `node run-all.mjs` still passes for the other games. Add the game to `tests/run-all.mjs` (the `NEW` list and a `memory.mjs` entry).
-- [ ] Runs at 60 FPS on a mid-range laptop at High, and stays playable at Low.
-- [ ] Relative paths only; works when served from `/arcade/`.
+## Checklist
+- [ ] Only `games/<id>/`, one line in `games/registry.js`, a driver in `tests/drivers.mjs`.
+- [ ] Level from the seed; host-authoritative; works solo with bots and with 2–3 humans; bots use `ctx.bots.level` (all 4 tiers).
+- [ ] Waits for `'go'`; one `ctx.endGame` call; `standings()` for early ends; survives `'hostchange'` and mid-round joiners.
+- [ ] Smooth on the relay (own player predicted, others via `core/interp.js`); no relay-trap loops.
+- [ ] HUD only in the zones; cartoon style; party colors + avatar/hat; respects quality and volume.
+- [ ] `stop()` frees everything (`memory.mjs` returns to zero); no console errors; relative paths only.
