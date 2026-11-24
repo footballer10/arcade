@@ -46,6 +46,6 @@ One session = one game. Read `CLAUDE.md` first (contract, control map, HUD and s
 - [ ] Survives host migration (`'hostchange'`) and mid-round joiners (`'join'`, `ctx.spectator`).
 - [ ] Respects graphics quality (low: no shadows / post), master/sfx volume (route sound into `ctx.audio.sfx`), mouse sensitivity if it uses mouse look.
 - [ ] `stop()` frees everything: `node memory.mjs <id>` shows 0 renderers/canvases/HUD nodes after each unload and a flat heap.
-- [ ] `node e2e.mjs <id>`, `node migration.mjs <id>` and `node memory.mjs <id>` pass with **no console errors**; `node run-all.mjs` still passes for the other games.
+- [ ] `node e2e.mjs <id>`, `node migration.mjs <id>` and `node memory.mjs <id>` pass with **no console errors**; `node run-all.mjs` still passes for the other games. Add the game to `tests/run-all.mjs` (the `NEW` list and a `memory.mjs` entry).
 - [ ] Runs at 60 FPS on a mid-range laptop at High, and stays playable at Low.
 - [ ] Relative paths only; works when served from `/arcade/`.

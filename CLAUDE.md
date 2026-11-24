@@ -139,7 +139,9 @@ PeerJS server and a local MQTT broker (relay), launch Chromium with 2–3 browse
 - `node memory.mjs <ids…>` — 10 load/unload cycles; renderers/canvases/HUD return to zero, heap stays flat
 - `node migration.mjs <gameId>` — host closes their tab mid-game; party and game survive
 - `node party.mjs` — vote, shuffle + podium, mid-game join, host handover, kick · `node local.mjs` — BroadcastChannel tabs
-- Add a driver for your game in `tests/drivers.mjs` so the tests can play it to the end.
+- `run-all.mjs` runs e2e, memory and migration for **every game in `games/registry.js`** (the newer games one entry
+  each, so a regression shows up as its own FAIL line). Add a driver for your game in `tests/drivers.mjs` so the tests
+  can play it to the end, and add its id to the `NEW` list (and a `memory.mjs` entry) in `tests/run-all.mjs`.
 - Locally by hand: `python3 -m http.server 8000` in the repo root, open `http://localhost:8000/?net=local` in two tabs.
 - Tuning portal: `python3 tools/portal.py` opens `http://localhost:8000/?portal=1` (play any game, sliders for its
   `tuning.js`, save new defaults). Only works on localhost. Details in [`docs/PORTAL.md`](docs/PORTAL.md). `node portal.mjs` tests it.

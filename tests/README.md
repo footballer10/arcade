@@ -5,10 +5,12 @@ Not needed to play. They drive real Chromium pages with Playwright.
 ```
 cd tests
 npm install          # three + peerjs (served locally instead of the CDN), a local PeerJS server, esbuild
-node run-all.mjs     # everything (~25 min in a small VM); or run single files:
+node run-all.mjs     # everything, all ten games (~45 min in a small VM); or run single files:
 node e2e.mjs golf downhill arena coingrab   # full party flow per game, 3 browser contexts
-node memory.mjs golf downhill arena coingrab   # 10 load/unload cycles
-node migration.mjs arena                    # host closes their tab mid-game
+node e2e.mjs snake                          # run-all runs the 7 newer games one per entry (1–2.5 min each)
+node memory.mjs golf downhill arena coingrab   # 10 load/unload cycles (run-all also: snake lava neon obstacle,
+                                               # then floorfall prophunt rocketsoccer)
+node migration.mjs arena                    # host closes their tab mid-game (run-all: one entry per game)
 node party.mjs                              # vote, shuffle + podium, mid-game join, handover, kick
 node local.mjs                              # BroadcastChannel transport (two tabs, no PeerJS)
 node upgrade.mjs [gameId]                   # joiner starts on the relay, moves to direct WebRTC mid-round by itself
