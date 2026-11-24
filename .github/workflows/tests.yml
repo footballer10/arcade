@@ -25,8 +25,10 @@ jobs:
       - run: npm ci && npm install --no-save playwright@1.63.0 && npx playwright install --with-deps chromium
       - name: play ${{ matrix.game }} end to end
         run: node e2e.mjs ${{ matrix.game }}
+        timeout-minutes: 12
       - name: load / unload 10 times (memory)
         run: node memory.mjs ${{ matrix.game }}
+        timeout-minutes: 12
   hub:
     name: hub + connections
     runs-on: ubuntu-latest
@@ -38,11 +40,20 @@ jobs:
         with: { node-version: 22, cache: npm, cache-dependency-path: tests/package-lock.json }
       - run: npm ci && npm install --no-save playwright@1.63.0 && npx playwright install --with-deps chromium
       - run: node features.mjs
+        timeout-minutes: 10
       - run: node party.mjs
+        timeout-minutes: 10
       - run: node solo.mjs
+        timeout-minutes: 10
       - run: node joinpaths.mjs
+        timeout-minutes: 10
       - run: node hostdrop.mjs
+        timeout-minutes: 10
       - run: node upgrade.mjs arena
+        timeout-minutes: 10
       - run: node upgrade.mjs coingrab nopeer
+        timeout-minutes: 10
       - run: node migration.mjs coingrab
+        timeout-minutes: 10
       - run: node portal.mjs
+        timeout-minutes: 10

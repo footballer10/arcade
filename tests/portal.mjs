@@ -8,7 +8,7 @@ import { ROOT, startPeer, startRelay, RELAY, launch, openPage, waitFor, sleep, c
 
 const PORT = 8091;
 await startPeer(9000); await startRelay(9002);
-const py = spawn('python3', [path.join(ROOT, 'tools/portal.py'), String(PORT)], { stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, BROWSER: 'true' } });
+const py = spawn('python3', ['-u', path.join(ROOT, 'tools/portal.py'), String(PORT)], { stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, BROWSER: 'true' } });
 await new Promise((r) => py.stdout.once('data', r));
 const TFILE = path.join(ROOT, 'games/_template/tuning.js');
 const original = fs.readFileSync(TFILE, 'utf8');
